@@ -8,7 +8,8 @@ import type { BoardId, CheckInId, CommandId, LogicalDate } from './ids';
 import type { CommandContext, CommandDeps } from './command-context';
 import { runCommand } from './command-context';
 import { normalizeCreatedReceipt, normalizeRemovedReceipt } from './check-in-receipts';
-import { appendCheckAction, seedLegacyCheckActions } from './check-in-mutations';
+import { appendCheckAction, captureCheckPolicy, seedLegacyCheckActions } from './check-in-mutations';
+import { settleCheckCoinScope } from './coin-settlement';
 import type { DomainResult } from './result';
 import { err, ok } from './result';
 import { validateAmount, validateLogicalDateInput, validateNote } from './validation';
@@ -98,10 +99,12 @@ async function createCheckInInTransaction(
     const existing = await latestCheckInForDate(tx, board.id, logicalDate);
     if (existing) return ok({ checkInId: existing.id, logicalDate, created: false });
   }
+  const policy = await captureCheckPolicy(context, { boardId: board.id, logicalDate });
+  if (!policy.ok) return policy;
   return ok(await insertCheckedRecord(deps, context, input.commandId, {
     boardId: board.id, logicalDate, occurredAtUtc, timeZoneId: checkInZone,
     offsetMinutes, amount, note, source: input.source,
-  }));
+  }, policy.value));
 }
 
 // callers have resolved the board, date, and input before this first write.
@@ -110,6 +113,7 @@ async function insertCheckedRecord(
   context: CommandContext,
   commandId: CommandId,
   fields: Pick<CheckIn, 'boardId' | 'logicalDate' | 'occurredAtUtc' | 'timeZoneId' | 'offsetMinutes' | 'amount' | 'note' | 'source'>,
+  policyJson: string,
 ): Promise<{ checkInId: CheckInId; logicalDate: LogicalDate; created: boolean }> {
   const { tx, now, timeZoneId, stamp } = context;
   await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, fields.boardId, fields.logicalDate), now);
@@ -125,7 +129,8 @@ async function insertCheckedRecord(
   };
   await insertCheckIn(tx, checkIn);
   await appendOutbox(tx, 'check_in', checkIn.id, mutationStamp, now);
-  await appendCheckAction(deps, context, commandId, checkIn, 'check', mutationStamp);
+  await appendCheckAction(deps, context, commandId, checkIn, 'check', mutationStamp, checkIn.id, policyJson);
+  await settleCheckCoinScope(deps, context, { boardId: fields.boardId, logicalDate: fields.logicalDate });
   await rebuildWidgetRows(tx, now, timeZoneId);
   return { checkInId: checkIn.id, logicalDate: fields.logicalDate, created: true };
 }
@@ -241,11 +246,14 @@ export function removeCheckIn(
     if (board && board.archivedAt !== null) {
       return err('archived', 'Restore the board to delete its check-ins.');
     }
+    const policy = board ? await captureCheckPolicy(context, existing) : ok(null);
+    if (!policy.ok) return policy;
     await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, existing.boardId, existing.logicalDate), now);
     const mutationStamp = stamp();
     await updateCheckInRow(tx, { ...existing, deletedAt: now, updatedAt: now, mutationStamp });
     await appendOutbox(tx, 'check_in', existing.id, mutationStamp, now);
-    await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp);
+    await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp, existing.id, policy.value);
+    await settleCheckCoinScope(deps, context, existing);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok(undefined);
   });
@@ -279,7 +287,9 @@ export function removeLatestCheckIn(
     if (!latest) {
       return err('not_found', 'There is no check-in to remove for that day.');
     }
-    const removedCheckInIds = await removeDateChecks(deps, context, input.commandId, board, latest);
+    const policy = await captureCheckPolicy(context, latest);
+    if (!policy.ok) return policy;
+    const removedCheckInIds = await removeDateChecks(deps, context, input.commandId, board, latest, policy.value);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok({ removedCheckInId: latest.id, removedCheckInIds, logicalDate });
   }).then(normalizeRemovedReceipt);
@@ -303,11 +313,14 @@ export function undoCreatedCheckIn(
     if (board && board.archivedAt !== null) {
       return err('archived', 'Restore the board to change its check-ins.');
     }
+    const policy = board ? await captureCheckPolicy(context, existing) : ok(null);
+    if (!policy.ok) return policy;
     await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, existing.boardId, existing.logicalDate), now);
     const mutationStamp = stamp();
     await updateCheckInRow(tx, { ...existing, deletedAt: now, updatedAt: now, mutationStamp });
     await appendOutbox(tx, 'check_in', existing.id, mutationStamp, now);
-    await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp);
+    await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp, existing.id, policy.value);
+    await settleCheckCoinScope(deps, context, existing);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok(undefined);
   });
@@ -320,6 +333,7 @@ async function removeDateChecks(
   commandId: CommandId,
   board: Board,
   latest: CheckIn,
+  policyJson: string,
 ): Promise<CheckInId[]> {
   const { tx, now, stamp } = context;
   const all = await listBoardCheckInsForDate(tx, board.id, latest.logicalDate);
@@ -331,7 +345,8 @@ async function removeDateChecks(
     await appendOutbox(tx, 'check_in', check.id, mutationStamp, now);
   }
   await appendCheckAction(deps, context, commandId, latest, 'uncheck', mutationStamp,
-    board.kind === 'daily' ? null : latest.id);
+    board.kind === 'daily' ? null : latest.id, policyJson);
+  await settleCheckCoinScope(deps, context, latest);
   return removed.map((check) => check.id);
 }
 
@@ -353,15 +368,17 @@ export function toggleDailyCheckIn(
       return err('conflict', 'The check-ins for this day changed. Review them before toggling.');
     }
     const latest = await latestCheckInForDate(tx, board.id, date.value);
+    const policy = await captureCheckPolicy(context, { boardId: board.id, logicalDate: date.value });
+    if (!policy.ok) return policy;
     if (latest) {
-      const removedCheckInIds = await removeDateChecks(deps, context, input.commandId, board, latest);
+      const removedCheckInIds = await removeDateChecks(deps, context, input.commandId, board, latest, policy.value);
       await rebuildWidgetRows(tx, now, timeZoneId);
       return ok({ checked: false, created: false, checkInId: null, logicalDate: date.value, removedCheckInIds });
     }
     const created = await insertCheckedRecord(deps, context, input.commandId, {
       boardId: board.id, logicalDate: date.value, occurredAtUtc: null, timeZoneId: null,
       offsetMinutes: null, amount: null, note: null, source: input.source ?? 'app',
-    });
+    }, policy.value);
     return ok({ ...created, checked: true, removedCheckInIds: [] });
   });
 }
