@@ -8,7 +8,7 @@ import type { BoardId, CheckInId, CommandId, LogicalDate } from './ids';
 import type { CommandContext, CommandDeps } from './command-context';
 import { runCommand } from './command-context';
 import { normalizeCreatedReceipt, normalizeRemovedReceipt } from './check-in-receipts';
-import { appendCheckAction, captureCheckPolicy, seedLegacyCheckActions } from './check-in-mutations';
+import { appendCheckAction, captureBoardDatePolicies, captureCheckPolicy, seedLegacyCheckActions } from './check-in-mutations';
 import { settleCheckCoinScope } from './coin-settlement';
 import type { DomainResult } from './result';
 import { err, ok } from './result';
@@ -200,10 +200,15 @@ export function updateCheckIn(
       await latestCheckInForDate(tx, board.id, logicalDate.value)) {
       return err('conflict', 'This Daily habit is already checked for that day.');
     }
+    const moved = logicalDate.value !== existing.logicalDate;
+    const policies = await captureBoardDatePolicies(context, board.id,
+      moved ? [existing.logicalDate, logicalDate.value] : []);
+    if (!policies.ok) return policies;
     await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, board.id, existing.logicalDate), now);
-    if (logicalDate.value !== existing.logicalDate) {
+    if (moved) {
       await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, board.id, logicalDate.value), now);
-      await appendCheckAction(deps, context, input.commandId, existing, 'move_out', stamp());
+      await appendCheckAction(deps, context, input.commandId, existing, 'move_out', stamp(),
+        existing.id, policies.value.get(existing.logicalDate)!);
     }
     const mutationStamp = stamp();
     await updateCheckInRow(tx, {
@@ -218,8 +223,11 @@ export function updateCheckIn(
       mutationStamp,
     });
     await appendOutbox(tx, 'check_in', existing.id, mutationStamp, now);
-    if (logicalDate.value !== existing.logicalDate) {
-      await appendCheckAction(deps, context, input.commandId, { ...existing, logicalDate: logicalDate.value }, 'move_in', mutationStamp);
+    if (moved) {
+      await appendCheckAction(deps, context, input.commandId, { ...existing, logicalDate: logicalDate.value }, 'move_in', mutationStamp,
+        existing.id, policies.value.get(logicalDate.value)!);
+      await settleCheckCoinScope(deps, context, existing);
+      await settleCheckCoinScope(deps, context, { boardId: board.id, logicalDate: logicalDate.value });
     }
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok({ mutationStamp });

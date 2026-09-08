@@ -177,11 +177,12 @@ export async function insertPeriod(
   boardId: BoardId,
   startDate: LogicalDate,
   mutationStamp: string,
+  endDate: LogicalDate | null = null,
 ): Promise<number> {
   await tx.runAsync(
     `INSERT INTO board_activity_periods (board_id, start_date, end_date, mutation_stamp, deleted_at)
-     VALUES (?, ?, NULL, ?, NULL)`,
-    [boardId, startDate, mutationStamp],
+     VALUES (?, ?, ?, ?, NULL)`,
+    [boardId, startDate, endDate, mutationStamp],
   );
   const row = await tx.getFirstAsync<{ id: number }>(
     'SELECT id FROM board_activity_periods WHERE board_id = ? ORDER BY id DESC LIMIT 1',

@@ -110,14 +110,20 @@ function eligibleCompletedDays(
 
 function eligibleDaysElapsed(periods: ActivityPeriodRange[], today: LogicalDate): number {
   let eligibleDayCount = 0;
-  for (const period of periods) {
+  let coveredThrough: LogicalDate | null = null;
+  const ordered = [...periods].sort((a, b) => compareLogicalDates(a.startDate, b.startDate));
+  for (const period of ordered) {
     const end =
       period.endDate !== null && compareLogicalDates(period.endDate, today) < 0
         ? period.endDate
         : today;
-    if (compareLogicalDates(period.startDate, end) <= 0) {
-      eligibleDayCount += daysBetweenInclusive(period.startDate, end);
-    }
+    if (compareLogicalDates(period.startDate, end) > 0 ||
+      (coveredThrough !== null && compareLogicalDates(end, coveredThrough) <= 0)) continue;
+    // overlapping periods contribute only dates beyond the existing union.
+    eligibleDayCount += coveredThrough !== null && compareLogicalDates(period.startDate, coveredThrough) <= 0
+      ? daysBetween(coveredThrough, end)
+      : daysBetweenInclusive(period.startDate, end);
+    coveredThrough = end;
   }
   return eligibleDayCount;
 }

@@ -110,6 +110,6 @@ export function seedReferenceAugust2026(
     if (await hasAnyBoardRows(context.tx)) {
       return err('conflict', 'Demo data can only be added to an empty database.');
     }
-    return importSnapshotInTransaction(deps, context, referenceAugust2026Draft);
+    return importSnapshotInTransaction(deps, context, referenceAugust2026Draft, 'preserve-history');
   });
 }

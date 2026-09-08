@@ -3,7 +3,7 @@ import { createReminder } from '@/core/domain/reminder-commands';
 import { listBoardReminders } from '@/core/domain/queries';
 
 import { FakeReminderScheduler } from '../helpers/fake-scheduler';
-import type { LogicalDate } from '@/core/domain/ids';
+import type { BoardId, LogicalDate } from '@/core/domain/ids';
 import { getBoardSummary, getGroupedCheckInHistory, listActiveBoards, listArchivedBoards } from '@/core/domain/queries';
 import {
   exportFileName,
@@ -878,7 +878,7 @@ describe('import hardening', () => {
     await harness.db.closeAsync();
   });
 
-  it('replays coherent restored periods and distrusts incoherent lists', async () => {
+  it('preserves valid restored intervals and falls back only for malformed dates', async () => {
     const harness = await createTestHarness();
     const result = await importSnapshot(harness.deps, {
       commandId: harness.ids.nextCommandId(),
@@ -950,9 +950,15 @@ describe('import hardening', () => {
     }
     expect(coherent.value.eligibleDayCount).toBe(26);
 
-    // every distrusted list falls back to one derived lifetime period
+    // reversed stored intervals stay empty instead of inventing a lifetime.
+    const reversed = await getBoardSummary(harness.deps,
+      '00000000-0000-4000-8000-0000000000b4' as BoardId);
+    expect(reversed).toMatchObject({ ok: true, value: { eligibleDayCount: 0 } });
+
+    // valid overlapping and open ranges retain their union; malformed lists
+    // fall back to one derived lifetime period
     // starting at the original creation date (aug 1 -> 30 days)
-    for (const id of ['b2', 'b3', 'b4', 'b5', 'b6', 'b7']) {
+    for (const id of ['b2', 'b3', 'b5', 'b6', 'b7']) {
       const summary = await getBoardSummary(
         harness.deps,
         `00000000-0000-4000-8000-0000000000${id}` as never,
