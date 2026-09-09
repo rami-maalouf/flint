@@ -151,18 +151,10 @@ final class CoinStoreHarness {
   let database: IntentDatabase
   init(path: String = ":memory:") throws {
     database = try IntentDatabase(path: path, createForTesting: true)
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["bun", "-e", "import { migrations } from './src/core/persistence/schema.ts'; console.log(JSON.stringify(migrations.flatMap(m => m.statements)))"]
-    process.currentDirectoryURL = Self.root
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    try process.run()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else { throw IntentStorageError.unavailable }
-    for statement in try JSONDecoder().decode([String].self, from: data) { try database.run(statement) }
-    try database.run("INSERT INTO app_settings (id, schema_revision, device_id) VALUES (1, 8, '00000000-0000-4000-8000-000000000099')")
+    let migrations = try IntentFixtureMigrations.load(root: Self.root)
+    for migration in migrations { try IntentFixtureMigrations.apply(migration, to: database, enqueueAt: 0) }
+    let version = try XCTUnwrap(migrations.last?["version"] as? Int)
+    try database.run("INSERT INTO app_settings (id, schema_revision, device_id) VALUES (1, ?, '00000000-0000-4000-8000-000000000099')", [.integer(Int64(version))])
   }
   func fixture() throws -> Data {
     try Data(contentsOf: Self.root.appendingPathComponent("src/core/automations/fixtures/check-coins.json"))

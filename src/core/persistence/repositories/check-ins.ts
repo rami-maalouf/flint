@@ -74,7 +74,7 @@ export async function updateCheckInRow(tx: SqlExecutor, checkIn: CheckIn): Promi
   await tx.runAsync(
     `UPDATE check_ins SET logical_date = ?, occurred_at_utc = ?, time_zone_id = ?,
        offset_minutes = ?, amount = ?, note = ?, updated_at = ?, mutation_stamp = ?,
-       deleted_at = ?
+       deleted_at = ?, state_suppressed = 1
      WHERE id = ?`,
     [
       checkIn.logicalDate,
@@ -105,7 +105,7 @@ export async function getCheckInById(
   checkInId: CheckInId,
 ): Promise<CheckIn | null> {
   const row = await tx.getFirstAsync<CheckInRow>(
-    `SELECT ${CHECK_IN_COLUMNS} FROM check_ins WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT ${CHECK_IN_COLUMNS} FROM check_ins WHERE id = ? AND deleted_at IS NULL AND state_suppressed = 0`,
     [checkInId],
   );
   return row ? toCheckIn(row) : null;
@@ -122,12 +122,12 @@ export async function listBoardCheckIns(
     limit === undefined
       ? await tx.getAllAsync<CheckInRow>(
           `SELECT ${CHECK_IN_COLUMNS} FROM check_ins
-           WHERE board_id = ? AND deleted_at IS NULL ${HISTORY_ORDER}`,
+           WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 ${HISTORY_ORDER}`,
           [boardId],
         )
       : await tx.getAllAsync<CheckInRow>(
           `SELECT ${CHECK_IN_COLUMNS} FROM check_ins
-           WHERE board_id = ? AND deleted_at IS NULL ${HISTORY_ORDER} LIMIT ?`,
+           WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 ${HISTORY_ORDER} LIMIT ?`,
           [boardId, limit],
         );
   return rows.map(toCheckIn);
@@ -141,7 +141,7 @@ export async function listBoardCheckInsForDate(
 ): Promise<CheckIn[]> {
   const rows = await tx.getAllAsync<CheckInRow>(
     `SELECT ${CHECK_IN_COLUMNS} FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL AND logical_date = ? ${HISTORY_ORDER}`,
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 AND logical_date = ? ${HISTORY_ORDER}`,
     [boardId, logicalDate],
   );
   return rows.map(toCheckIn);
@@ -154,7 +154,7 @@ export async function earliestCheckInDate(
 ): Promise<string | null> {
   const row = await tx.getFirstAsync<{ earliest: string | null }>(
     `SELECT MIN(logical_date) AS earliest FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL`,
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0`,
     [boardId],
   );
   return row?.earliest ?? null;
@@ -167,7 +167,7 @@ export async function monthlyCheckInTotals(
 ): Promise<Map<string, number>> {
   const rows = await tx.getAllAsync<{ month: string; total: number }>(
     `SELECT substr(logical_date, 1, 7) AS month, COUNT(*) AS total FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0
      GROUP BY substr(logical_date, 1, 7)`,
     [boardId],
   );
@@ -177,7 +177,7 @@ export async function monthlyCheckInTotals(
 export async function listBoardJournal(tx: SqlExecutor, boardId: BoardId): Promise<CheckIn[]> {
   const rows = await tx.getAllAsync<CheckInRow>(
     `SELECT ${CHECK_IN_COLUMNS} FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL AND note IS NOT NULL ${HISTORY_ORDER}`,
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 AND note IS NOT NULL ${HISTORY_ORDER}`,
     [boardId],
   );
   return rows.map(toCheckIn);
@@ -196,7 +196,7 @@ export async function dailyCountsForBoards(
     count: number;
   }>(
     `SELECT board_id, logical_date, COUNT(*) AS count FROM check_ins
-     WHERE deleted_at IS NULL AND logical_date BETWEEN ? AND ?
+     WHERE deleted_at IS NULL AND state_suppressed = 0 AND logical_date BETWEEN ? AND ?
      GROUP BY board_id, logical_date`,
     [from, to],
   );
@@ -219,7 +219,7 @@ export async function eligibleDailyCompletionsForActiveBoards(
     `SELECT c.board_id, c.logical_date FROM check_ins c
      INNER JOIN boards b ON b.id = c.board_id
      WHERE b.kind = 'daily' AND b.archived_at IS NULL AND b.deleted_at IS NULL
-       AND c.deleted_at IS NULL AND c.logical_date <= ?
+       AND c.deleted_at IS NULL AND c.state_suppressed = 0 AND c.logical_date <= ?
        AND EXISTS (
          SELECT 1 FROM board_activity_periods p
          WHERE p.board_id = c.board_id AND p.deleted_at IS NULL
@@ -247,7 +247,7 @@ export async function dailyCounts(
 ): Promise<Map<string, number>> {
   const rows = await tx.getAllAsync<{ logical_date: string; count: number }>(
     `SELECT logical_date, COUNT(*) AS count FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL AND logical_date BETWEEN ? AND ?
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 AND logical_date BETWEEN ? AND ?
      GROUP BY logical_date`,
     [boardId, from, to],
   );
@@ -260,7 +260,7 @@ export async function allDailyCounts(
 ): Promise<Map<string, number>> {
   const rows = await tx.getAllAsync<{ logical_date: string; count: number }>(
     `SELECT logical_date, COUNT(*) AS count FROM check_ins
-     WHERE board_id = ? AND deleted_at IS NULL
+     WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0
      GROUP BY logical_date`,
     [boardId],
   );
@@ -274,7 +274,7 @@ export async function latestCheckInForDate(
 ): Promise<CheckIn | null> {
   const row = await tx.getFirstAsync<CheckInRow>(
     `SELECT ${CHECK_IN_COLUMNS} FROM check_ins
-     WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL
+     WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL AND state_suppressed = 0
      ORDER BY CASE WHEN occurred_at_utc IS NULL THEN 1 ELSE 0 END,
        occurred_at_utc DESC, created_at DESC, id LIMIT 1`,
     [boardId, logicalDate],
@@ -295,7 +295,7 @@ export async function getCheckInByIdempotencyKey(
 
 export async function countBoardCheckIns(tx: SqlExecutor, boardId: BoardId): Promise<number> {
   const row = await tx.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND deleted_at IS NULL',
+    'SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0',
     [boardId],
   );
   return row?.count ?? 0;
@@ -303,8 +303,15 @@ export async function countBoardCheckIns(tx: SqlExecutor, boardId: BoardId): Pro
 
 export async function countBoardNotes(tx: SqlExecutor, boardId: BoardId): Promise<number> {
   const row = await tx.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND deleted_at IS NULL AND note IS NOT NULL',
+    'SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 AND note IS NOT NULL',
     [boardId],
   );
   return row?.count ?? 0;
+}
+
+// real board deletion must tombstone every raw live child, including hidden payloads.
+export async function listRawBoardCheckIns(tx: SqlExecutor, boardId: BoardId): Promise<CheckIn[]> {
+  const rows = await tx.getAllAsync<CheckInRow>(`SELECT ${CHECK_IN_COLUMNS} FROM check_ins
+    WHERE board_id = ? AND deleted_at IS NULL ${HISTORY_ORDER}`, [boardId]);
+  return rows.map(toCheckIn);
 }

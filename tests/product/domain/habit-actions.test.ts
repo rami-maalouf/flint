@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { baselineAction, foldDailyActions, validateHabitAction } from '@/core/domain/habit-actions';
+import { baselineAction, foldDailyActions, foldActiveCheckInIds, validateHabitAction } from '@/core/domain/habit-actions';
 import type { HabitAction } from '@/core/domain/habit-actions';
 import { HABIT_SYSTEM_NAMESPACE, uuidV5 } from '@/core/domain/deterministic-ids';
 import { appendHabitAction, listHabitActions } from '@/core/persistence/repositories/habit-actions';
@@ -64,6 +64,18 @@ describe('immutable habit evidence', () => {
     expect(foldDailyActions([moved, { ...removal, kind: 'move_out', mutationStamp: '01788825600003-00000-device' }])).toEqual({ checked: false, checkInId: null });
     expect(foldDailyActions([first, action({ kind: 'policy', checkInId: null })])).toEqual({ checked: true, checkInId: first.checkInId });
     expect(foldDailyActions([first, first])).toEqual({ checked: true, checkInId: first.checkInId });
+  });
+
+  it('returns every survivor in final-add order across shuffled, frozen input and duplicate adds', () => {
+    const first = action();
+    const second = action({ id: '00000000-0000-4000-8000-000000000003' as never, checkInId: '00000000-0000-4000-8000-00000000c002' as never });
+    const repeated = { ...first, id: '00000000-0000-4000-8000-000000000004' as HabitAction['id'], mutationStamp: '01788825600001-00000-device' };
+    const moved = { ...second, id: '00000000-0000-4000-8000-000000000005' as HabitAction['id'], kind: 'move_out' as const, mutationStamp: '01788825600002-00000-device' };
+    const frozen = Object.freeze([repeated, first, second]);
+    expect(foldActiveCheckInIds(frozen)).toEqual([second.checkInId, first.checkInId]);
+    expect(foldActiveCheckInIds([second, repeated, first])).toEqual([second.checkInId, first.checkInId]);
+    expect(foldActiveCheckInIds([...frozen, moved])).toEqual([first.checkInId]);
+    expect(frozen).toEqual([repeated, first, second]);
   });
 
   it.each([

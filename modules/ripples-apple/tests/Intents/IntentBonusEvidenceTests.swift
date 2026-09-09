@@ -28,7 +28,6 @@ final class IntentBonusEvidenceTests: XCTestCase {
     XCTAssertEqual(groups.count, 1)
     XCTAssertEqual(groups.first?.scope, .init(rootId: root, logicalDate: date))
     XCTAssertEqual(groups.first?.actions, [control, state])
-    XCTAssertTrue(try XCTUnwrap(groups.first).legacyChecks.isEmpty)
     XCTAssertEqual(try h.database.rows("SELECT * FROM mutation_outbox"), before)
   }
 
@@ -75,7 +74,7 @@ final class IntentBonusEvidenceTests: XCTestCase {
     }
   }
 
-  func testLegacyCandidatesAreExactLiveTokensWithoutAnySourceEvidence() throws {
+  func testRawPayloadsNeverBecomeBonusEvidenceDuringDiscoveryOrSettlement() throws {
     let h = try CoinStoreHarness()
     try action(100, board: root, policyRoot: root, kind: "policy").append(to: h.database)
     for number in 1...3 {
@@ -99,19 +98,16 @@ final class IntentBonusEvidenceTests: XCTestCase {
     try tombstone.append(to: h.database)
     let before = try h.database.rows("SELECT * FROM check_ins")
     let groups = try IntentBonusEvidence.read(database: h.database, checkScopes: [.init(boardId: member, logicalDate: date)])
-    XCTAssertEqual(groups.first?.legacyChecks, [.init(id: id(201), boardId: member, logicalDate: date)])
+    XCTAssertEqual(groups.first?.actions.count, 2)
     try h.database.transaction(exclusive: true) {
       try IntentCoinStore.settleAffected(checkScopes: [], rootScopes: [.init(rootId: root, logicalDate: date)], database: h.database, enqueueAt: 42)
     }
     XCTAssertEqual(try h.database.rows("SELECT * FROM check_ins"), before)
-    XCTAssertEqual(try h.database.rows("SELECT check_in_id, policy_json, created_at FROM habit_actions WHERE kind = 'baseline'"),
-      [["check_in_id": .text(id(201)), "policy_json": .null, "created_at": .integer(0)]])
-    let baseline = try IntentHabitAction.baseline(checkInId: id(201), boardId: member, date: date)
-    XCTAssertEqual(try h.database.rows("SELECT created_at FROM mutation_outbox WHERE entity_type = 'habit_action' AND entity_id = ?", [.text(baseline.id)]).first?["created_at"], .integer(42))
+    XCTAssertTrue(try h.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline'").isEmpty)
     XCTAssertTrue(try h.database.rows("SELECT * FROM coin_ledger").isEmpty)
   }
 
-  func testSharedLegacyTokenAcrossRootsQueuesOnceAndDuplicateAppendPreservesEnqueueTime() throws {
+  func testExplicitHistoricalTokenAcrossRootsQueuesOnceAndDuplicateAppendPreservesEnqueueTime() throws {
     let h = try CoinStoreHarness()
     try action(100, board: root, policyRoot: root, kind: "policy", required: [member]).append(to: h.database)
     try action(101, board: outside, policyRoot: outside, kind: "policy", required: [member]).append(to: h.database)
@@ -124,6 +120,7 @@ final class IntentBonusEvidenceTests: XCTestCase {
       INSERT INTO check_ins (id,board_id,logical_date,source,idempotency_key,created_at,updated_at,mutation_stamp)
       VALUES (?, ?, ?, 'import', ?, 0, 0, 'seed')
       """, [.text(id(201)), .text(member), .text(date), .text(id(1201))])
+    try IntentFixtureMigrations.establishHistorical(database: h.database, ids: [id(201)], enqueueAt: 42)
     let roots: [IntentBonusEvidence.Scope] = [.init(rootId: root, logicalDate: date), .init(rootId: outside, logicalDate: date)]
     try h.database.transaction(exclusive: true) {
       try IntentCoinStore.settleAffected(checkScopes: [], rootScopes: roots, database: h.database, enqueueAt: 42)
@@ -158,7 +155,7 @@ final class IntentBonusEvidenceTests: XCTestCase {
     XCTAssertEqual(try h.database.rows("SELECT * FROM mutation_outbox"), before)
   }
 
-  func testFactBudgetIsPerScopeAndIncludesPendingLegacyBaselines() throws {
+  func testFactBudgetIsPerScopeAndRawPayloadDoesNotConsumeEvidenceBudget() throws {
     let h = try CoinStoreHarness()
     func add(_ start: Int, _ count: Int, board: String) throws {
       let policy = try XCTUnwrap(action(start, board: board, policyRoot: board, required: [board]).policyJson)
@@ -185,6 +182,8 @@ final class IntentBonusEvidenceTests: XCTestCase {
       INSERT INTO check_ins (id,board_id,logical_date,source,idempotency_key,created_at,updated_at,mutation_stamp)
       VALUES (?, ?, ?, 'import', ?, 0, 0, 'seed')
       """, [.text(id(900000)), .text(root), .text(date), .text(id(900001))])
+    XCTAssertEqual(try IntentBonusEvidence.read(database: h.database, checkScopes: [], rootScopes: [.init(rootId: root, logicalDate: date)]).first?.actions.count, 4096)
+    try add(50000, 1, board: root)
     XCTAssertThrowsError(try IntentBonusEvidence.read(database: h.database, checkScopes: [], rootScopes: [.init(rootId: root, logicalDate: date)])) {
       XCTAssertEqual(String(describing: $0), "size")
     }

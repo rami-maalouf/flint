@@ -63,6 +63,8 @@ T1 identity (done)
 
 T7 and T8 remain separately recorded tasks, but new shared fixture cases and both executor implementations land together in T7's contract substep. T8 owns the remaining native-specific regression and device evidence. No intermediate commit deliberately fails native fixtures. The same rule applies when T15/T16 extend native coin behavior.
 
+T19 first establishes schema 11 and explicit legacy evidence with matching app/native visibility, including v1 sync/import compatibility. Its following increments add source-neutral immutable admission, coordinated schema-2 mapping, local recovery and convergence proof. The foundation remains development-only and does not substitute for T19/T20 or Checkpoint C.
+
 ## Phases and checkpoints
 
 ### Phase 0: fork identity

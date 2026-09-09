@@ -6,7 +6,7 @@ import { validateBoardAnchorGraph } from '@/core/domain/board-anchor';
 import type { Board } from '@/core/domain/entities';
 import type { BoardId, CheckInId, LogicalDate } from '@/core/domain/ids';
 import { getBoardById } from '@/core/persistence/repositories/boards';
-import { insertCheckIn } from '@/core/persistence/repositories/check-ins';
+import { getCheckInById, insertCheckIn } from '@/core/persistence/repositories/check-ins';
 
 import { FakeReminderScheduler } from '../helpers/fake-scheduler';
 import { createTestHarness, type TestHarness } from '../helpers/test-db';
@@ -137,12 +137,13 @@ describe('board anchor inputs', () => {
     expect(await getBoardById(h.db, b.id)).toMatchObject(noAnchor);
   });
 
-  it('rejects stale and cyclic conversions before seeding legacy check evidence', async () => {
+  it('rejects stale and cyclic conversions without writes and never baselines a pending raw payload', async () => {
     const board = await create();
+    const pendingId = h.ids.uuid() as CheckInId;
     await insertCheckIn(h.db, {
-      id: h.ids.uuid() as CheckInId, boardId: board.id, logicalDate: '2026-08-30' as LogicalDate,
+      id: pendingId, boardId: board.id, logicalDate: '2026-08-30' as LogicalDate,
       occurredAtUtc: h.clock.utcMs, timeZoneId: h.clock.zone, offsetMinutes: -240,
-      amount: 7, note: 'legacy note', source: 'app', idempotencyKey: h.ids.nextCommandId(),
+      amount: 7, note: 'pending note', source: 'sync', idempotencyKey: h.ids.nextCommandId(),
       createdAt: h.clock.utcMs, updatedAt: h.clock.utcMs, mutationStamp: '01788105600000-00000-legacy', deletedAt: null,
     });
     expect((await edit(board, { title: 'Fresh title' })).ok).toBe(true);
@@ -156,8 +157,9 @@ describe('board anchor inputs', () => {
     expect(await semanticSnapshot(h)).toEqual(before);
     expect(await h.db.getAllAsync('SELECT * FROM habit_actions')).toEqual([]);
     expect((await edit(current, { kind: 'daily', anchor: { kind: 'preset', relation: 'after', preset: 'lunch' } })).ok).toBe(true);
-    expect(await h.db.getAllAsync('SELECT kind FROM habit_actions')).toEqual([{ kind: 'baseline' }, { kind: 'policy' }]);
-    expect(await h.db.getFirstAsync('SELECT amount, note, occurred_at_utc FROM check_ins')).toEqual({ amount: 7, note: 'legacy note', occurred_at_utc: h.clock.utcMs });
+    expect(await h.db.getAllAsync('SELECT kind FROM habit_actions')).toEqual([{ kind: 'policy' }]);
+    expect(await getCheckInById(h.db, pendingId)).toBeNull();
+    expect(await h.db.getFirstAsync('SELECT amount, note, occurred_at_utc FROM check_ins')).toEqual({ amount: 7, note: 'pending note', occurred_at_utc: h.clock.utcMs });
   });
 
   it.each(['cycle', 'missing', 'null'] as const)('rejects a malformed %s target chain without looping or writing', async (mode) => {

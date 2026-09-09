@@ -91,10 +91,7 @@ function compareActions(left: HabitAction, right: HabitAction): number {
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
-export function foldDailyActions(actions: readonly HabitAction[]): {
-  checked: boolean;
-  checkInId: CheckInId | null;
-} {
+export function foldActiveCheckInIds(actions: readonly HabitAction[]): CheckInId[] {
   const active = new Map<CheckInId, HabitAction>();
   for (const action of [...actions].sort(compareActions)) {
     if (action.kind === 'policy') continue;
@@ -104,6 +101,10 @@ export function foldDailyActions(actions: readonly HabitAction[]): {
     } else active.set(action.checkInId as CheckInId, action);
   }
   const remaining = [...active.values()].sort(compareActions);
-  const winner = remaining[remaining.length - 1];
-  return { checked: winner !== undefined, checkInId: winner?.checkInId ?? null };
+  return remaining.map(action => action.checkInId as CheckInId);
+}
+
+export function foldDailyActions(actions: readonly HabitAction[]): { checked: boolean; checkInId: CheckInId | null } {
+  const active = foldActiveCheckInIds(actions);
+  return { checked: active.length > 0, checkInId: active[active.length - 1] ?? null };
 }

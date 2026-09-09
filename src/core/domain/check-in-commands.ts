@@ -1,4 +1,5 @@
 import { currentLogicalDate, offsetMinutesAt } from '../calendar/logical-date';
+import { refreshCheckVisibility } from '../persistence/repositories/check-visibility';
 import { rebuildWidgetRows } from '../persistence/projections/widget-rows';
 import { getBoardById } from '../persistence/repositories/boards';
 import { getCheckInById, insertCheckIn, latestCheckInForDate, listBoardCheckInsForDate, updateCheckInRow } from '../persistence/repositories/check-ins';
@@ -8,7 +9,7 @@ import type { BoardId, CheckInId, CommandId, LogicalDate } from './ids';
 import type { CommandContext, CommandDeps } from './command-context';
 import { runCommand } from './command-context';
 import { normalizeCreatedReceipt, normalizeRemovedReceipt } from './check-in-receipts';
-import { appendCheckAction, captureBoardDatePolicies, captureCheckPolicy, seedLegacyCheckActions } from './check-in-mutations';
+import { appendCheckAction, captureBoardDatePolicies, captureCheckPolicy } from './check-in-mutations';
 import { settleAffectedCoinScopes } from './coin-settlement';
 import type { DomainResult } from './result';
 import { err, ok } from './result';
@@ -116,7 +117,6 @@ async function insertCheckedRecord(
   policyJson: string,
 ): Promise<{ checkInId: CheckInId; logicalDate: LogicalDate; created: boolean }> {
   const { tx, now, timeZoneId, stamp } = context;
-  await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, fields.boardId, fields.logicalDate), now);
   const mutationStamp = stamp();
   const checkIn: CheckIn = {
     ...fields,
@@ -131,6 +131,7 @@ async function insertCheckedRecord(
   await appendOutbox(tx, 'check_in', checkIn.id, mutationStamp, now);
   await appendCheckAction(deps, context, commandId, checkIn, 'check', mutationStamp, checkIn.id, policyJson);
   await settleAffectedCoinScopes(deps, context, { checkScopes: [fields] });
+  await refreshCheckVisibility(tx, [fields]);
   await rebuildWidgetRows(tx, now, timeZoneId);
   return { checkInId: checkIn.id, logicalDate: fields.logicalDate, created: true };
 }
@@ -204,9 +205,7 @@ export function updateCheckIn(
     const policies = await captureBoardDatePolicies(context, board.id,
       moved ? [existing.logicalDate, logicalDate.value] : []);
     if (!policies.ok) return policies;
-    await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, board.id, existing.logicalDate), now);
     if (moved) {
-      await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, board.id, logicalDate.value), now);
       await appendCheckAction(deps, context, input.commandId, existing, 'move_out', stamp(),
         existing.id, policies.value.get(existing.logicalDate)!);
     }
@@ -228,6 +227,7 @@ export function updateCheckIn(
         existing.id, policies.value.get(logicalDate.value)!);
       await settleAffectedCoinScopes(deps, context, { checkScopes: [existing, { boardId: board.id, logicalDate: logicalDate.value }] });
     }
+    await refreshCheckVisibility(tx, [existing, { boardId: board.id, logicalDate: logicalDate.value }]);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok({ mutationStamp });
   });
@@ -255,12 +255,12 @@ export function removeCheckIn(
     }
     const policy = board ? await captureCheckPolicy(context, existing) : ok(null);
     if (!policy.ok) return policy;
-    await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, existing.boardId, existing.logicalDate), now);
     const mutationStamp = stamp();
     await updateCheckInRow(tx, { ...existing, deletedAt: now, updatedAt: now, mutationStamp });
     await appendOutbox(tx, 'check_in', existing.id, mutationStamp, now);
     await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp, existing.id, policy.value);
     await settleAffectedCoinScopes(deps, context, { checkScopes: [existing] });
+    await refreshCheckVisibility(tx, [existing]);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok(undefined);
   });
@@ -322,12 +322,12 @@ export function undoCreatedCheckIn(
     }
     const policy = board ? await captureCheckPolicy(context, existing) : ok(null);
     if (!policy.ok) return policy;
-    await seedLegacyCheckActions(deps, tx, await listBoardCheckInsForDate(tx, existing.boardId, existing.logicalDate), now);
     const mutationStamp = stamp();
     await updateCheckInRow(tx, { ...existing, deletedAt: now, updatedAt: now, mutationStamp });
     await appendOutbox(tx, 'check_in', existing.id, mutationStamp, now);
     await appendCheckAction(deps, context, input.commandId, existing, 'uncheck', mutationStamp, existing.id, policy.value);
     await settleAffectedCoinScopes(deps, context, { checkScopes: [existing] });
+    await refreshCheckVisibility(tx, [existing]);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok(undefined);
   });
@@ -344,7 +344,6 @@ async function removeDateChecks(
 ): Promise<CheckInId[]> {
   const { tx, now, stamp } = context;
   const all = await listBoardCheckInsForDate(tx, board.id, latest.logicalDate);
-  await seedLegacyCheckActions(deps, tx, all, now);
   const removed = board.kind === 'daily' ? all : [latest];
   const mutationStamp = stamp();
   for (const check of removed) {
@@ -354,6 +353,7 @@ async function removeDateChecks(
   await appendCheckAction(deps, context, commandId, latest, 'uncheck', mutationStamp,
     board.kind === 'daily' ? null : latest.id, policyJson);
   await settleAffectedCoinScopes(deps, context, { checkScopes: [latest] });
+  await refreshCheckVisibility(tx, [latest]);
   return removed.map((check) => check.id);
 }
 

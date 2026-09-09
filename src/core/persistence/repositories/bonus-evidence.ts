@@ -3,14 +3,14 @@ import { assertCoinLedgerShape, canonicalCoinLedger, type CoinLedgerRow } from '
 import { COIN_PROOF_FACTS, CoinContractError, parseCoinPolicy } from '../../domain/coin-policy';
 import { coinDigest, compareCoinTuple, parseCoinProvenance } from '../../domain/coin-provenance';
 import { canonicalHabitAction, validateHabitAction, type HabitAction } from '../../domain/habit-actions';
-import { isUuidV4, type BoardId, type CheckInId, type LogicalDate } from '../../domain/ids';
+import { isUuidV4, type BoardId, type LogicalDate } from '../../domain/ids';
 import type { Hashing } from '../../domain/ports';
 import type { SqlExecutor } from '../database';
 
 export type BonusEvidenceScope = { rootId: BoardId; logicalDate: LogicalDate };
 type CheckScope = { boardId: BoardId; logicalDate: LogicalDate };
 export type BonusEvidenceGroup = { scope: BonusEvidenceScope; actions: HabitAction[]; rows: CoinLedgerRow[];
-  legacyChecks: { id: CheckInId; boardId: BoardId; logicalDate: LogicalDate }[] };
+ };
 const actionColumns = `a.id, a.command_id AS commandId, a.board_id AS boardId,
   a.logical_date AS logicalDate, a.check_in_id AS checkInId, a.kind,
   a.created_at AS createdAt, a.mutation_stamp AS mutationStamp, a.policy_json AS policyJson`;
@@ -150,11 +150,6 @@ export async function readAffectedBonusEvidence(tx: SqlExecutor, hashing: Pick<H
   }
   saveActions(await tx.getAllAsync<HabitAction>(`SELECT DISTINCT ${actionColumns} FROM json_each(?) scopes JOIN habit_actions a
     ON a.board_id = json_extract(scopes.value, '$.boardId') AND a.logical_date = json_extract(scopes.value, '$.logicalDate')`, [JSON.stringify([...pairs.values()])]));
-  const legacy = await tx.getAllAsync<BonusEvidenceGroup['legacyChecks'][number]>(`SELECT DISTINCT c.id, c.board_id AS boardId, c.logical_date AS logicalDate
-    FROM json_each(?) scopes JOIN check_ins c ON c.board_id = json_extract(scopes.value, '$.boardId')
-    AND c.logical_date = json_extract(scopes.value, '$.logicalDate') WHERE c.deleted_at IS NULL`, [JSON.stringify([...pairs.values()])]);
-  for (const check of legacy) { validScope(check.boardId, check.logicalDate); if (typeof check.id !== 'string' || !isUuidV4(check.id)) throw new CoinContractError('invalid'); }
-  const targeted = new Set([...actions.values()].filter(action => action.checkInId !== null).map(action => key(action.checkInId!, key(action.boardId, action.logicalDate))));
   const actionsByPair = new Map<string, HabitAction[]>();
   for (const action of actions.values()) {
     const pair = key(action.boardId, action.logicalDate);
@@ -168,29 +163,18 @@ export async function readAffectedBonusEvidence(tx: SqlExecutor, hashing: Pick<H
     group.push(row);
     rowsByScope.set(row.scopeKey!, group);
   }
-  const legacyByPair = new Map<string, BonusEvidenceGroup['legacyChecks']>();
-  for (const check of legacy) {
-    const pair = key(check.boardId, check.logicalDate);
-    if (targeted.has(key(check.id, pair))) continue;
-    const group = legacyByPair.get(pair) ?? [];
-    group.push(check);
-    legacyByPair.set(pair, group);
-  }
   return orderedScopes.map(scope => {
     const ids = members.get(scopeKey(scope))!;
     const groupRows = rowsByScope.get(scopeKey(scope)) ?? [];
     const groupActions = new Map<string, HabitAction>();
-    const legacyChecks: BonusEvidenceGroup['legacyChecks'] = [];
     for (const boardId of ids) {
       const pair = key(boardId, scope.logicalDate);
       for (const action of actionsByPair.get(pair) ?? []) groupActions.set(action.id, action);
-      legacyChecks.push(...legacyByPair.get(pair) ?? []);
     }
     // referenced causes remain available for missing-control recovery before scope validation.
     for (const row of groupRows) for (const id of refs.get(row.id)!.actions) groupActions.set(id, actions.get(id)!);
-    if (groupActions.size + legacyChecks.length + groupRows.filter(row => row.kind !== 'adjustment').length > COIN_PROOF_FACTS) throw new CoinContractError('size');
+    if (groupActions.size + groupRows.filter(row => row.kind !== 'adjustment').length > COIN_PROOF_FACTS) throw new CoinContractError('size');
     return { scope, actions: [...groupActions.values()].sort((a, b) => Number(a.kind !== 'baseline') - Number(b.kind !== 'baseline') || compareCoinTuple([a.mutationStamp, a.id], [b.mutationStamp, b.id])),
-      rows: groupRows.sort((a, b) => compareCoinTuple([a.mutationStamp, a.id], [b.mutationStamp, b.id])),
-      legacyChecks: legacyChecks.sort((a, b) => compareCoinTuple([a.boardId, a.logicalDate, a.id], [b.boardId, b.logicalDate, b.id])) };
+      rows: groupRows.sort((a, b) => compareCoinTuple([a.mutationStamp, a.id], [b.mutationStamp, b.id])) };
   });
 }

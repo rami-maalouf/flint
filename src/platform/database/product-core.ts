@@ -32,7 +32,7 @@ let corePromise: Promise<DomainResult<ProductCore>> | null = null;
 async function open(): Promise<DomainResult<ProductCore>> {
   const db: SqlDatabase = await openProductSqlDatabase();
   try {
-    const initialized = await initializeProductDatabase(db, deviceIds);
+    const initialized = await initializeProductDatabase(db, deviceIds, deviceHashing);
     if (!initialized.ok) {
       // a failed migration never creates a replacement database, and the
       // opened connections must not leak across retries

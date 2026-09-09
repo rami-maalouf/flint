@@ -16,17 +16,7 @@ final class IntentExecutorTests: XCTestCase {
   }
 
   private func migrations() throws -> [[String: Any]] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["bun", "-e", "import { migrations } from './src/core/persistence/schema.ts'; import { migrationChecksum } from './src/core/persistence/migrations.ts'; console.log(JSON.stringify(migrations.map(m=>({...m,checksum:migrationChecksum(m)}))))"]
-    process.currentDirectoryURL = Self.root
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    try process.run()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    XCTAssertEqual(process.terminationStatus, 0)
-    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    try IntentFixtureMigrations.load(root: Self.root)
   }
 
   private final class Harness {
@@ -41,12 +31,7 @@ final class IntentExecutorTests: XCTestCase {
       database = try IntentDatabase(path: path, createForTesting: true)
       instant = seed["nowUtcMs"] as! Double
       timeZone = seed["timeZoneId"] as! String
-      try database.run("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)")
-      for migration in migrations {
-        for statement in migration["statements"] as! [String] { try database.run(statement) }
-        let version = migration["version"] as! Int
-        try database.run("INSERT INTO schema_migrations VALUES (?, ?, ?, 0)", [.integer(Int64(version)), .text(migration["name"] as! String), .text(migration["checksum"] as! String)])
-      }
+      for migration in migrations { try IntentFixtureMigrations.apply(migration, to: database, enqueueAt: Int64(instant)) }
       let version = migrations.last!["version"] as! Int
       try database.run("PRAGMA user_version = \(version)")
       try database.run("INSERT INTO app_settings (id, schema_revision, device_id) VALUES (1, ?, '00000000-0000-4000-8000-00000000d001')", [.integer(Int64(version))])
@@ -93,6 +78,8 @@ final class IntentExecutorTests: XCTestCase {
                  .string(row["note"] as? String), .text(source), .text(idempotencyKey),
                  .real(createdAt), .real(updatedAt), .text(mutationStamp), .number(row["deletedAt"] as? Double)])
       }
+      let historicalIds = (seed["checkIns"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+      try IntentFixtureMigrations.establishHistorical(database: database, ids: historicalIds, enqueueAt: Int64(instant))
     }
 
     func id() -> String {
@@ -115,6 +102,7 @@ final class IntentExecutorTests: XCTestCase {
           created_at, updated_at, mutation_stamp, note, amount)
         VALUES (?, ?, ?, 'manual', ?, 1, 1, 'legacy', 'legacy note', 3)
         """, [.text(checkId), .text(boardId), .text(date), .text(id())])
+      try IntentFixtureMigrations.establishHistorical(database: database, ids: [checkId], enqueueAt: Int64(instant))
       return checkId
     }
 
@@ -136,6 +124,98 @@ final class IntentExecutorTests: XCTestCase {
   private func harness() throws -> Harness {
     let source = try fixture()
     return try Harness(seed: source["seed"] as! [String: Any], migrations: migrations())
+  }
+
+  func testRawPayloadBeforeActionStaysHiddenThroughNativeReadsCheckAndRemoval() throws {
+    for kind in ["daily", "count"] {
+      let h = try harness()
+      let board = "00000000-0000-4000-8000-00000000a002", date = "2026-08-30"
+      try h.database.run("UPDATE boards SET kind = ?, tracks_time = 0, tracks_amount = 0, earns_coins = 1, coin_cap_per_day = 10 WHERE id = ?", [.text(kind), .text(board)])
+      let pending = h.id()
+      try h.database.run("INSERT INTO check_ins (id, board_id, logical_date, source, idempotency_key, created_at, updated_at, mutation_stamp, note) VALUES (?, ?, ?, 'manual', ?, 1, 1, 'pending-payload', 'private pending note')", [.text(pending), .text(board), .text(date), .text(h.id())])
+      let payload = try h.database.rows("SELECT * FROM check_ins WHERE id = ?", [.text(pending)])
+      XCTAssertEqual(try h.executor.today(boardId: board).get().total, 0, kind)
+      XCTAssertEqual(h.executor.removalCandidate(boardId: board, logicalDate: date).error, .noCheckIn, kind)
+      _ = try h.executor.widgetTimeline().get()
+      XCTAssertEqual(try h.database.rows("SELECT strip FROM widget_board_rows WHERE board_id = ?", [.text(board)]).first?["strip"], .text("[0,0,0,0,0,0,0]"), kind)
+      let fresh = IntentExecutor(database: h.database, now: { h.instant }, zone: { h.timeZone }, uuid: { h.id() })
+      let created = try fresh.checkIn(.init(commandId: h.id(), boardId: board)).get()
+      XCTAssertTrue(created.created, kind)
+      XCTAssertNotEqual(created.checkInId, pending, kind)
+      XCTAssertEqual(try fresh.today(boardId: board).get().total, 1, kind)
+      XCTAssertEqual(try h.database.rows("SELECT kind FROM habit_actions"), [["kind": .text("check")]], kind)
+      XCTAssertEqual(try h.database.rows("SELECT SUM(delta) AS total FROM coin_ledger").first?["total"], .integer(1), kind)
+      XCTAssertEqual(try fresh.removeLatest(commandId: h.id(), boardId: board).get().removedCheckInIds, [created.checkInId], kind)
+      XCTAssertEqual(try fresh.today(boardId: board).get().total, 0, kind)
+      XCTAssertEqual(try h.database.rows("SELECT * FROM check_ins WHERE id = ?", [.text(pending)]), payload, kind)
+      XCTAssertEqual(try h.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline'").count, 0, kind)
+    }
+  }
+
+  func testNativeBonusSettlementNeverInventsEvidenceForAnotherMembersRawPayload() throws {
+    let h = try harness()
+    let root = "00000000-0000-4000-8000-00000000a001", member = "00000000-0000-4000-8000-00000000a002", date = "2026-08-30"
+    try h.database.run("UPDATE boards SET kind = 'daily', tracks_amount = 0, tracks_time = 0, start_of_day_minute = 0, required_in_stack = 1 WHERE id IN (?, ?)", [.text(root), .text(member)])
+    try h.database.run("UPDATE boards SET anchor_kind = 'board', anchor_relation = 'after', anchor_board_id = ? WHERE id = ?", [.text(root), .text(member)])
+    try h.database.run("INSERT INTO check_ins (id, board_id, logical_date, source, idempotency_key, created_at, updated_at, mutation_stamp) VALUES (?, ?, ?, 'manual', ?, 1, 1, 'pending-payload')", [.text(h.id()), .text(root), .text(date), .text(h.id())])
+    _ = try h.executor.checkIn(.init(commandId: h.id(), boardId: member)).get()
+    XCTAssertEqual(try h.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline'").count, 0)
+    XCTAssertEqual(try h.database.rows("SELECT * FROM coin_ledger WHERE kind = 'run_bonus'").count, 0)
+    XCTAssertEqual(try h.executor.today(boardId: root).get().total, 0)
+  }
+
+  func testPayloadPersistsSuppressedAcrossFileReopenUntilItsGenuineActionArrives() throws {
+    for kind in ["daily", "count"] {
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let path = directory.appendingPathComponent("pending.sqlite").path
+      let board = "00000000-0000-4000-8000-00000000a002", date = "2026-08-30"
+      let pending = "00000000-0000-4000-8000-000000009001"
+      var capturedNow: Double = 0, capturedZone = ""
+      do {
+        let h = try Harness(seed: XCTUnwrap(fixture()["seed"] as? [String: Any]), migrations: migrations(), path: path)
+        capturedNow = h.instant; capturedZone = h.timeZone
+        try h.database.run("UPDATE boards SET kind = ?, tracks_time = 0, earns_coins = 1, coin_cap_per_day = 10 WHERE id = ?", [.text(kind), .text(board)])
+        try h.database.run("INSERT INTO check_ins (id,board_id,logical_date,source,idempotency_key,created_at,updated_at,mutation_stamp) VALUES (?, ?, ?, 'manual', ?, 1, 1, 'pending-payload')", [.text(pending), .text(board), .text(date), .text(pending)])
+        let instant = h.instant, zone = h.timeZone
+        let writer = IntentExecutor(database: h.database, now: { instant }, zone: { zone })
+        _ = try writer.checkIn(.init(commandId: h.id(), boardId: board)).get()
+        XCTAssertEqual(try h.database.rows("SELECT state_suppressed FROM check_ins WHERE id = ?", [.text(pending)]), [["state_suppressed": .integer(1)]])
+      }
+      let db = try IntentDatabase(path: path)
+      let reopened = IntentExecutor(database: db, now: { capturedNow }, zone: { capturedZone })
+      XCTAssertEqual(try reopened.today(boardId: board).get().total, 1)
+      let policy = IntentCoinPolicy(version: 1, boardKind: kind, earnsCoins: true, coinCapPerDay: 10,
+        checkClosesAtUtc: Int64(capturedNow + 86_400_000), rootId: nil, requiredBoardIds: [], bonusClosesAtUtc: nil, bonusEnabled: false)
+      let source = IntentHabitAction(id: "00000000-0000-4000-8000-000000009002", commandId: "00000000-0000-4000-8000-000000009003",
+        boardId: board, logicalDate: date, checkInId: pending, kind: "check", createdAt: Int64(capturedNow) - 1,
+        mutationStamp: String(format: "%014lld-00000-remote", Int64(capturedNow) - 1), policyJson: try policy.canonical())
+      try db.transaction(exclusive: true) {
+        try source.append(to: db)
+        try IntentCoinStore.settleAffected(checkScopes: [.init(boardId: board, logicalDate: date)], database: db, enqueueAt: Int64(capturedNow))
+        try IntentCheckVisibility.refresh(database: db, scopes: [.init(boardId: board, logicalDate: date)])
+      }
+      XCTAssertEqual(try reopened.today(boardId: board).get().total, kind == "daily" ? 1 : 2)
+      XCTAssertTrue(try db.rows("SELECT * FROM habit_actions WHERE kind = 'baseline'").isEmpty)
+      XCTAssertEqual(try db.rows("SELECT SUM(delta) AS total FROM coin_ledger").first?["total"], .integer(kind == "daily" ? 1 : 2))
+      XCTAssertEqual(try db.rows("SELECT source_action_id FROM coin_ledger WHERE check_in_id = ?", [.text(pending)]), [["source_action_id": .text(source.id)]])
+    }
+  }
+
+  func testVisibilityFailureRollsBackNativeSourceCoinsOutboxClockReceiptAndProjection() throws {
+    let h = try harness(), board = "00000000-0000-4000-8000-00000000a002"
+    try h.database.run("UPDATE boards SET earns_coins = 1 WHERE id = ?", [.text(board)])
+    let tables = ["check_ins", "habit_actions", "coin_ledger", "mutation_outbox", "app_settings", "command_receipts", "widget_board_rows"]
+    let before = try tables.map { try h.database.rows("SELECT * FROM \($0)") }
+    let command = h.id()
+    try h.database.run("CREATE TRIGGER reject_visibility BEFORE UPDATE OF state_suppressed ON check_ins BEGIN SELECT RAISE(ABORT, 'visibility failure'); END")
+    XCTAssertEqual(h.executor.checkIn(.init(commandId: command, boardId: board)).error, .database)
+    for (index, table) in tables.enumerated() { XCTAssertEqual(try h.database.rows("SELECT * FROM \(table)"), before[index], table) }
+    try h.database.run("DROP TRIGGER reject_visibility")
+    let created = try h.executor.checkIn(.init(commandId: command, boardId: board)).get()
+    XCTAssertEqual(try h.executor.today(boardId: board).get().total, 1)
+    XCTAssertEqual(try h.executor.checkIn(.init(commandId: command, boardId: board)).get(), created)
   }
 
   func testTimedHistoricalCheckInsPreserveProlepticDatesAndSelectedWallTime() throws {
@@ -275,7 +355,7 @@ final class IntentExecutorTests: XCTestCase {
     XCTAssertFalse(String(describing: action).contains("private note"))
   }
 
-  func testPublicBonusCompletionSeedsOtherMemberLegacyStateAndReplaysWithoutEffects() throws {
+  func testPublicBonusCompletionUsesExplicitOtherMemberLegacyStateAndReplaysWithoutEffects() throws {
     let harness = try harness()
     let root = "00000000-0000-4000-8000-00000000a001"
     let member = "00000000-0000-4000-8000-00000000a002"
@@ -632,7 +712,7 @@ final class IntentExecutorTests: XCTestCase {
     XCTAssertEqual(try harness.executor.checkIn(IntentCheckInInput(commandId: legacyCommand, boardId: "missing")).get().created, true)
   }
 
-  func testLegacyCountRemovalSeedsSurvivingSourcesBeforeTargetedUncheck() throws {
+  func testLegacyCountRemovalPreservesExplicitSurvivingSourcesBeforeTargetedUncheck() throws {
     let harness = try harness()
     let board = "00000000-0000-4000-8000-00000000a001"
     let date = "1969-12-31"
@@ -666,9 +746,9 @@ final class IntentExecutorTests: XCTestCase {
     XCTAssertEqual(result.checkInId, first)
     XCTAssertFalse(result.created)
     XCTAssertEqual(try harness.database.rows("SELECT * FROM check_ins ORDER BY id"), before)
-    XCTAssertEqual(try harness.database.rows("SELECT * FROM habit_actions").count, 0)
+    XCTAssertEqual(try harness.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline'").count, 2)
     XCTAssertEqual(try harness.database.rows("SELECT * FROM coin_ledger").count, 0)
-    XCTAssertEqual(try harness.database.rows("SELECT * FROM mutation_outbox").count, 0)
+    XCTAssertEqual(try harness.database.rows("SELECT * FROM mutation_outbox").count, 2)
     XCTAssertEqual(try harness.database.rows("SELECT hlc_wall_time FROM app_settings").first?["hlc_wall_time"]?.number, 0)
   }
 
@@ -814,6 +894,8 @@ final class IntentExecutorTests: XCTestCase {
       try harness.database.run("UPDATE boards SET kind = 'daily', tracks_time = 1 WHERE id = ?", [.text(board)])
       let date = try IntentCalendar.logicalDate(utcMs: harness.instant, zone: harness.timeZone, startMinute: 0)
       for _ in 0..<(entry["legacyCheckCount"] as! Int) { _ = try harness.legacyCheck(boardId: board, date: date) }
+      let admittedBaselines = try harness.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline' ORDER BY id")
+      XCTAssertEqual(admittedBaselines.count, entry["legacyCheckCount"] as? Int, name)
       var created: [Bool] = []
       for _ in 0..<(entry["checkAttempts"] as! Int) {
         let result = try harness.executor.checkIn(IntentCheckInInput(commandId: harness.id(), boardId: board,
@@ -829,8 +911,9 @@ final class IntentExecutorTests: XCTestCase {
       XCTAssertEqual(created, entry["expectedCreated"] as! [Bool], name)
       XCTAssertEqual(try harness.database.rows("SELECT * FROM check_ins WHERE deleted_at IS NULL").count, entry["expectedLiveCount"] as! Int, name)
       XCTAssertEqual(try harness.executor.today(boardId: board).get().total, entry["expectedTodayCount"] as! Int, name)
-      let kinds = try harness.database.rows("SELECT kind FROM habit_actions ORDER BY kind").compactMap { $0["kind"]?.string }
-      XCTAssertEqual(kinds, (entry["expectedActionKinds"] as! [String]).sorted(), name)
+      let kinds = try harness.database.rows("SELECT kind FROM habit_actions WHERE kind != 'baseline' ORDER BY kind").compactMap { $0["kind"]?.string }
+      XCTAssertEqual(kinds, (entry["expectedActionKinds"] as! [String]).filter { $0 != "baseline" }.sorted(), name)
+      XCTAssertEqual(try harness.database.rows("SELECT * FROM habit_actions WHERE kind = 'baseline' ORDER BY id"), admittedBaselines, name)
     }
   }
 

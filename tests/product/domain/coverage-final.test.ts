@@ -19,7 +19,7 @@ import { decodeStamp } from '@/core/sync/hybrid-clock';
 import type { BoardId } from '@/core/domain/ids';
 
 import { createBoardForTest } from '../helpers/product-fixtures';
-import { createTestHarness, NodeSqlDatabase } from '../helpers/test-db';
+import { createTestHarness, createTestHashing, NodeSqlDatabase } from '../helpers/test-db';
 
 const d = (value: string) => value as LogicalDate;
 
@@ -144,7 +144,7 @@ describe('final branch coverage', () => {
 
   it('initializes an already-initialized database as a no-op', async () => {
     const harness = await createTestHarness();
-    const again = await initializeProductDatabase(harness.db, harness.ids);
+    const again = await initializeProductDatabase(harness.db, harness.ids, harness.deps.hashing);
     expect(again.ok).toBe(true);
     await harness.db.closeAsync();
   });
@@ -155,7 +155,7 @@ describe('final branch coverage', () => {
     broken.execAsync = async () => {
       throw 'pragma failed';
     };
-    const result = await migrateDatabase(broken);
+    const result = await migrateDatabase(broken, { hashing: createTestHashing() });
     expect(!result.ok && result.error.message).toContain('pragma failed');
     await db.closeAsync();
   });
@@ -403,14 +403,14 @@ describe('final branch coverage', () => {
 
   it('wraps a non-error bootstrap transaction failure', async () => {
     const db = new NodeSqlDatabase();
-    await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
     const broken = Object.create(db) as typeof db;
     broken.withExclusiveTransactionAsync = async () => {
       throw 'settings exploded';
     };
     const result = await initializeProductDatabase(broken, {
       uuid: () => '00000000-0000-4000-8000-000000000001',
-    });
+    }, createTestHashing());
     expect(!result.ok && result.error.message).toContain('settings exploded');
     await db.closeAsync();
   });

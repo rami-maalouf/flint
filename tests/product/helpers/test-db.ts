@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import type { CommandDeps } from '@/core/domain/commands';
 import type { CommandId } from '@/core/domain/ids';
-import type { Clock, IdGenerator } from '@/core/domain/ports';
+import type { Clock, Hashing, IdGenerator } from '@/core/domain/ports';
 import type { QueryDeps } from '@/core/domain/queries';
 import { initializeProductDatabase } from '@/core/persistence/bootstrap';
 import type { SqlDatabase, SqlExecutor, SqlParams } from '@/core/persistence/database';
@@ -123,16 +123,21 @@ export type TestHarness = {
   deps: CommandDeps & QueryDeps;
 };
 
+export function createTestHashing(): Hashing {
+  return {
+    sha1: async (bytes) => new Uint8Array(createHash('sha1').update(bytes).digest()),
+    sha256: async (bytes) => new Uint8Array(createHash('sha256').update(bytes).digest()),
+  };
+}
+
 export async function createTestHarness(): Promise<TestHarness> {
   const db = new NodeSqlDatabase();
   const clock = new TestClock();
   const ids = new TestIds();
-  const initialized = await initializeProductDatabase(db, ids);
+  const hashing = createTestHashing();
+  const initialized = await initializeProductDatabase(db, ids, hashing);
   if (!initialized.ok) {
     throw new Error(initialized.error.message);
   }
-  return { db, clock, ids, deps: { db, clock, ids, hashing: {
-    sha1: async (bytes) => new Uint8Array(createHash('sha1').update(bytes).digest()),
-    sha256: async (bytes) => new Uint8Array(createHash('sha256').update(bytes).digest()),
-  } } };
+  return { db, clock, ids, deps: { db, clock, ids, hashing } };
 }

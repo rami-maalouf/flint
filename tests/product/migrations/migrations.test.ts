@@ -3,12 +3,12 @@ import { getExportSnapshot } from '@/core/export/serialize';
 import { migrateDatabase, migrationChecksum } from '@/core/persistence/migrations';
 import { latestSchemaVersion, migrations } from '@/core/persistence/schema';
 
-import { createTestHarness, NodeSqlDatabase } from '../helpers/test-db';
+import { createTestHarness, createTestHashing, NodeSqlDatabase } from '../helpers/test-db';
 
 describe('migrations', () => {
   it('migrates a clean database to the latest schema', async () => {
     const db = new NodeSqlDatabase();
-    const result = await migrateDatabase(db);
+    const result = await migrateDatabase(db, { hashing: createTestHashing() });
     expect(result).toEqual({ ok: true, value: latestSchemaVersion });
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     expect(version?.user_version).toBe(latestSchemaVersion);
@@ -37,8 +37,8 @@ describe('migrations', () => {
 
   it('reruns as a no-op', async () => {
     const db = new NodeSqlDatabase();
-    await migrateDatabase(db);
-    const again = await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
+    const again = await migrateDatabase(db, { hashing: createTestHashing() });
     expect(again.ok).toBe(true);
     const applied = await db.getAllAsync('SELECT version FROM schema_migrations');
     expect(applied).toHaveLength(migrations.length);
@@ -47,9 +47,9 @@ describe('migrations', () => {
 
   it('fails hard and visibly on a checksum mismatch', async () => {
     const db = new NodeSqlDatabase();
-    await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
     await db.runAsync('UPDATE schema_migrations SET checksum = ? WHERE version = 1', ['bad']);
-    const result = await migrateDatabase(db);
+    const result = await migrateDatabase(db, { hashing: createTestHashing() });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('migration');
@@ -64,7 +64,7 @@ describe('migrations', () => {
     const fs = require('node:fs') as typeof import('node:fs');
     const location = path.join(os.tmpdir(), `ripples-wal-${process.pid}-${Date.now()}.db`);
     const db = new NodeSqlDatabase(location);
-    await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
     const fk = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
     expect(fk?.foreign_keys).toBe(1);
     const journal = await db.getFirstAsync<{ journal_mode: string }>('PRAGMA journal_mode');
@@ -166,7 +166,7 @@ describe('cloudkit account binding migration', () => {
     await db.runAsync("INSERT INTO sync_state (id, change_token, zone_created) VALUES (1, 'existing-token', 1)");
     const settings = await db.getAllAsync<Record<string, unknown>>('SELECT * FROM app_settings');
     const sync = await db.getAllAsync('SELECT * FROM sync_state');
-    expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+    expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
     expect(await db.getAllAsync('SELECT * FROM app_settings')).toEqual(settings.map((row) => ({
       ...row, schema_revision: latestSchemaVersion,
       wake_minute: 420, lunch_minute: 720, dinner_minute: 1080, sleep_minute: 1380,
@@ -183,7 +183,7 @@ describe('cloudkit account binding migration', () => {
     await expect(db.runAsync('INSERT INTO sync_account_bindings VALUES (?, ?)', [
       'iCloud.studio.orbitlabs.habitsystem', 'digest-b',
     ])).rejects.toThrow();
-    await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
     expect(await db.getAllAsync('SELECT * FROM sync_account_bindings')).toEqual([
       { provider: 'iCloud.studio.orbitlabs.habitsystem', account_digest: 'digest-a' },
     ]);
@@ -216,7 +216,7 @@ describe('upgrade from a version-1 database', () => {
        VALUES (1, 1, 'device-abc', '["00000000-0000-4000-8000-000000000001"]')`,
     );
 
-    const migrated = await migrateDatabase(db);
+    const migrated = await migrateDatabase(db, { hashing: createTestHashing() });
     if (!migrated.ok) {
       throw new Error(migrated.error.message);
     }
@@ -253,7 +253,7 @@ describe('upgrade from a version-1 database', () => {
     await db.runAsync(
       `INSERT INTO app_settings (id, schema_revision, device_id) VALUES (1, 1, 'device-xyz')`,
     );
-    const migrated = await migrateDatabase(db);
+    const migrated = await migrateDatabase(db, { hashing: createTestHashing() });
     expect(migrated.ok).toBe(true);
     const row = await db.getFirstAsync<{ settings_mutation_stamp: string | null }>(
       'SELECT settings_mutation_stamp FROM app_settings WHERE id = 1',

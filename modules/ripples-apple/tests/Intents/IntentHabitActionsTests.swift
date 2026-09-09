@@ -3,6 +3,21 @@ import XCTest
 @testable import RipplesIntentCore
 
 final class IntentHabitActionsTests: XCTestCase {
+  func testCompleteFoldPreservesAllSurvivingTokensInFinalAddOrder() throws {
+    let board = "00000000-0000-4000-8000-000000000010"
+    let first = "00000000-0000-4000-8000-000000000011", second = "00000000-0000-4000-8000-000000000012"
+    func action(_ index: Int, _ kind: String, _ token: String?) -> IntentHabitAction {
+      .init(id: String(format: "00000000-0000-4000-8000-%012d", index), commandId: board,
+        boardId: board, logicalDate: "2026-08-30", checkInId: token, kind: kind, createdAt: Int64(index),
+        mutationStamp: String(format: "%014d-00000-device", index), policyJson: nil)
+    }
+    let added = [action(1, "check", first), action(2, "move_in", second), action(3, "check", first)]
+    XCTAssertEqual(IntentHabitAction.activeCheckInIds(added.reversed()), [second, first])
+    XCTAssertEqual(IntentHabitAction.activeCheckInIds(added + [action(4, "move_out", first)]), [second])
+    XCTAssertEqual(IntentHabitAction.activeCheckInIds(added + [action(4, "uncheck", nil), action(5, "move_in", second)]), [second])
+    XCTAssertEqual(IntentHabitAction.effectiveCheckInId(added), first)
+  }
+
   func testSharedUnicodeAndBaselineIdentityVectors() throws {
     var root = URL(fileURLWithPath: #filePath)
     for _ in 0..<5 { root.deleteLastPathComponent() }

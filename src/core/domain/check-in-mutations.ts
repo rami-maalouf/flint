@@ -1,10 +1,8 @@
-import type { SqlExecutor } from '../persistence/database';
 import { createEconomicDayCloseResolver } from '../calendar/economic-day-close';
-import { appendHabitAction, listHabitActions } from '../persistence/repositories/habit-actions';
+import { appendHabitAction } from '../persistence/repositories/habit-actions';
 import { appendOutbox } from '../persistence/repositories/support';
 import type { CommandContext, CommandDeps } from './command-context';
 import type { CheckIn } from './entities';
-import { baselineAction } from './habit-actions';
 import type { HabitAction, HabitActionKind } from './habit-actions';
 import type { BoardId, CheckInId, CommandId, HabitActionId, LogicalDate } from './ids';
 import { canonicalCoinPolicy } from './coin-policy';
@@ -36,31 +34,6 @@ export async function captureBoardDatePolicies(
     policies.set(logicalDate, canonicalCoinPolicy(captured.value));
   }
   return ok(policies);
-}
-
-// seed legacy survivors before a live mutation; any existing token evidence
-// prevents a later import or removal from synthesizing its state again.
-export async function seedLegacyCheckActions(
-  deps: CommandDeps,
-  tx: SqlExecutor,
-  checks: readonly Pick<CheckIn, 'id' | 'boardId' | 'logicalDate'>[],
-  now: number,
-): Promise<void> {
-  const knownByScope = new Map<string, Set<CheckInId | null>>();
-  for (const check of checks) {
-    const scope = `${check.boardId}|${check.logicalDate}`;
-    let known = knownByScope.get(scope);
-    if (!known) {
-      const actions = await listHabitActions(tx, check.boardId, check.logicalDate);
-      known = new Set(actions.map((action) => action.checkInId));
-      knownByScope.set(scope, known);
-    }
-    if (known.has(check.id)) continue;
-    const baseline = await baselineAction(check, deps.hashing);
-    await appendHabitAction(tx, baseline);
-    await appendOutbox(tx, 'habit_action', baseline.id, baseline.mutationStamp, now);
-    known.add(check.id);
-  }
 }
 
 export async function appendCheckAction(

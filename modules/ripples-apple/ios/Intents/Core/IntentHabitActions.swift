@@ -37,6 +37,10 @@ struct IntentHabitAction: Codable, Equatable, Sendable {
 
   // the input is one board/date scope. baselines rank below every live fact.
   static func effectiveCheckInId(_ actions: [Self]) -> String? {
+    activeCheckInIds(actions).last
+  }
+
+  static func activeCheckInIds(_ actions: [Self]) -> [String] {
     let ordered = actions.sorted {
       if ($0.kind == "baseline") != ($1.kind == "baseline") { return $0.kind == "baseline" }
       if $0.mutationStamp != $1.mutationStamp { return $0.mutationStamp < $1.mutationStamp }
@@ -53,7 +57,7 @@ struct IntentHabitAction: Codable, Equatable, Sendable {
       default: break
       }
     }
-    return active.max { $0.value < $1.value }?.key
+    return active.sorted { $0.value < $1.value }.map(\.key)
   }
 
   @discardableResult func append(to database: IntentDatabase, enqueueAt: Int64? = nil) throws -> Bool {

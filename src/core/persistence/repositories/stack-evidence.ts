@@ -24,7 +24,7 @@ export async function readStackEvidence(tx: SqlExecutor, boardIds: readonly Boar
   const counts = await tx.getAllAsync<{ board_id: BoardId; logical_date: LogicalDate; count: number }>(
     `SELECT c.board_id, c.logical_date, COUNT(*) AS count FROM check_ins c
      JOIN boards b ON b.id = c.board_id
-     WHERE c.deleted_at IS NULL AND b.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL AND c.state_suppressed = 0 AND b.deleted_at IS NULL
        AND c.board_id IN (SELECT value FROM json_each(?))
      GROUP BY c.board_id, c.logical_date ORDER BY c.board_id, c.logical_date`,
     [idsJson],

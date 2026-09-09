@@ -1,3 +1,4 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import { addDays } from '@/core/calendar/logical-date';
 import { archiveBoard, createBoard, deleteBoard, restoreBoard, toggleDailyCheckIn } from '@/core/domain/commands';
 import type { CreateBoardInput } from '@/core/domain/commands';
@@ -32,6 +33,7 @@ async function seed(h: TestHarness, boardId: BoardId, dates: string[], overrides
       ...overrides,
     };
     await insertCheckIn(h.db, check);
+    await admitLegacyChecks(h, [check]);
     checks.push(check);
   }
   return checks;

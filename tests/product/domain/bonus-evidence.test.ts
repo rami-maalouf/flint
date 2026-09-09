@@ -50,7 +50,7 @@ describe('exact-date bonus evidence closure', () => {
     await put(c, a, unrelated, yesterday);
     const before = await h.db.getAllAsync('SELECT * FROM habit_actions');
     const writes = jest.spyOn(h.db, 'runAsync');
-    expect(await read()).toEqual([{ scope: { rootId: root, logicalDate: date }, actions: [c, a], rows: [], legacyChecks: [] }]);
+    expect(await read()).toEqual([{ scope: { rootId: root, logicalDate: date }, actions: [c, a], rows: [] }]);
     expect(writes).not.toHaveBeenCalled();
     expect(await h.db.getAllAsync('SELECT * FROM habit_actions')).toEqual(before);
   });
@@ -62,13 +62,13 @@ describe('exact-date bonus evidence closure', () => {
     const unrelated = action(40, otherRoot, otherRoot, [otherRoot]);
     await put(old, current, oldState, unrelated);
     expect(await read([], [{ rootId: root, logicalDate: date }, { rootId: root, logicalDate: date }])).toEqual([
-      { scope: { rootId: root, logicalDate: date }, actions: [old, current, oldState], rows: [], legacyChecks: [] },
+      { scope: { rootId: root, logicalDate: date }, actions: [old, current, oldState], rows: [] },
     ]);
   });
 
   it('discovers a retained bonus through its root-null source and leaves missing control classification to replay', async () => {
     const source = action(10, member, null);await put(source);const row = award(source);await appendLedgerEntry(h.db, row);
-    expect(await read()).toEqual([{ scope: { rootId: root, logicalDate: date }, actions: [source], rows: [row], legacyChecks: [] }]);
+    expect(await read()).toEqual([{ scope: { rootId: root, logicalDate: date }, actions: [source], rows: [row] }]);
   });
 
   it('resolves proof and reversal dependencies and validates complete canonical fingerprints', async () => {
@@ -103,20 +103,20 @@ describe('exact-date bonus evidence closure', () => {
       [row.id,row.kind,row.delta,row.boardId,row.checkInId,row.runKey,row.rewardId,row.rewardTitleSnapshot,row.reversesId,row.scopeKey,row.sourceActionId,row.reconciliationKey,row.adjustsId,row.provenanceJson,row.logicalDate,row.createdAt,row.mutationStamp,row.deletedAt]);
   }
 
-  it('returns only admitted live exact-date unrepresented legacy tokens without reading private history payloads', async () => {
+  it('never reads pending raw check payloads or infers legacy evidence', async () => {
     const a = action(10);await put(a);
-    const expected = await legacy(500);await legacy(501);await legacy(502,member,prior);await legacy(503,member,date,1);await legacy(504,outside);
+    await legacy(500);await legacy(501);await legacy(502,member,prior);await legacy(503,member,date,1);await legacy(504,outside);
     const removal = { ...action(20,member,null), kind: 'uncheck' as const, checkInId: id(501) as HabitAction['checkInId'] };await put(removal);
     const before = await h.db.getAllAsync('SELECT * FROM check_ins');const reads = jest.spyOn(h.db,'getAllAsync');
-    expect((await read())[0].legacyChecks).toEqual([expected]);
-    const historySql = reads.mock.calls.filter(([sql])=>sql.includes('FROM json_each(?) scopes JOIN check_ins'));
-    expect(historySql).toHaveLength(1);expect(historySql[0][0]).not.toMatch(/note|amount|occurred_at|SELECT \*/i);
+    expect((await read())[0].actions).toEqual([a, removal]);
+    const historySql = reads.mock.calls.filter(([sql])=>sql.includes('check_ins'));
+    expect(historySql).toHaveLength(0);
     expect(await h.db.getAllAsync('SELECT * FROM check_ins')).toEqual(before);
   });
 
   it('does not infer legacy members from a referenced root-null cause with missing control', async () => {
     const source = action(10,member,null);await put(source);await legacy(500,member);await appendLedgerEntry(h.db,award(source));
-    const groups = await read();expect(groups[0].actions).toEqual([source]);expect(groups[0].legacyChecks).toEqual([]);
+    const groups = await read();expect(groups[0].actions).toEqual([source]);expect(groups[0]).not.toHaveProperty('legacyChecks');
   });
 
   it.each(['source','row'])('reports missing %s dependencies without returning partial evidence', async kind => {
@@ -181,9 +181,11 @@ describe('exact-date bonus evidence closure', () => {
     expect(plan.some(row=>row.detail.includes('idx_habit_actions_date_kind'))).toBe(true);
   });
 
-  it('enforces the per-scope evidence budget including pending legacy baselines',async()=>{
+  it('counts accepted evidence toward the budget without counting pending raw payloads',async()=>{
     await h.db.withExclusiveTransactionAsync(async()=>{await put(action(10));for(let i=0;i<4095;i++)await put(action(100+i,member,null));});
     await legacy(90000,member);
+    expect((await read())[0].actions).toHaveLength(4096);
+    await put(action(9999,member,null));
     await expect(read()).rejects.toThrow('size');
   });
 
@@ -221,16 +223,16 @@ describe('exact-date bonus evidence closure', () => {
     await expect(read()).rejects.toThrow('invalid');
   });
 
-  it('rejects malformed retained legacy token IDs without exposing notes',async()=>{
+  it('does not let malformed raw payloads poison accepted economic evidence',async()=>{
     await put(action(10));await legacy(500);await h.db.runAsync('UPDATE check_ins SET id = ? WHERE id = ?',['bad',id(500)]);
-    await expect(read()).rejects.toThrow('invalid');
+    expect((await read())[0].actions).toEqual([action(10)]);
   });
 
-  it('uses synthetic baselines first and sorts multiple surviving legacy candidates deterministically',async()=>{
-    const first=await legacy(500);const second=await legacy(501);const third=await legacy(502,root);
+  it('orders explicitly accepted baselines first and ignores unadmitted raw candidates',async()=>{
+    await legacy(500);await legacy(501);await legacy(502,root);
     const baseline=await baselineAction({id:id(200) as HabitAction['checkInId'] & string,boardId:member,logicalDate:date},h.deps.hashing);
     const source=action(10);await put(source,baseline);
-    const result=await read();expect(result[0].actions).toEqual([baseline,source]);expect(result[0].legacyChecks).toEqual([third,first,second]);
+    const result=await read();expect(result[0].actions).toEqual([baseline,source]);expect(result[0]).not.toHaveProperty('legacyChecks');
   });
 
   it('loads same-date proof actions beyond the known member envelope without inventing baselines',async()=>{
@@ -238,7 +240,7 @@ describe('exact-date bonus evidence closure', () => {
     const proof=canonicalCoinProvenance([['habit_action',source.id,await coinDigest(canonicalHabitAction(source),h.deps.hashing)]]);
     const correction={...fixture.correction.expectedAppend[0],scopeKey:`bonus:${root}:${date}`,provenanceJson:proof} as CoinLedgerRow;
     await appendLedgerEntry(h.db,correction);
-    const result=await read([], [{rootId:root,logicalDate:date}]);expect(result[0].actions).toEqual([source]);expect(result[0].legacyChecks).toEqual([]);
+    const result=await read([], [{rootId:root,logicalDate:date}]);expect(result[0].actions).toEqual([source]);expect(result[0]).not.toHaveProperty('legacyChecks');
   });
 
   it('reuses valid cancellation dependencies and hashes while rejecting forbidden adjustment evidence',async()=>{
@@ -279,7 +281,7 @@ describe('exact-date bonus evidence closure', () => {
   it('honors the caller read snapshot while another connection commits member evidence',async()=>{
     const directory=mkdtempSync(join(tmpdir(),'bonus-evidence-'));const file=join(directory,'fixture.db');
     await h.db.closeAsync();h.db=new NodeSqlDatabase(file);await h.db.execAsync('PRAGMA journal_mode=WAL');
-    const initialized=await initializeProductDatabase(h.db,h.ids);expect(initialized.ok).toBe(true);
+    const initialized=await initializeProductDatabase(h.db,h.ids,h.deps.hashing);expect(initialized.ok).toBe(true);
     const writer=new NodeSqlDatabase(file);const control=action(10);const late=action(20,member,null);await put(control);
     try {
       const get=h.db.getAllAsync.bind(h.db);let committed=false;

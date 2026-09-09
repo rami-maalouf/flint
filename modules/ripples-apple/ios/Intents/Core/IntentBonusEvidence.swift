@@ -7,8 +7,7 @@ enum IntentBonusEvidence {
     let rootId: String; let logicalDate: String
     var key: String { "bonus:\(rootId):\(logicalDate)" }
   }
-  struct LegacyCheck: Hashable { let id: String; let boardId: String; let logicalDate: String }
-  struct Group { let scope: Scope; var actions: [IntentHabitAction]; let rows: [IntentCoinLedgerRow]; let legacyChecks: [LegacyCheck] }
+  struct Group { let scope: Scope; let actions: [IntentHabitAction]; let rows: [IntentCoinLedgerRow] }
   private struct References { let facts: [[String]]; let actions: Set<String>; let rows: Set<String> }
 
   static func read(database: IntentDatabase, checkScopes: [CheckScope], rootScopes: [Scope] = []) throws -> [Group] {
@@ -141,46 +140,26 @@ enum IntentBonusEvidence {
       SELECT DISTINCT a.* FROM json_each(?) scopes JOIN habit_actions a
         ON a.board_id = json_extract(scopes.value, '$.boardId') AND a.logical_date = json_extract(scopes.value, '$.logicalDate')
       """, [pairJSON])
-    let legacy = try database.rows("""
-      SELECT DISTINCT c.id, c.board_id, c.logical_date FROM json_each(?) scopes JOIN check_ins c
-        ON c.board_id = json_extract(scopes.value, '$.boardId') AND c.logical_date = json_extract(scopes.value, '$.logicalDate')
-        WHERE c.deleted_at IS NULL
-      """, [pairJSON]).map { raw in
-      let row = IntentCoinSQL(raw)
-      let check = try LegacyCheck(id: row.string("id"), boardId: row.string("board_id"), logicalDate: row.string("logical_date"))
-      try valid(check.boardId, check.logicalDate)
-      guard IntentCoinJSON.uuid(check.id) else { throw IntentCoinError.invalid }
-      return check
-    }
-    var targeted = Set<[String]>()
     var actionsByPair: [CheckScope: [IntentHabitAction]] = [:]
     for action in actions.values {
-      if let id = action.checkInId { targeted.insert([id, action.boardId, action.logicalDate]) }
       actionsByPair[CheckScope(boardId: action.boardId, logicalDate: action.logicalDate), default: []].append(action)
     }
     var rowsByScope: [String: [IntentCoinLedgerRow]] = [:]
     for row in rows.values { rowsByScope[row.scopeKey!, default: []].append(row) }
-    var legacyByPair: [CheckScope: [LegacyCheck]] = [:]
-    for check in legacy where !targeted.contains([check.id, check.boardId, check.logicalDate]) {
-      legacyByPair[CheckScope(boardId: check.boardId, logicalDate: check.logicalDate), default: []].append(check)
-    }
     return try ordered.map { scope in
       let groupRows = rowsByScope[scope.key] ?? []
       var groupActions: [String: IntentHabitAction] = [:]
-      var candidates: [LegacyCheck] = []
       for id in members[scope]! {
         let pair = CheckScope(boardId: id, logicalDate: scope.logicalDate)
         for action in actionsByPair[pair] ?? [] { groupActions[action.id] = action }
-        candidates += legacyByPair[pair] ?? []
       }
       // direct causes remain available for missing-control recovery before envelope validation.
       for row in groupRows { for id in refs[row.id]!.actions { groupActions[id] = actions[id]! } }
-      guard groupActions.count + candidates.count + groupRows.filter({ $0.kind != "adjustment" }).count <= IntentCoinJSON.proofFacts else {
+      guard groupActions.count + groupRows.filter({ $0.kind != "adjustment" }).count <= IntentCoinJSON.proofFacts else {
         throw IntentCoinError.size
       }
       return Group(scope: scope, actions: groupActions.values.sorted(by: IntentBonusCoinCauses.precedes),
-        rows: groupRows.sorted { [$0.mutationStamp, $0.id].lexicographicallyPrecedes([$1.mutationStamp, $1.id]) },
-        legacyChecks: candidates.sorted { [$0.boardId, $0.logicalDate, $0.id].lexicographicallyPrecedes([$1.boardId, $1.logicalDate, $1.id]) })
+        rows: groupRows.sorted { [$0.mutationStamp, $0.id].lexicographicallyPrecedes([$1.mutationStamp, $1.id]) })
     }
   }
 

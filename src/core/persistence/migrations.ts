@@ -1,12 +1,16 @@
 import type { DomainResult } from '../domain/result';
 import { err, ok } from '../domain/result';
+import type { Hashing } from '../domain/ports';
 import type { SqlDatabase } from './database';
+import { migrateLegacyCheckEvidence } from './migration-steps/legacy-check-evidence';
 import type { Migration } from './schema';
 import { migrations } from './schema';
 
 // deterministic content hash so a rewritten released migration fails loudly
 export function migrationChecksum(migration: Migration): string {
-  const content = `${migration.version}:${migration.name}:${migration.statements.join(';')}`;
+  const step = migration.dataStep;
+  const content = `${migration.version}:${migration.name}:${migration.statements.join(';')}` +
+    (step ? `:data:${JSON.stringify([step.name, step.version])}` : '');
   let hash = 0x811c9dc5;
   for (let index = 0; index < content.length; index += 1) {
     hash ^= content.charCodeAt(index);
@@ -17,7 +21,7 @@ export function migrationChecksum(migration: Migration): string {
 
 type MigrationRow = { version: number; checksum: string };
 
-export async function migrateDatabase(db: SqlDatabase): Promise<DomainResult<number>> {
+export async function migrateDatabase(db: SqlDatabase, { hashing }: { hashing: Hashing }): Promise<DomainResult<number>> {
   try {
     await db.execAsync('PRAGMA journal_mode = WAL');
     await db.execAsync('PRAGMA foreign_keys = ON');
@@ -46,12 +50,19 @@ export async function migrateDatabase(db: SqlDatabase): Promise<DomainResult<num
         continue;
       }
       await db.withExclusiveTransactionAsync(async (tx) => {
+        const appliedAt = Date.now();
         for (const statement of migration.statements) {
           await tx.runAsync(statement);
         }
+        if (migration.dataStep) {
+          if (migration.dataStep.name !== 'legacy_check_evidence' || migration.dataStep.version !== 1) {
+            throw new Error('Unsupported migration data step.');
+          }
+          await migrateLegacyCheckEvidence(tx, hashing, appliedAt);
+        }
         await tx.runAsync(
           'INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)',
-          [migration.version, migration.name, checksum, Date.now()],
+          [migration.version, migration.name, checksum, appliedAt],
         );
         // static reviewed pragma inside the same transaction so a crash
         // cannot split the version marker from the applied migration

@@ -1,5 +1,6 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import { createCheckIn } from '@/core/domain/commands';
-import type { BoardId, LogicalDate } from '@/core/domain/ids';
+import type { BoardId, CheckInId, LogicalDate } from '@/core/domain/ids';
 import {
   getBoardSummary,
   getConsistencyAnalytics,
@@ -29,6 +30,7 @@ async function seedCheckIns(
   // and prove nothing about read performance
   const stamps = harness.clock.nowUtcMs();
   const rows: string[] = [];
+  const legacy: { id: CheckInId; boardId: BoardId; logicalDate: LogicalDate }[] = [];
   // a realistic spread: roughly ninety check-ins a day across three years,
   // so paging has to trim on day boundaries rather than hit one giant day
   const perDay = 90;
@@ -37,6 +39,7 @@ async function seedCheckIns(
     const dayOffset = Math.floor(index / perDay);
     const date = new Date(firstDay + dayOffset * 86_400_000).toISOString().slice(0, 10);
     const id = `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+    legacy.push({ id: id as CheckInId, boardId, logicalDate: date as LogicalDate });
     rows.push(
       `('${id}','${boardId}','${date}',NULL,NULL,NULL,NULL,NULL,'app','k${id}',${stamps},${stamps},'s${index}',NULL)`,
     );
@@ -50,6 +53,7 @@ async function seedCheckIns(
        VALUES ${rows.slice(start, start + 2_000).join(',')}`,
     );
   }
+  await admitLegacyChecks(harness, legacy);
 }
 
 async function timed<T>(work: () => Promise<T>): Promise<{ value: T; ms: number }> {

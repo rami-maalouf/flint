@@ -36,18 +36,7 @@ enum IntentCoinStore {
 
   static func settleAffected(checkScopes: [IntentBonusEvidence.CheckScope], rootScopes: [IntentBonusEvidence.Scope] = [],
     database: IntentDatabase, enqueueAt: Int64) throws {
-    var groups = try IntentBonusEvidence.read(database: database, checkScopes: checkScopes, rootScopes: rootScopes)
-    var baselines: [IntentBonusEvidence.LegacyCheck: IntentHabitAction] = [:]
-    for index in groups.indices {
-      for check in groups[index].legacyChecks {
-        if baselines[check] == nil {
-          let baseline = try IntentHabitAction.baseline(checkInId: check.id, boardId: check.boardId, date: check.logicalDate)
-          try baseline.append(to: database, enqueueAt: enqueueAt)
-          baselines[check] = baseline
-        }
-        groups[index].actions.append(baselines[check]!)
-      }
-    }
+    let groups = try IntentBonusEvidence.read(database: database, checkScopes: checkScopes, rootScopes: rootScopes)
     for scope in Set(checkScopes).sorted(by: { [$0.boardId, $0.logicalDate].lexicographicallyPrecedes([$1.boardId, $1.logicalDate]) }) {
       _ = try settleCheck(boardId: scope.boardId, logicalDate: scope.logicalDate, database: database, enqueueAt: enqueueAt)
     }

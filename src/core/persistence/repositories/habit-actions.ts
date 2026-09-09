@@ -43,3 +43,16 @@ export async function listHabitActions(
     WHERE board_id = ? AND logical_date = ? ORDER BY mutation_stamp, id`, [boardId, logicalDate]);
   return rows.map(fromRow);
 }
+
+// exact pairs share one read without combining unrelated boards and dates.
+export async function listHabitActionsForScopes(
+  tx: SqlExecutor, scopes: readonly { boardId: BoardId; logicalDate: LogicalDate }[],
+): Promise<HabitAction[]> {
+  const pairs = [...new Map(scopes.map(({ boardId, logicalDate }) =>
+    [`${boardId}:${logicalDate}`, { boardId, logicalDate }])).values()];
+  if (pairs.length === 0) return [];
+  const rows = await tx.getAllAsync<ActionRow>(`SELECT a.* FROM habit_actions a
+    JOIN json_each(?) s ON a.board_id = json_extract(s.value, '$.boardId')
+      AND a.logical_date = json_extract(s.value, '$.logicalDate')`, [JSON.stringify(pairs)]);
+  return rows.map(fromRow);
+}

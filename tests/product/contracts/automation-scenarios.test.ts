@@ -1,3 +1,4 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -73,7 +74,9 @@ async function seedScenario(scenario: Scenario) {
     }
   }
   for (const check of scenario.seed.checkIns) {
-    await insertCheckIn(harness.db, { ...check, boardId: idFor(check.boardId) });
+    const legacy = { ...check, boardId: idFor(check.boardId) };
+    await insertCheckIn(harness.db, legacy);
+    if (legacy.deletedAt === null) await admitLegacyChecks(harness, [legacy]);
   }
   return { harness, idFor };
 }

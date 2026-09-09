@@ -8,7 +8,7 @@ import { getCheckInByIdempotencyKey } from '@/core/persistence/repositories/chec
 import { createCheckIn } from '@/core/domain/commands';
 
 import { createBoardForTest } from '../helpers/product-fixtures';
-import { createTestHarness } from '../helpers/test-db';
+import { createTestHarness, createTestHashing } from '../helpers/test-db';
 
 describe('coverage top-up', () => {
   it('covers leap-year century rules and date parse failure', () => {
@@ -163,7 +163,7 @@ describe('coverage top-up', () => {
     const { migrateDatabase } = await Promise.resolve(
       require('@/core/persistence/migrations') as typeof import('../../../src/core/persistence/migrations'),
     );
-    await migrateDatabase(db);
+    await migrateDatabase(db, { hashing: createTestHashing() });
     const broken = Object.create(db) as typeof db;
     broken.withExclusiveTransactionAsync = async () => {
       throw new Error('settings write failed');
@@ -171,7 +171,7 @@ describe('coverage top-up', () => {
     const { initializeProductDatabase } = await Promise.resolve(
       require('@/core/persistence/bootstrap') as typeof import('../../../src/core/persistence/bootstrap'),
     );
-    const result = await initializeProductDatabase(broken, new Ids());
+    const result = await initializeProductDatabase(broken, new Ids(), createTestHashing());
     expect(!result.ok && result.error.code).toBe('database');
     await db.closeAsync();
   });

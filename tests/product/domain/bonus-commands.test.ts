@@ -1,3 +1,4 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import { archiveBoard, createBoard, createCheckIn, deleteBoard, removeCheckIn, removeLatestCheckIn,
   restoreBoard, toggleDailyCheckIn, undoCreatedCheckIn, updateBoard, updateCheckIn,
   type CreateBoardInput } from '@/core/domain/commands';
@@ -109,13 +110,14 @@ describe('same-day bonus command integration', () => {
     expect(await bonus(root, previous)).toEqual([]);
   });
 
-  it('seeds another required legacy member without inventing its individual earning', async () => {
+  it('uses an explicitly admitted required legacy member without inventing its individual earning', async () => {
     const { root, member } = await stack({ earnsCoins: true });
     const legacy = { id: h.ids.uuid() as CheckInId, boardId: root, logicalDate: date,
       occurredAtUtc: null, timeZoneId: null, offsetMinutes: null, amount: null, note: 'legacy preserved',
       source: 'app' as const, idempotencyKey: h.ids.nextCommandId(), createdAt: h.clock.utcMs,
       updatedAt: h.clock.utcMs, mutationStamp: '00000000000100-00000-legacy', deletedAt: null };
     await insertCheckIn(h.db, legacy);
+    await admitLegacyChecks(h, [legacy]);
     await check(member);
     expect((await bonus(root)).map(row => row.delta)).toEqual([1]);
     const expected = await baselineAction(legacy, h.deps.hashing);
@@ -249,7 +251,7 @@ describe('same-day bonus command integration', () => {
     expect(await snapshot(h)).toEqual(before);
   });
 
-  it('seeds one legacy token shared by historical root policies only once', async () => {
+  it('retains one explicitly admitted legacy token shared by historical root policies only once', async () => {
     const first = await board({ requiredInStack: false, anchor: { kind: 'preset', relation: 'after', preset: 'wake' } });
     const second = await board({ requiredInStack: false, anchor: { kind: 'preset', relation: 'after', preset: 'sleep' } });
     const member = await board({ anchor: { kind: 'board', relation: 'after', boardId: first } });
@@ -259,6 +261,7 @@ describe('same-day bonus command integration', () => {
       source: 'app' as const, idempotencyKey: h.ids.nextCommandId(), createdAt: h.clock.utcMs,
       updatedAt: h.clock.utcMs, mutationStamp: '00000000000100-00000-legacy', deletedAt: null };
     await insertCheckIn(h.db, legacy);
+    await admitLegacyChecks(h, [legacy]);
     await h.db.withExclusiveTransactionAsync(tx => settleAffectedCoinScopes(h.deps, { tx, now: h.clock.utcMs },
       { checkScopes: [{ boardId: member, logicalDate: date }] }));
     const expected = await baselineAction(legacy, h.deps.hashing);

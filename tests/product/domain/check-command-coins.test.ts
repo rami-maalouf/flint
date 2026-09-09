@@ -1,3 +1,4 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import writerFixture from '@/core/automations/fixtures/coin-writers.json';
 import { runCheckInIntent, runRemoveLatestIntent } from '@/core/automations/contract';
 import {
@@ -217,14 +218,16 @@ describe('check command coin accounting', () => {
       .toEqual([{ note: 'first note' }, { note: 'second note' }]);
   });
 
-  it('retains legacy duplicate history without awarding its synthesized baselines', async () => {
+  it('retains explicitly admitted legacy duplicate history without baseline earnings', async () => {
     const boardId = await board('count', { earnsCoins: true, cap: 3 });
     const current = await getBoardById(h.db, boardId);
     if (!current) throw new Error('missing fixture board');
     for (const note of ['legacy one', 'legacy two']) {
-      await insertCheckIn(h.db, { id: h.ids.uuid() as CheckInId, boardId, logicalDate: date, occurredAtUtc: null,
-        timeZoneId: null, offsetMinutes: null, amount: null, note, source: 'app', idempotencyKey: h.ids.nextCommandId(),
-        createdAt: now - 1000, updatedAt: now - 1000, mutationStamp: current.mutationStamp, deletedAt: null });
+      const legacy = { id: h.ids.uuid() as CheckInId, boardId, logicalDate: date, occurredAtUtc: null,
+        timeZoneId: null, offsetMinutes: null, amount: null, note, source: 'app' as const, idempotencyKey: h.ids.nextCommandId(),
+        createdAt: now - 1000, updatedAt: now - 1000, mutationStamp: current.mutationStamp, deletedAt: null };
+      await insertCheckIn(h.db, legacy);
+      await admitLegacyChecks(h, [legacy]);
     }
     await convertToDaily(boardId);
     expect(await check(boardId)).toMatchObject({ created: false });

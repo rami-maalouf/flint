@@ -1,4 +1,9 @@
-import type { Clock } from '../domain/ports';
+import { isValidLogicalDate } from '../calendar/logical-date';
+import { establishLegacyCheckEvidence } from '../domain/legacy-check-evidence';
+import { settleAffectedCoinScopes } from '../domain/coin-settlement';
+import type { BoardId, CheckInId, LogicalDate } from '../domain/ids';
+import { refreshCheckVisibility } from '../persistence/repositories/check-visibility';
+import type { Clock, Hashing } from '../domain/ports';
 import type { DomainResult } from '../domain/result';
 import { err, ok } from '../domain/result';
 import type { SqlDatabase, SqlExecutor } from '../persistence/database';
@@ -47,6 +52,7 @@ export type SyncOutcome = {
 export type SyncDeps = {
   db: SqlDatabase;
   clock: Clock;
+  hashing: Hashing;
   transport: SyncTransport;
   // deterministic in tests; Math.random in the app
   random: () => number;
@@ -133,10 +139,23 @@ async function collectUpload(
 
 // --- apply --------------------------------------------------------------------
 
+type CheckScope = { boardId: BoardId; logicalDate: LogicalDate };
+type AppliedChecks = { scopes: Map<string, CheckScope>; legacy: Map<string, CheckScope & { id: CheckInId }> };
+function appliedChecks(): AppliedChecks { return { scopes: new Map(), legacy: new Map() }; }
+function retainScope(changes: AppliedChecks, boardId: string, logicalDate: string) {
+  if (isValidLogicalDate(logicalDate)) changes.scopes.set(`${boardId}:${logicalDate}`, { boardId: boardId as BoardId, logicalDate: logicalDate as LogicalDate });
+}
+async function finishAppliedChecks(tx: SqlExecutor, now: number, hashing: Hashing, changes: AppliedChecks) {
+  await establishLegacyCheckEvidence({ tx, now, hashing }, [...changes.legacy.values()]);
+  const checkScopes = [...changes.scopes.values()];
+  await settleAffectedCoinScopes({ hashing }, { tx, now }, { checkScopes });
+  await refreshCheckVisibility(tx, checkScopes);
+}
+
 async function localStampFor(
   tx: SqlExecutor,
   record: SyncRecord,
-): Promise<{ exists: boolean; stamp: string | null; localId: string | null }> {
+): Promise<{ exists: boolean; stamp: string | null; localId: string | null; checkScope?: CheckScope }> {
   if (record.entityType === 'settings') {
     const row = await tx.getFirstAsync<{ mutation_stamp: string | null }>(
       'SELECT settings_mutation_stamp AS mutation_stamp FROM app_settings WHERE id = 1',
@@ -159,14 +178,15 @@ async function localStampFor(
     };
   }
   const spec = specFor(record.entityType);
-  const row = await tx.getFirstAsync<{ mutation_stamp: string }>(
-    `SELECT mutation_stamp FROM ${spec.table} WHERE ${spec.idColumn} = ?`,
+  const row = await tx.getFirstAsync<{ mutation_stamp: string; board_id: BoardId; logical_date: LogicalDate }>(
+    `SELECT mutation_stamp${record.entityType === 'check_in' ? ', board_id, logical_date' : ''} FROM ${spec.table} WHERE ${spec.idColumn} = ?`,
     [record.entityId],
   );
   return {
     exists: row !== null && row !== undefined,
     stamp: row?.mutation_stamp ?? null,
     localId: row ? record.entityId : null,
+    checkScope: row && record.entityType === 'check_in' ? { boardId: row.board_id, logicalDate: row.logical_date } : undefined,
   };
 }
 
@@ -174,6 +194,7 @@ async function applyRecord(
   tx: SqlExecutor,
   record: SyncRecord,
   now: number,
+  changes: AppliedChecks,
 ): Promise<boolean> {
   const local = await localStampFor(tx, record);
   // whole-record last-writer-wins on the lexicographic stamp; equal stamps
@@ -232,10 +253,19 @@ async function applyRecord(
     return true;
   }
 
+  if (record.entityType === 'check_in') {
+    if (local.checkScope) retainScope(changes, local.checkScope.boardId, local.checkScope.logicalDate);
+    const boardId = record.fields.board_id as BoardId;
+    const logicalDate = record.fields.logical_date as LogicalDate;
+    retainScope(changes, boardId, logicalDate);
+    if (!record.deleted && record.schemaVersion === 1) {
+      changes.legacy.set(`${boardId}:${logicalDate}:${record.entityId}`, { id: record.entityId as CheckInId, boardId, logicalDate });
+    }
+  }
   if (local.exists) {
     const assignments = columns.map((column) => `${column} = ?`).join(', ');
     await tx.runAsync(
-      `UPDATE ${spec.table} SET ${assignments}, mutation_stamp = ? WHERE ${spec.idColumn} = ?`,
+      `UPDATE ${spec.table} SET ${assignments}, mutation_stamp = ?${record.entityType === 'check_in' ? ', state_suppressed = 1' : ''} WHERE ${spec.idColumn} = ?`,
       [...values, record.mutationStamp, record.entityId],
     );
     return true;
@@ -280,12 +310,13 @@ async function applyWithDeferral(
   tx: SqlExecutor,
   record: SyncRecord,
   now: number,
+  changes: AppliedChecks,
 ): Promise<boolean> {
   const deferredStamp = await getDeferredMutationStamp(tx, record.entityType, record.entityId);
   if (deferredStamp !== null && deferredStamp > record.mutationStamp) {
     return false;
   }
-  const applied = await applyRecord(tx, record, now);
+  const applied = await applyRecord(tx, record, now, changes);
   await deleteDeferredRecord(tx, record.entityType, record.entityId);
   return applied;
 }
@@ -315,6 +346,7 @@ async function validateAndApply(
   tx: SqlExecutor,
   value: unknown,
   now: number,
+  changes: AppliedChecks,
 ): Promise<{ applied: boolean; observedStamp: string | null }> {
   const validation = await validateInboundRecord(tx, value);
   if (validation.kind === 'unidentifiable') {
@@ -325,7 +357,7 @@ async function validateAndApply(
     return { applied: false, observedStamp: null };
   }
   return {
-    applied: await applyWithDeferral(tx, validation.record, now),
+    applied: await applyWithDeferral(tx, validation.record, now, changes),
     observedStamp: validation.record.mutationStamp,
   };
 }
@@ -336,6 +368,7 @@ async function drainDeferred(
   tx: SqlExecutor,
   now: number,
   hlc: { wallTime: number; counter: number },
+  changes: AppliedChecks,
 ): Promise<{ applied: number; hlc: { wallTime: number; counter: number } }> {
   let applied = 0;
   for (const row of await listDeferredRecords(tx)) {
@@ -345,7 +378,7 @@ async function drainDeferred(
     } catch {
       continue;
     }
-    const result = await validateAndApply(tx, record, now);
+    const result = await validateAndApply(tx, record, now, changes);
     if (result.observedStamp !== null) {
       hlc = observe(hlc, result.observedStamp);
     }
@@ -368,7 +401,6 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
       return ok({ status: 'idle' as SyncStatus, uploaded: 0, applied: 0, retryAfterMs: null });
     }
     const now = deps.clock.nowUtcMs();
-    const timeZoneId = deps.clock.timeZoneId();
 
     const preflight = await deps.db.withTransactionAsync(async (tx) => {
       const settings = await getSettings(tx);
@@ -427,6 +459,9 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
         if (page.records.length > 0) {
           const committed = await deps.db.withExclusiveTransactionAsync(async (tx) => {
             checkpoint(deps);
+            const now = deps.clock.nowUtcMs();
+            const timeZoneId = deps.clock.timeZoneId();
+            const changes = appliedChecks();
             // the preflight proved the settings row exists
             const settings = (await getSettings(tx)) as NonNullable<
               Awaited<ReturnType<typeof getSettings>>
@@ -434,7 +469,7 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
             let hlc = { wallTime: settings.hlcWallTime, counter: settings.hlcCounter };
             let count = 0;
             for (const record of applyOrder(page.records)) {
-              const result = await validateAndApply(tx, record, now);
+              const result = await validateAndApply(tx, record, now, changes);
               if (result.observedStamp !== null) {
                 hlc = observe(hlc, result.observedStamp);
               }
@@ -444,9 +479,10 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
             }
             // draining after the page lets a parent that arrived in this
             // very page unblock the dependents waiting on it
-            const drained = await drainDeferred(tx, now, hlc);
+            const drained = await drainDeferred(tx, now, hlc, changes);
             count += drained.applied;
             hlc = drained.hlc;
+            await finishAppliedChecks(tx, now, deps.hashing, changes);
             await saveHlc(tx, hlc);
             await rebuildWidgetRows(tx, now, timeZoneId);
             // the token lands in the same commit as its records
@@ -463,6 +499,9 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
           // token still advances
           const drained = await deps.db.withExclusiveTransactionAsync(async (tx) => {
             checkpoint(deps);
+            const now = deps.clock.nowUtcMs();
+            const timeZoneId = deps.clock.timeZoneId();
+            const changes = appliedChecks();
             const settings = (await getSettings(tx)) as NonNullable<
               Awaited<ReturnType<typeof getSettings>>
             >;
@@ -470,7 +509,9 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
               tx,
               now,
               { wallTime: settings.hlcWallTime, counter: settings.hlcCounter },
+              changes,
             );
+            await finishAppliedChecks(tx, now, deps.hashing, changes);
             if (result.applied > 0) {
               await rebuildWidgetRows(tx, now, timeZoneId);
             }

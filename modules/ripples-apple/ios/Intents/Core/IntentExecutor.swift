@@ -8,8 +8,8 @@ final class IntentExecutor {
 
   // native code never migrates. the fixture test compares these checksums
   // with the authoritative typescript migrations before executing cases.
-  static let schemaVersion = 10
-  static let migrationChecksums = [1: "c459cef6", 2: "34363ca0", 3: "bac085e2", 4: "dcbb9394", 5: "633f8fb7", 6: "0191110b", 7: "a901fb95", 8: "14ff0dae", 9: "421ece28", 10: "5d0cab85"]
+  static let schemaVersion = 11
+  static let migrationChecksums = [1: "c459cef6", 2: "34363ca0", 3: "bac085e2", 4: "dcbb9394", 5: "633f8fb7", 6: "0191110b", 7: "a901fb95", 8: "14ff0dae", 9: "421ece28", 10: "5d0cab85", 11: "507c9875"]
 
   init(database: IntentDatabase, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
        zone: @escaping () -> String = { TimeZone.current.identifier },
@@ -98,7 +98,6 @@ final class IntentExecutor {
         Double(try IntentCalendar.calendar(zone: zone).timeZone.secondsFromGMT(for: Date(timeIntervalSince1970: date / 1000))) / 60
       }
       let policy = try self.captureCoinPolicy(boardId: board.id, date: date, zone: zone)
-      try self.ensureBaselines(boardId: board.id, date: date, enqueueAt: Int64(instant))
       let stamp = clock.advance(now: Int64(instant))
       let id = self.uuid()
       try self.database.run("""
@@ -112,6 +111,7 @@ final class IntentExecutor {
       try self.appendAction(commandId: input.commandId, boardId: board.id, date: date, checkInId: id,
                             kind: "check", stamp: stamp, instant: instant, policyJson: policy)
       try IntentCoinStore.settleAffected(checkScopes: [.init(boardId: board.id, logicalDate: date)], database: self.database, enqueueAt: Int64(instant))
+      try IntentCheckVisibility.refresh(database: self.database, scopes: [.init(boardId: board.id, logicalDate: date)])
       try self.rebuildWidgets(instant: instant, zone: zone)
       return .success(IntentCreatedCheckIn(checkInId: id, logicalDate: date))
     }
@@ -165,7 +165,6 @@ final class IntentExecutor {
         return .failure(IntentFailure(code: "conflict", message: "The check-ins changed. Run the shortcut again to review them."))
       }
       let policy = try self.captureCoinPolicy(boardId: board.id, date: date, zone: zone)
-      try self.ensureBaselines(boardId: board.id, date: date, enqueueAt: Int64(instant))
       let stamp = clock.advance(now: Int64(instant))
       for id in ids {
         try self.database.run("UPDATE check_ins SET deleted_at = ?, updated_at = ?, mutation_stamp = ? WHERE id = ?",
@@ -175,6 +174,7 @@ final class IntentExecutor {
       try self.appendAction(commandId: commandId, boardId: board.id, date: date,
         checkInId: board.kind == .daily ? nil : id, kind: "uncheck", stamp: stamp, instant: instant, policyJson: policy)
       try IntentCoinStore.settleAffected(checkScopes: [.init(boardId: board.id, logicalDate: date)], database: self.database, enqueueAt: Int64(instant))
+      try IntentCheckVisibility.refresh(database: self.database, scopes: [.init(boardId: board.id, logicalDate: date)])
       try self.rebuildWidgets(instant: instant, zone: zone)
       return .success(IntentRemovedCheckIn(removedCheckInId: id, logicalDate: date, removedCheckInIds: ids))
     }
@@ -188,7 +188,7 @@ final class IntentExecutor {
       let instant = self.now(), zone = self.zone()
       let boards = try scoped.map { board -> IntentTodayCount in
         let date = try IntentCalendar.logicalDate(utcMs: instant, zone: zone, startMinute: board.startOfDayMinute)
-        let count = try self.database.rows("SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL", [.text(board.id), .text(date)]).first?["count"]?.number ?? 0
+        let count = try self.database.rows("SELECT COUNT(*) AS count FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL AND state_suppressed = 0", [.text(board.id), .text(date)]).first?["count"]?.number ?? 0
         return IntentTodayCount(title: board.title, count: board.kind == .daily ? (count > 0 ? 1 : 0) : Int(count))
       }
       return IntentTodayCheckIns(boards: boards, total: boards.reduce(0) { $0 + $1.count })
@@ -294,7 +294,7 @@ final class IntentExecutor {
 
   private func latestCheckIn(boardId: String, date: String) throws -> String? {
     try database.rows("""
-      SELECT id FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL
+      SELECT id FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL AND state_suppressed = 0
       ORDER BY CASE WHEN occurred_at_utc IS NULL THEN 1 ELSE 0 END, occurred_at_utc DESC, created_at DESC, id LIMIT 1
       """, [.text(boardId), .text(date)]).first?["id"]?.string
   }
@@ -302,7 +302,7 @@ final class IntentExecutor {
   private func removalRows(boardId: String, date: String, kind: IntentBoardKind) throws -> [[String: IntentSQLValue]] {
     let limit = kind == .count ? " LIMIT 1" : ""
     return try database.rows("""
-      SELECT id, note, mutation_stamp FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL
+      SELECT id, note, mutation_stamp FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL AND state_suppressed = 0
       ORDER BY CASE WHEN occurred_at_utc IS NULL THEN 1 ELSE 0 END, occurred_at_utc DESC, created_at DESC, id
       """ + limit, [.text(boardId), .text(date)])
   }
@@ -319,21 +319,6 @@ final class IntentExecutor {
     return try capture.capture(boardId: boardId, logicalDate: date).canonical()
   }
 
-  private func ensureBaselines(boardId: String, date: String, enqueueAt: Int64) throws {
-    let evidence = try database.rows("SELECT check_in_id FROM habit_actions WHERE board_id = ? AND logical_date = ?",
-      [.text(boardId), .text(date)])
-    let known = Set(evidence.compactMap { $0["check_in_id"]?.string })
-    let rows = try database.rows("""
-      SELECT id FROM check_ins WHERE board_id = ? AND logical_date = ? AND deleted_at IS NULL
-      ORDER BY id
-      """, [.text(boardId), .text(date)])
-    for row in rows {
-      guard let id = row["id"]?.string else { throw IntentStorageError.unavailable }
-      if known.contains(id) { continue }
-      try IntentHabitAction.baseline(checkInId: id, boardId: boardId, date: date).append(to: database, enqueueAt: enqueueAt)
-    }
-  }
-
   private func appendOutbox(id: String, stamp: String, instant: Double) throws {
     try database.run("INSERT INTO mutation_outbox (entity_type, entity_id, mutation_stamp, created_at) VALUES ('check_in', ?, ?, ?)",
                       [.text(id), .text(stamp), .integer(Int64(instant))])
@@ -347,7 +332,7 @@ final class IntentExecutor {
       let start = try IntentCalendar.addingDays(-6, to: today)
       let counts = try database.rows("""
         SELECT logical_date, COUNT(*) AS count FROM check_ins
-        WHERE board_id = ? AND deleted_at IS NULL AND logical_date BETWEEN ? AND ? GROUP BY logical_date
+        WHERE board_id = ? AND deleted_at IS NULL AND state_suppressed = 0 AND logical_date BETWEEN ? AND ? GROUP BY logical_date
         """, [.text(board.id), .text(start), .text(today)])
       let byDate = Dictionary(uniqueKeysWithValues: counts.map { ($0["logical_date"]!.string!, Int($0["count"]!.number!)) })
       let strip = try (0..<7).map { offset -> Int in

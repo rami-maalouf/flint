@@ -1,3 +1,4 @@
+import { admitLegacyChecks } from '../helpers/legacy-checks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCheckInIntent, runRemoveLatestIntent, runTodayCheckInsIntent } from '@/core/automations/contract';
@@ -37,6 +38,7 @@ async function legacyCheck(h: TestHarness, boardId: BoardId, logicalDate = today
     updatedAt: h.clock.utcMs, mutationStamp: '01788105600000-00000-legacy', deletedAt: null,
   };
   await insertCheckIn(h.db, check);
+  await admitLegacyChecks(h, [check]);
   return check;
 }
 
@@ -112,7 +114,7 @@ describe('daily commands and action evidence', () => {
     expect(await deleteBoard(h.deps, { commandId: h.ids.nextCommandId(), boardId })).toMatchObject({ ok: true });
     expect(foldDailyActions(await listHabitActions(h.db, boardId, today))).toEqual({ checked: false, checkInId: null });
   });
-  it('seeds legacy baselines at conversion and preserves omitted daily kind and old values', async () => {
+  it('preserves explicitly admitted legacy baselines through conversion and preserves omitted daily kind and old values', async () => {
     const boardId = await makeBoard(h, 'count');
     const first = await legacyCheck(h, boardId);
     const second = await legacyCheck(h, boardId);
@@ -197,6 +199,7 @@ describe('daily commands and action evidence', () => {
     it(vector.name, async () => {
       const boardId = await makeBoard(h);
       for (let index = 0; index < vector.legacyCheckCount; index++) await legacyCheck(h, boardId);
+      expect((await listHabitActions(h.db, boardId, today)).filter(x => x.kind === 'baseline')).toHaveLength(vector.legacyCheckCount);
       const created = [];
       for (let index = 0; index < vector.checkAttempts; index++) {
         const result = await runCheckInIntent(h.deps, { commandId: h.ids.nextCommandId(), boardId, source: 'siri', amount: 999, occurredAtUtc: h.clock.utcMs - 1 });
@@ -213,7 +216,7 @@ describe('daily commands and action evidence', () => {
       expect(rows).toHaveLength(vector.expectedLiveCount);
       if (!vector.legacyCheckCount) for (const row of rows) expect(row).toMatchObject({ amount: null, occurredAtUtc: null });
       expect(await runTodayCheckInsIntent(h.deps, { boardId })).toMatchObject({ ok: true, value: { total: vector.expectedTodayCount } });
-      expect((await listHabitActions(h.db, boardId, today)).map(x => x.kind)).toEqual(vector.expectedActionKinds);
+      expect((await listHabitActions(h.db, boardId, today)).filter(x => x.kind !== 'baseline').map(x => x.kind)).toEqual(vector.expectedActionKinds.filter((kind: string) => kind !== 'baseline'));
     });
   }
 

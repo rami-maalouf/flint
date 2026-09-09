@@ -2,6 +2,7 @@ export type Migration = {
   version: number;
   name: string;
   statements: readonly string[];
+  dataStep?: { name: string; version: number };
 };
 
 // append-only after release; never rewrite a released migration
@@ -312,6 +313,35 @@ export const migrations: readonly Migration[] = [
       )`,
       `CREATE INDEX idx_rewards_active ON rewards (deleted_at, archived_at, order_key, id)`,
       `UPDATE app_settings SET schema_revision = 10 WHERE id = 1`,
+    ],
+  },
+  {
+    version: 11,
+    name: 'remote_fact_admission',
+    dataStep: { name: 'legacy_check_evidence', version: 1 },
+    statements: [
+      `ALTER TABLE check_ins ADD COLUMN state_suppressed INTEGER NOT NULL DEFAULT 1 CHECK (state_suppressed IN (0, 1))`,
+      `CREATE TABLE remote_fact_inbox (
+        fact_type TEXT NOT NULL CHECK (fact_type IN ('habit_action', 'ledger_entry')),
+        fact_id TEXT NOT NULL COLLATE BINARY,
+        payload_digest TEXT NOT NULL CHECK (length(payload_digest) = 64 AND length(CAST(payload_digest AS BLOB)) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'),
+        payload_encoding TEXT NOT NULL CHECK (payload_encoding IN ('canonical_v1', 'rejected_json_v1')),
+        payload TEXT NOT NULL,
+        payload_bytes INTEGER NOT NULL CHECK (typeof(payload_bytes) = 'integer' AND payload_bytes BETWEEN 1 AND 786432 AND payload_bytes = length(CAST(payload AS BLOB))),
+        logical_date TEXT,
+        scope_key TEXT,
+        state TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        enqueue_on_admission INTEGER NOT NULL DEFAULT 0 CHECK (enqueue_on_admission IN (0, 1)),
+        first_seen_at INTEGER NOT NULL CHECK (typeof(first_seen_at) = 'integer' AND first_seen_at BETWEEN 0 AND 9007199254740991),
+        PRIMARY KEY (fact_type, fact_id, payload_digest),
+        CHECK ((state = 'pending' AND reason = 'dependency')
+          OR (state = 'blocked_capacity' AND reason = 'scope_capacity')
+          OR (state = 'quarantined' AND reason IN ('invalid', 'conflict')))
+      )`,
+      `CREATE INDEX idx_remote_fact_retry ON remote_fact_inbox (state, logical_date, fact_type, fact_id)`,
+      `CREATE INDEX idx_remote_fact_scope ON remote_fact_inbox (scope_key, state)`,
+      `UPDATE app_settings SET schema_revision = 11 WHERE id = 1`,
     ],
   },
 ];

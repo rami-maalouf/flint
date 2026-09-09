@@ -2,10 +2,15 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { createBoard } from '@/core/domain/commands';
+import { canonicalCoinPolicy } from '@/core/domain/coin-policy';
+import { checkCoinRow } from '@/core/domain/coin-ledger';
+import type { HabitAction } from '@/core/domain/habit-actions';
+import { appendHabitAction } from '@/core/persistence/repositories/habit-actions';
+import { appendLedgerEntry } from '@/core/persistence/repositories/ledger';
 import { migrateDatabase, migrationChecksum } from '@/core/persistence/migrations';
 import { latestSchemaVersion, migrations } from '@/core/persistence/schema';
 
-import { createTestHarness, NodeSqlDatabase } from '../helpers/test-db';
+import { createTestHarness, createTestHashing, NodeSqlDatabase } from '../helpers/test-db';
 
 const boardDefaults = {
   kind: 'count', anchor_relation: null, anchor_kind: null, anchor_board_id: null,
@@ -32,11 +37,11 @@ async function priorDatabase(version: number) {
   await db.runAsync(`INSERT INTO boards (id, title, symbol, accent_hex, uses_tinted_background,
     tracks_amount, amount_unit, quick_amount, tracks_time, start_of_day_minute, metrics_enabled,
     order_key, archived_at, created_at, updated_at, mutation_stamp, deleted_at) VALUES (
-    'legacy-board', 'legacy count', 'star.fill', '#70A7FF', 1, 1, 'minutes', 2.5,
+    '00000000-0000-4000-8000-000000000001', 'legacy count', 'star.fill', '#70A7FF', 1, 1, 'minutes', 2.5,
     1, 240, 1, 'i', NULL, 100, 200, 'legacy-stamp', NULL
   )`);
   await db.runAsync(`INSERT INTO widget_board_rows (board_id, position, title, symbol, accent_hex, strip, strip_end_date)
-    VALUES ('legacy-board', 0, 'legacy count', 'star.fill', '#70A7FF', '[0,0,0,0,0,0,2]', '2026-09-08')`);
+    VALUES ('00000000-0000-4000-8000-000000000001', 0, 'legacy count', 'star.fill', '#70A7FF', '[0,0,0,0,0,0,2]', '2026-09-08')`);
   return db;
 }
 
@@ -47,12 +52,12 @@ describe('habit fields migration', () => {
       const board = await db.getFirstAsync<RawRow>('SELECT * FROM boards');
       const widget = await db.getFirstAsync<RawRow>('SELECT * FROM widget_board_rows');
       const cursor = await db.getFirstAsync('SELECT * FROM sync_state');
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getFirstAsync('SELECT * FROM boards')).toEqual({ ...board, ...boardDefaults });
       expect(await db.getFirstAsync('SELECT * FROM widget_board_rows')).toEqual({ ...widget, kind: 'count' });
       expect(await db.getFirstAsync('SELECT * FROM app_settings')).toMatchObject({ ...presetDefaults, schema_revision: latestSchemaVersion, device_id: 'legacy-device' });
       expect(await db.getFirstAsync('SELECT * FROM sync_state')).toEqual(cursor);
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
     } finally {
       await db.closeAsync();
     }
@@ -83,13 +88,21 @@ describe('habit fields migration', () => {
       await db.execAsync(readFileSync(path.join(__dirname, 'fixtures/v5-habit-data.sql'), 'utf8'));
       const boards = await db.getAllAsync<RawRow>('SELECT * FROM boards ORDER BY id');
       const settings = await db.getFirstAsync<RawRow>('SELECT * FROM app_settings');
-      const unchanged = ['check_ins', 'board_activity_periods', 'reminders', 'reminder_schedule',
-        'sync_state', 'sync_account_bindings', 'mutation_outbox', 'command_receipts', 'sync_deferred'];
+      const checks = await db.getAllAsync<RawRow>('SELECT * FROM check_ins ORDER BY id');
+      const outbox = await db.getAllAsync<RawRow>('SELECT * FROM mutation_outbox ORDER BY id');
+      const unchanged = ['board_activity_periods', 'reminders', 'reminder_schedule',
+        'sync_state', 'sync_account_bindings', 'command_receipts', 'sync_deferred'];
       const before = await Promise.all(unchanged.map((table) => db.getAllAsync(`SELECT * FROM ${table}`)));
-      expect((await migrateDatabase(db)).ok).toBe(true);
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM boards ORDER BY id')).toEqual(boards.map((board) => ({ ...board, ...boardDefaults })));
       expect(await db.getFirstAsync('SELECT * FROM app_settings')).toEqual({ ...settings, ...presetDefaults, schema_revision: latestSchemaVersion });
       for (const [index, table] of unchanged.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
+      expect(await db.getAllAsync('SELECT * FROM check_ins ORDER BY id')).toEqual(checks.map(check =>
+        ({ ...check, state_suppressed: check.deleted_at === null ? 0 : 1 })));
+      expect(await db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id')).toHaveLength(outbox.length + 2);
+      expect(await db.getAllAsync('SELECT * FROM mutation_outbox WHERE entity_type != ? ORDER BY id', ['habit_action'])).toEqual(outbox);
+      expect(await db.getAllAsync("SELECT kind, policy_json, created_at FROM habit_actions ORDER BY id"))
+        .toEqual(Array.from({ length: 2 }, () => ({ kind: 'baseline', policy_json: null, created_at: 0 })));
     } finally {
       await db.closeAsync();
     }
@@ -103,7 +116,7 @@ describe('habit fields migration', () => {
         if (sql.includes('ADD COLUMN wake_minute')) return Promise.reject(new Error('simulated disk failure'));
         return run(sql, params);
       });
-      expect(await migrateDatabase(db)).toMatchObject({ ok: false, error: { code: 'migration' } });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toMatchObject({ ok: false, error: { code: 'migration' } });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 5 });
       expect(await db.getAllAsync('SELECT version FROM schema_migrations')).toHaveLength(5);
       const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(boards)');
@@ -140,7 +153,7 @@ describe('habit fields migration', () => {
   ])('rejects invalid %s.%s value %s at the storage boundary', async (table, column, value) => {
     const db = await priorDatabase(5);
     try {
-      await migrateDatabase(db);
+      await migrateDatabase(db, { hashing: createTestHashing() });
       await expect(db.runAsync(`UPDATE ${table} SET ${column} = ?`, [value])).rejects.toThrow('CHECK constraint failed');
     } finally {
       await db.closeAsync();
@@ -151,9 +164,10 @@ describe('habit fields migration', () => {
     try {
       const tables = ['boards', 'widget_board_rows', 'check_ins', 'mutation_outbox', 'command_receipts', 'sync_state'];
       const before = await Promise.all(tables.map(table => db.getAllAsync(`SELECT * FROM ${table}`)));
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM habit_actions')).toEqual([]);
-      for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
+      for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`))
+        .toEqual(table === 'check_ins' ? before[index].map(row => ({ ...row as RawRow, state_suppressed: 0 })) : before[index]);
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: latestSchemaVersion });
       expect(await db.getFirstAsync('SELECT schema_revision FROM app_settings')).toEqual({ schema_revision: latestSchemaVersion });
       expect(migrations.slice(0, 6).map(migrationChecksum)).toEqual(['c459cef6', '34363ca0', 'bac085e2', 'dcbb9394', '633f8fb7', '0191110b']);
@@ -168,7 +182,7 @@ describe('habit fields migration', () => {
         if (sql.includes('CREATE TRIGGER habit_actions_no_delete')) return Promise.reject(new Error('simulated disk failure'));
         return run(sql, params);
       });
-      expect(await migrateDatabase(db)).toMatchObject({ ok: false, error: { code: 'migration' } });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toMatchObject({ ok: false, error: { code: 'migration' } });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 6 });
       expect(await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name = 'habit_actions'")).toBeNull();
       expect(await db.getFirstAsync('SELECT schema_revision FROM app_settings')).toEqual({ schema_revision: 6 });
@@ -198,16 +212,17 @@ describe('habit fields migration', () => {
       const tables = ['boards', 'check_ins', 'habit_actions', 'command_receipts', 'mutation_outbox', 'widget_board_rows', 'sync_state'];
       const before = await Promise.all(tables.map(table => db.getAllAsync(`SELECT * FROM ${table}`)));
       expect(migrations.find(({ version }) => version === 8)).toBeDefined();
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM coin_ledger')).toEqual([]);
-      for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
+      for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`))
+        .toEqual(table === 'check_ins' ? before[index].map(row => ({ ...row as RawRow, state_suppressed: 0 })) : before[index]);
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: latestSchemaVersion });
       expect(await db.getFirstAsync('SELECT schema_revision FROM app_settings')).toEqual({ schema_revision: latestSchemaVersion });
       expect(migrations.slice(0, 7).map(migrationChecksum)).toEqual([
         'c459cef6', '34363ca0', 'bac085e2', 'dcbb9394', '633f8fb7', '0191110b', 'a901fb95',
       ]);
       expect(await db.getAllAsync('PRAGMA foreign_key_list(coin_ledger)')).toEqual([]);
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
     } finally { await db.closeAsync(); }
   });
 
@@ -222,12 +237,12 @@ describe('habit fields migration', () => {
         if (sql.includes(failure)) return Promise.reject(new Error('simulated disk failure'));
         return run(sql, params);
       });
-      expect(await migrateDatabase(db)).toMatchObject({ ok: false, error: { code: 'migration' } });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toMatchObject({ ok: false, error: { code: 'migration' } });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 7 });
       expect(await db.getAllAsync("SELECT name FROM sqlite_master WHERE name LIKE '%coin_ledger%'")).toEqual([]);
       for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
       spy.mockRestore();
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM coin_ledger')).toEqual([]);
     } finally { await db.closeAsync(); }
   });
@@ -235,20 +250,21 @@ describe('habit fields migration', () => {
   it('adds exact-date policy discovery without rewriting schema 8 history', async () => {
     const db = await priorDatabase(8);
     try {
-      await db.runAsync(`INSERT INTO habit_actions VALUES (
-        '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003',
-        'legacy-board', '2026-09-08', '00000000-0000-4000-8000-000000000002',
-        'check', 100, '00000000000100-00000-legacy', NULL)`);
-      await db.runAsync(`INSERT INTO coin_ledger
-        (id, kind, delta, board_id, check_in_id, scope_key, source_action_id, logical_date, created_at, mutation_stamp)
-        VALUES ('00000000-0000-5000-8000-000000000005', 'check', 1, 'legacy-board',
-        '00000000-0000-4000-8000-000000000002', 'check:legacy-board:2026-09-08',
-        '00000000-0000-4000-8000-000000000004', '2026-09-08', 100, '00000000000100-00000-legacy')`);
+      const action = {
+        id: '00000000-0000-4000-8000-000000000004', commandId: '00000000-0000-4000-8000-000000000003',
+        boardId: '00000000-0000-4000-8000-000000000001', logicalDate: '2026-09-08',
+        checkInId: '00000000-0000-4000-8000-000000000002', kind: 'check', createdAt: 100,
+        mutationStamp: '00000000000100-00000-legacy', policyJson: canonicalCoinPolicy({ version: 1,
+          boardKind: 'count', earnsCoins: true, coinCapPerDay: 1, checkClosesAtUtc: 200,
+          rootId: null, requiredBoardIds: [], bonusClosesAtUtc: null, bonusEnabled: false }),
+      } as HabitAction;
+      await appendHabitAction(db, action);
+      await appendLedgerEntry(db, await checkCoinRow(action, createTestHashing()));
       const tables = ['boards', 'check_ins', 'habit_actions', 'coin_ledger', 'command_receipts',
         'mutation_outbox', 'widget_board_rows', 'sync_state'];
       const before = await Promise.all(tables.map(table => db.getAllAsync(`SELECT * FROM ${table}`)));
       expect(migrations.find(({ version }) => version === 9)?.name).toBe('exact_date_action_lookup');
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
       expect(migrations.slice(0, 8).map(migrationChecksum)).toEqual([
         'c459cef6', '34363ca0', 'bac085e2', 'dcbb9394', '633f8fb7', '0191110b', 'a901fb95', '14ff0dae',
@@ -259,7 +275,7 @@ describe('habit fields migration', () => {
       expect(plan.some(row => row.detail.includes('idx_habit_actions_date_kind (logical_date=? AND kind=?)'))).toBe(true);
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: latestSchemaVersion });
       expect(await db.getFirstAsync('SELECT schema_revision FROM app_settings')).toEqual({ schema_revision: latestSchemaVersion });
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
     } finally { await db.closeAsync(); }
   });
 
@@ -274,12 +290,12 @@ describe('habit fields migration', () => {
         if (sql.includes(failure)) return Promise.reject(new Error('simulated disk failure'));
         return run(sql, params);
       });
-      expect(await migrateDatabase(db)).toMatchObject({ ok: false, error: { code: 'migration' } });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toMatchObject({ ok: false, error: { code: 'migration' } });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 8 });
       expect(await db.getAllAsync("SELECT name FROM sqlite_master WHERE name = 'idx_habit_actions_date_kind'")).toEqual([]);
       for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
       spy.mockRestore();
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
     } finally { await db.closeAsync(); }
   });
 });

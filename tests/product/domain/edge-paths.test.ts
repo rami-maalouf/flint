@@ -34,7 +34,7 @@ import { migrateDatabase } from '@/core/persistence/migrations';
 import type { SqlDatabase } from '@/core/persistence/database';
 
 import { createBoardForTest } from '../helpers/product-fixtures';
-import { createTestHarness, TestIds } from '../helpers/test-db';
+import { createTestHarness, createTestHashing, TestIds } from '../helpers/test-db';
 
 const missingBoard = '00000000-0000-4000-8000-00000000ffff' as BoardId;
 const missingCheckIn = '00000000-0000-4000-8000-00000000fffe' as CheckInId;
@@ -543,10 +543,10 @@ describe('migration failure wrapping', () => {
       },
       closeAsync: async () => undefined,
     };
-    const result = await migrateDatabase(failing);
+    const result = await migrateDatabase(failing, { hashing: createTestHashing() });
     expect(!result.ok && result.error.code).toBe('migration');
     const ids = new TestIds();
-    const initialized = await initializeProductDatabase(failing, ids);
+    const initialized = await initializeProductDatabase(failing, ids, createTestHashing());
     expect(initialized.ok).toBe(false);
   });
 });

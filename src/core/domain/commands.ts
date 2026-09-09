@@ -18,7 +18,7 @@ import {
 import {
   checkInIdExists,
   insertCheckIn,
-  listBoardCheckIns,
+  listRawBoardCheckIns,
 } from '../persistence/repositories/check-ins';
 import { insertReminder, reminderIdExists } from '../persistence/repositories/reminders';
 import {
@@ -30,7 +30,10 @@ import {
   saveSelectedIcon,
   tombstoneBoardGraph,
 } from '../persistence/repositories/support';
-import { appendCheckAction, captureBoardDatePolicies, seedLegacyCheckActions } from './check-in-mutations';
+import { establishLegacyCheckEvidence } from './legacy-check-evidence';
+import { settleAffectedCoinScopes } from './coin-settlement';
+import { refreshCheckVisibility } from '../persistence/repositories/check-visibility';
+import { appendCheckAction, captureBoardDatePolicies } from './check-in-mutations';
 import { appendBoardPolicies, prepareBoardPolicyChange } from './board-policy-mutations';
 import { reopenBoardPolicyPeriod } from '../persistence/repositories/board-policy-evidence';
 import { EMPTY_BOARD_ANCHOR, normalizeBoardAnchorFields, validateBoardAnchorGraph, type BoardAnchorFields, type BoardAnchorOptions } from './board-anchor';
@@ -285,9 +288,6 @@ export function updateBoard(
     };
     const policies = await prepareBoardPolicyChange(deps, context, [updated]);
     if (!policies.ok) return policies;
-    if (board.kind === 'count' && input.kind === 'daily') {
-      await seedLegacyCheckActions(deps, tx, await listBoardCheckIns(tx, board.id), now);
-    }
     const mutationStamp = stamp();
     updated.mutationStamp = mutationStamp;
     await updateBoardRow(tx, updated);
@@ -410,7 +410,7 @@ export function deleteBoard(
       return err('not_found', 'This board no longer exists.');
     }
     const dependents = await listBoardAnchorDependents(tx, board.id);
-    const checks = await listBoardCheckIns(tx, board.id);
+    const checks = await listRawBoardCheckIns(tx, board.id);
     const dates = [...new Set(checks.map((check) => check.logicalDate))];
     const policies = await captureBoardDatePolicies(context, board.id, dates);
     if (!policies.ok) return policies;
@@ -418,7 +418,6 @@ export function deleteBoard(
       [{ ...board, deletedAt: now }, ...dependents.map(dependent => ({ ...dependent, ...EMPTY_BOARD_ANCHOR, updatedAt: now }))],
       { kind: 'delete', boardId: board.id });
     if (!boardPolicies.ok) return boardPolicies;
-    await seedLegacyCheckActions(deps, tx, checks, now);
     const mutationStamp = stamp();
     for (const check of checks) {
       await appendCheckAction(deps, context, input.commandId, check, 'uncheck', mutationStamp,
@@ -561,6 +560,7 @@ export async function importSnapshotInTransaction(
       remindersCreated: 0,
       remindersSkipped: 0,
     };
+    const legacyChecks: CheckIn[] = [];
     const boardIdBySource = new Map<string, BoardId>();
     const boardMeta = new Map<
       BoardId,
@@ -772,7 +772,7 @@ export async function importSnapshotInTransaction(
         deletedAt: null,
       };
       await insertCheckIn(tx, checkIn);
-      await seedLegacyCheckActions(deps, tx, [checkIn], now);
+      legacyChecks.push(checkIn);
       await appendOutbox(tx, 'check_in', checkInId, mutationStamp, now);
       summary.checkInsCreated += 1;
     }
@@ -822,6 +822,9 @@ export async function importSnapshotInTransaction(
       summary.remindersCreated += 1;
     }
 
+    const legacy = await establishLegacyCheckEvidence({ tx, now, hashing: deps.hashing }, legacyChecks);
+    await settleAffectedCoinScopes(deps, { tx, now }, { checkScopes: legacy.checkScopes });
+    await refreshCheckVisibility(tx, legacy.checkScopes);
     await rebuildWidgetRows(tx, now, timeZoneId);
     return ok(summary);
 }

@@ -1,5 +1,6 @@
 import { createEconomicDayCloseResolver } from '../calendar/economic-day-close';
 import { currentLogicalDate } from '../calendar/logical-date';
+import { refreshCheckVisibility } from '../persistence/repositories/check-visibility';
 import { listUndeletedBoards } from '../persistence/repositories/boards';
 import { readBoardPolicyPeriods, readOpenBoardPolicyDates } from '../persistence/repositories/board-policy-evidence';
 import { appendHabitAction } from '../persistence/repositories/habit-actions';
@@ -94,4 +95,5 @@ export async function appendBoardPolicies(
   for (const scope of additionalScopes) scopes.set(`check:${scope.boardId}:${scope.logicalDate}`, scope);
   if (scopes.size === 0) return;
   await settleAffectedCoinScopes(deps, context, { checkScopes: [...scopes.values()] });
+  await refreshCheckVisibility(context.tx, [...scopes.values()]);
 }

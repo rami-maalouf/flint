@@ -1,5 +1,5 @@
 import type { DeviceId } from '../domain/ids';
-import type { IdGenerator } from '../domain/ports';
+import type { Hashing, IdGenerator } from '../domain/ports';
 import type { DomainResult } from '../domain/result';
 import { err, ok } from '../domain/result';
 import type { SqlDatabase } from './database';
@@ -12,8 +12,9 @@ import { latestSchemaVersion } from './schema';
 export async function initializeProductDatabase(
   db: SqlDatabase,
   ids: IdGenerator,
+  hashing: Hashing,
 ): Promise<DomainResult<void>> {
-  const migrated = await migrateDatabase(db);
+  const migrated = await migrateDatabase(db, { hashing });
   if (!migrated.ok) {
     return migrated;
   }

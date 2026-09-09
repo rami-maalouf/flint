@@ -1,5 +1,4 @@
 import type { SqlExecutor } from '../persistence/database';
-import { appendHabitAction } from '../persistence/repositories/habit-actions';
 import { readBoardPolicyScopes } from '../persistence/repositories/board-policy-evidence';
 import { readAffectedBonusEvidence } from '../persistence/repositories/bonus-evidence';
 import { appendLedgerEntry } from '../persistence/repositories/ledger';
@@ -10,7 +9,7 @@ import type { CheckCoinScope } from './coins';
 import type { CommandContext, CommandDeps } from './command-context';
 import { reconcileBonusCoins } from './bonus-reconciliation';
 import type { BonusCoinScope } from './bonus-coin-causes';
-import { baselineAction, type HabitAction } from './habit-actions';
+import type { HabitAction } from './habit-actions';
 
 // callers own the transaction and validate the economic cause before appending.
 export async function appendLocalLedgerEntry(tx: SqlExecutor, row: CoinLedgerRow, now: number): Promise<boolean> {
@@ -28,20 +27,6 @@ export async function settleAffectedCoinScopes(
   const scopes = new Map(input.checkScopes.map(({ boardId, logicalDate }) =>
     [`check:${boardId}:${logicalDate}`, { boardId, logicalDate }]));
   const groups = await readAffectedBonusEvidence(context.tx, deps.hashing, { checkScopes: [...scopes.values()], rootScopes: input.rootScopes });
-  const baselines = new Map<string, HabitAction>();
-  for (const group of groups) {
-    for (const check of group.legacyChecks) {
-      const key = `${check.boardId}:${check.logicalDate}:${check.id}`;
-      let action = baselines.get(key);
-      if (!action) {
-        action = await baselineAction(check, deps.hashing);
-        await appendHabitAction(context.tx, action);
-        await appendOutbox(context.tx, 'habit_action', action.id, action.mutationStamp, context.now);
-        baselines.set(key, action);
-      }
-      group.actions.push(action);
-    }
-  }
   if (scopes.size > 0) {
     const evidence = await readBoardPolicyScopes(context.tx, [...scopes.values()]);
     const actions = new Map<string, HabitAction[]>();

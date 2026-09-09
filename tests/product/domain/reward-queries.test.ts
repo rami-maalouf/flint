@@ -107,7 +107,7 @@ describe('reward queries and confirmation snapshots', () => {
     const writer = new NodeSqlDatabase(join(directory, 'test.sqlite'));
     const reader = new NodeSqlDatabase(join(directory, 'test.sqlite'));
     try {
-      value(await initializeProductDatabase(writer, h.ids));
+      value(await initializeProductDatabase(writer, h.ids, h.deps.hashing));
       await writer.execAsync('PRAGMA journal_mode=WAL');
       const writerHarness = { ...h, db: writer, deps: { ...h.deps, db: writer } };
       const boardId = await createBoardForTest(writerHarness, { earnsCoins: true, coinCapPerDay: 3 });

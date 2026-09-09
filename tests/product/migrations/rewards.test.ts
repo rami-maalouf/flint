@@ -1,7 +1,12 @@
 import { migrateDatabase, migrationChecksum } from '@/core/persistence/migrations';
 import { latestSchemaVersion, migrations } from '@/core/persistence/schema';
+import { canonicalCoinPolicy } from '@/core/domain/coin-policy';
+import { checkCoinRow } from '@/core/domain/coin-ledger';
+import type { HabitAction } from '@/core/domain/habit-actions';
+import { appendHabitAction } from '@/core/persistence/repositories/habit-actions';
+import { appendLedgerEntry } from '@/core/persistence/repositories/ledger';
 
-import { NodeSqlDatabase } from '../helpers/test-db';
+import { createTestHashing, NodeSqlDatabase } from '../helpers/test-db';
 
 const rewardId = '00000000-0000-4000-8000-000000000010';
 const boardId = '00000000-0000-4000-8000-000000000001';
@@ -29,20 +34,24 @@ async function versionNine() {
   await db.runAsync(`INSERT INTO check_ins VALUES (
     '00000000-0000-4000-8000-000000000002', ?, '2026-09-08', NULL, NULL, NULL, 2.5,
     'retained note', 'shortcut', '00000000-0000-4000-8000-000000000003', 100, 100, ?, NULL)`, [boardId, stamp]);
-  await db.runAsync(`INSERT INTO habit_actions VALUES (
-    '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003', ?,
-    '2026-09-08', '00000000-0000-4000-8000-000000000002', 'check', 100, ?, NULL)`, [boardId, stamp]);
-  await db.runAsync(`INSERT INTO coin_ledger (id, kind, delta, board_id, check_in_id, scope_key,
-    source_action_id, logical_date, created_at, mutation_stamp) VALUES (
-    '00000000-0000-5000-8000-000000000005', 'check', 1, ?, '00000000-0000-4000-8000-000000000002',
-    ?, '00000000-0000-4000-8000-000000000004', '2026-09-08', 100, ?)`, [boardId, `check:${boardId}:2026-09-08`, stamp]);
+  const action = {
+    id: '00000000-0000-4000-8000-000000000004', commandId: '00000000-0000-4000-8000-000000000003',
+    boardId, logicalDate: '2026-09-08', checkInId: '00000000-0000-4000-8000-000000000002',
+    kind: 'check', createdAt: 100, mutationStamp: stamp,
+    policyJson: canonicalCoinPolicy({ version: 1, boardKind: 'count', earnsCoins: true,
+      coinCapPerDay: 1, checkClosesAtUtc: 200, rootId: null, requiredBoardIds: [],
+      bonusClosesAtUtc: null, bonusEnabled: false }),
+  } as HabitAction;
+  await appendHabitAction(db, action);
+  const award = await checkCoinRow(action, createTestHashing());
+  await appendLedgerEntry(db, award);
   await db.runAsync(`INSERT INTO coin_ledger (id, kind, delta, reward_id, reward_title_snapshot,
     logical_date, created_at, mutation_stamp) VALUES (
     '00000000-0000-4000-8000-000000000006', 'claim', -2, ?, 'Retained café title', '2026-09-08', 100, ?)`, [rewardId, stamp]);
   await db.runAsync('INSERT INTO command_receipts VALUES (?, ?, 100)',
     ['00000000-0000-4000-8000-000000000003', '{"ok":true,"value":{"created":true}}']);
   await db.runAsync(`INSERT INTO mutation_outbox (entity_type, entity_id, mutation_stamp, created_at)
-    VALUES ('ledger_entry', '00000000-0000-5000-8000-000000000005', ?, 100)`, [stamp]);
+    VALUES ('ledger_entry', ?, ?, 100)`, [award.id, stamp]);
   return db;
 }
 
@@ -59,9 +68,10 @@ describe('reward storage migration', () => {
       const before = await Promise.all(protectedTables.map(table => db.getAllAsync(`SELECT * FROM ${table}`)));
       const settings = await db.getFirstAsync('SELECT * FROM app_settings');
       expect(migrations.find(entry => entry.version === 10)?.name).toBe('user_rewards');
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM rewards')).toEqual([]);
-      for (const [index, table] of protectedTables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
+      for (const [index, table] of protectedTables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`))
+        .toEqual(table === 'check_ins' ? before[index].map(row => ({ ...row as object, state_suppressed: 0 })) : before[index]);
       expect(await db.getFirstAsync('SELECT * FROM app_settings')).toEqual({ ...settings!, schema_revision: latestSchemaVersion });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: latestSchemaVersion });
       expect(migrations.slice(0, 9).map(migrationChecksum)).toEqual([
@@ -72,7 +82,7 @@ describe('reward storage migration', () => {
       await insertReward(db);
       await db.runAsync('UPDATE rewards SET deleted_at = 101 WHERE id = ?', [rewardId]);
       expect(await db.getAllAsync('SELECT * FROM coin_ledger')).toEqual(before[3]);
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM rewards')).toHaveLength(1);
       const plan = await db.getAllAsync<{ detail: string }>(`EXPLAIN QUERY PLAN SELECT * FROM rewards
         WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY order_key, id`);
@@ -92,12 +102,12 @@ describe('reward storage migration', () => {
         if (sql.includes(failure)) return Promise.reject(new Error('simulated disk failure'));
         return run(sql, params);
       });
-      expect(await migrateDatabase(db)).toMatchObject({ ok: false, error: { code: 'migration' } });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toMatchObject({ ok: false, error: { code: 'migration' } });
       expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 9 });
       expect(await db.getAllAsync("SELECT name FROM sqlite_master WHERE name LIKE '%rewards%'")).toEqual([]);
       for (const [index, table] of tables.entries()) expect(await db.getAllAsync(`SELECT * FROM ${table}`)).toEqual(before[index]);
       spy.mockRestore();
-      expect(await migrateDatabase(db)).toEqual({ ok: true, value: latestSchemaVersion });
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       expect(await db.getAllAsync('SELECT * FROM rewards')).toEqual([]);
     } finally { await db.closeAsync(); }
   });
@@ -108,7 +118,7 @@ describe('reward storage migration', () => {
   ])('rejects invalid %s value %s at the storage boundary', async (column, value) => {
     const db = await versionNine();
     try {
-      await migrateDatabase(db);
+      expect(await migrateDatabase(db, { hashing: createTestHashing() })).toEqual({ ok: true, value: latestSchemaVersion });
       await insertReward(db);
       await expect(db.runAsync(`UPDATE rewards SET ${column} = ?`, [value])).rejects.toThrow('CHECK constraint failed');
       await db.runAsync('UPDATE rewards SET cost_coins = 100000, archived_at = 0, deleted_at = 0');

@@ -232,7 +232,7 @@ export async function tombstoneBoardGraph(
     [deletedAt, deletedAt, mutationStamp, boardId],
   );
   await tx.runAsync(
-    'UPDATE check_ins SET deleted_at = ?, updated_at = ?, mutation_stamp = ? WHERE board_id = ? AND deleted_at IS NULL',
+    'UPDATE check_ins SET deleted_at = ?, updated_at = ?, mutation_stamp = ?, state_suppressed = 1 WHERE board_id = ? AND deleted_at IS NULL',
     [deletedAt, deletedAt, mutationStamp, boardId],
   );
   await tx.runAsync(

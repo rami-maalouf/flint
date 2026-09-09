@@ -31,7 +31,7 @@ async function setup(): Promise<{
   return {
     harness,
     transport,
-    deps: { db: harness.db, clock: harness.clock, transport, random: RANDOM },
+    deps: { db: harness.db, clock: harness.clock, hashing: harness.deps.hashing, transport, random: RANDOM },
   };
 }
 
@@ -71,6 +71,7 @@ describe('sync engine', () => {
     await createBoardForTest(harness);
     const result = await runSync({
       db: harness.db,
+      hashing: harness.deps.hashing,
       clock: harness.clock,
       transport,
       random: RANDOM,
