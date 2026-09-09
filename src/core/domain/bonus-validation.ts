@@ -9,7 +9,10 @@ type RecoveredAward = { source: HabitAction; policy: CoinPolicy };
 type SourceCandidates = { source: HabitAction; addedBoards: Set<string>;
   candidates: Map<string, { policy: CoinPolicy; expected: CoinLedgerRow }> };
 
-export async function validateBonusOrdinary(scope: BonusCoinScope, actions: readonly HabitAction[], rows: readonly CoinLedgerRow[], hashing: Hashing): Promise<void> {
+// classify sequentially in one captured context; each proof subset/replan gets a new factory.
+export function prepareBonusOrdinaryValidator(inputScope: BonusCoinScope, inputActions: readonly HabitAction[], hashing: Hashing) {
+  const scope = { ...inputScope };
+  const actions = inputActions.map(action => Object.freeze({ ...action }));
   const byAction = new Map(actions.map(action => [action.id, action]));
   const sources = new Map<string, SourceCandidates>();
   // each declared proof gets its own cache; candidates cannot leak across evidence subsets.
@@ -49,23 +52,30 @@ export async function validateBonusOrdinary(scope: BonusCoinScope, actions: read
     return { source: prepared.source, policy };
   }
 
-  // intrinsic causes remain valid even when full-union replay changes entitlement.
-  const awards = new Map<string, RecoveredAward>();
-  const saved = new Map(rows.map(row => [row.id, row]));
-  for (const row of rows) if (row.kind === 'run_bonus') awards.set(row.id, await recoverAward(row));
-  for (const row of rows) {
-    if (row.kind === 'run_bonus') continue;
-    const original = saved.get(row.reversesId!);
-    if (!original) throw new CoinContractError('missing');
-    const held = awards.get(original.id);
-    if (!held) throw new CoinContractError('invalid');
-    const cause = byAction.get(row.sourceActionId!);
-    if (!cause) throw new CoinContractError('missing');
-    if (!['uncheck', 'move_out'].includes(cause.kind) || !held.policy.requiredBoardIds.includes(cause.boardId) ||
-      compareBonusActions(cause, held.source) <= 0 || cause.createdAt >= held.policy.bonusClosesAtUtc!) throw new CoinContractError('invalid');
-    if (cause.checkInId !== null && !actions.some(action => action.boardId === cause.boardId &&
-      action.checkInId === cause.checkInId && ['baseline', 'check', 'move_in'].includes(action.kind) &&
-      compareBonusActions(action, cause) < 0)) throw new CoinContractError('missing');
-    if (canonicalCoinLedger(row) !== canonicalCoinLedger(await bonusReversalRow(cause, original, hashing))) throw new CoinContractError('invalid');
-  }
+  return async (inputRows: readonly CoinLedgerRow[]): Promise<void> => {
+    const rows = inputRows.map(row => Object.freeze({ ...row }));
+    // intrinsic causes remain valid even when full-union replay changes entitlement.
+    const awards = new Map<string, RecoveredAward>();
+    const saved = new Map(rows.map(row => [row.id, row]));
+    for (const row of rows) if (row.kind === 'run_bonus') awards.set(row.id, await recoverAward(row));
+    for (const row of rows) {
+      if (row.kind === 'run_bonus') continue;
+      const original = saved.get(row.reversesId!);
+      if (!original) throw new CoinContractError('missing');
+      const held = awards.get(original.id);
+      if (!held) throw new CoinContractError('invalid');
+      const cause = byAction.get(row.sourceActionId!);
+      if (!cause) throw new CoinContractError('missing');
+      if (!['uncheck', 'move_out'].includes(cause.kind) || !held.policy.requiredBoardIds.includes(cause.boardId) ||
+        compareBonusActions(cause, held.source) <= 0 || cause.createdAt >= held.policy.bonusClosesAtUtc!) throw new CoinContractError('invalid');
+      if (cause.checkInId !== null && !actions.some(action => action.boardId === cause.boardId &&
+        action.checkInId === cause.checkInId && ['baseline', 'check', 'move_in'].includes(action.kind) &&
+        compareBonusActions(action, cause) < 0)) throw new CoinContractError('missing');
+      if (canonicalCoinLedger(row) !== canonicalCoinLedger(await bonusReversalRow(cause, original, hashing))) throw new CoinContractError('invalid');
+    }
+  };
+}
+
+export async function validateBonusOrdinary(scope: BonusCoinScope, actions: readonly HabitAction[], rows: readonly CoinLedgerRow[], hashing: Hashing): Promise<void> {
+  await prepareBonusOrdinaryValidator(scope, actions, hashing)(rows);
 }
