@@ -8,7 +8,7 @@ import type { CheckCoinScope } from './coins';
 import type { HabitAction } from './habit-actions';
 import type { Hashing } from './ports';
 
-async function validateOrdinary(actions: readonly HabitAction[], rows: readonly CoinLedgerRow[], hashing: Hashing) {
+export async function validateCheckOrdinary(actions: readonly HabitAction[], rows: readonly CoinLedgerRow[], hashing: Hashing) {
   const causes = new Map(actions.map((action) => [action.id, action]));
   const awards = new Map(rows.map((row) => [row.id, row]));
   for (const row of rows) {
@@ -38,6 +38,6 @@ export async function reconcileCheckCoins(scope: CheckCoinScope, inputActions: r
   return reconcileCoinEvidence({
     scopeKey: `check:${scope.boardId}:${scope.logicalDate}`, logicalDate: scope.logicalDate, awardKind: 'check',
     replay: evidence => replayCheckCoins(scope, evidence, hashing),
-    validateOrdinary: (evidence, rows) => validateOrdinary(evidence, rows, hashing),
+    validateOrdinary: (evidence, rows) => validateCheckOrdinary(evidence, rows, hashing),
   }, actions, inputRows, hashing);
 }
