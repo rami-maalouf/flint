@@ -26,7 +26,7 @@ const claim = { id: reward.id, kind: 'claim', delta: -3, boardId: null, checkInI
   runKey: null, rewardId: reward.id, rewardTitleSnapshot: 'Cafe\u0301', reversesId: null, scopeKey: null,
   sourceActionId: null, reconciliationKey: null, adjustsId: null, provenanceJson: null,
   logicalDate: date, createdAt: 0, mutationStamp: action.mutationStamp, deletedAt: null };
-const file = () => ({ format: 'ripples.export', exportVersion: 2, boards: [board], checkIns: [check],
+const file = () => ({ format: 'habit-system.export', exportVersion: 2, boards: [board], checkIns: [check],
   reminders: [reminder], rewards: [reward], settings, habitActions: [action], coinLedger: [claim] });
 const parse = (value: unknown) => parseOwnExport(JSON.stringify(value));
 
@@ -96,7 +96,7 @@ describe('version two import codec', () => {
   });
 
   it('preserves the existing version-one parser and rejects unknown file versions', () => {
-    expect(parse({ format: 'ripples.export', exportVersion: 1, boards: [{ id, title: 'legacy', amountUnit: 'pages' }] }))
+    expect(parse({ format: 'habit-system.export', exportVersion: 1, boards: [{ id, title: 'legacy', amountUnit: 'pages' }] }))
       .toMatchObject({ ok: true, value: { source: 'own', boards: [{ preserveId: true, quickAmount: 1 }] } });
     for (const source of ['{', 'null', '[]', JSON.stringify({ ...file(), format: 'other' }), JSON.stringify({ ...file(), exportVersion: 3 })]) {
       expect(parseOwnExport(source)).toMatchObject({ ok: false });

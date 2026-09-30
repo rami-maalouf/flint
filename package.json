@@ -51,7 +51,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint && eslint modules/ripples-apple/plugin modules/ripples-apple/tests/plugin",
+    "lint": "expo lint && eslint modules/habit-system-apple/plugin modules/habit-system-apple/tests/plugin",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:coverage": "jest --runInBand --coverage",
@@ -60,9 +60,9 @@
     "test:contracts": "jest --runInBand tests/product/contracts",
     "test:features": "jest --runInBand tests/product/features",
     "test:sync": "jest --runInBand tests/product/sync",
-    "test:native:config": "node --test modules/ripples-apple/tests/plugin/config.test.cjs",
-    "test:native:linkage": "sh modules/ripples-apple/tests/native/verify-sqlite-linkage.sh",
-    "test:native": "bun run test:native:config && swift test --package-path modules/ripples-apple",
+    "test:native:config": "node --test modules/habit-system-apple/tests/plugin/config.test.cjs",
+    "test:native:linkage": "sh modules/habit-system-apple/tests/native/verify-sqlite-linkage.sh",
+    "test:native": "bun run test:native:config && swift test --package-path modules/habit-system-apple",
     "validate": "bun run lint && bun run typecheck && bun run test:coverage"
   },
   "private": true

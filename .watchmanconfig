@@ -1,7 +1,7 @@
 {
   "ignore_dirs": [
     ".artifacts",
-    "modules/ripples-apple/.build",
+    "modules/habit-system-apple/.build",
     "ios",
     "android",
     "coverage",

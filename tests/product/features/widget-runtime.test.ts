@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createContext, runInContext } from 'node:vm';
 
-import type { RipplesWidgetProps, WidgetRowProps } from '@/features/widgets/widget-props';
+import type { BoardsWidgetProps, WidgetRowProps } from '@/features/widgets/widget-props';
 
 type Node = {
   type: string;
@@ -22,7 +22,7 @@ type Node = {
 // use expo's compiler and extension runtime, so external closure references
 // fail here just as they would in the widget process.
 const caller = { name: 'metro', platform: 'ios', isDev: true };
-const compiled = transformFileSync(resolve('src/platform/widgets/ripples-boards-widget.tsx'), {
+const compiled = transformFileSync(resolve('src/platform/widgets/boards-widget.tsx'), {
   presets: ['babel-preset-expo'],
   caller,
 })?.code;
@@ -65,7 +65,7 @@ const row: WidgetRowProps = {
 };
 
 function render(rows: WidgetRowProps[], stale = false, widgetFamily = 'systemSmall'): Node[] {
-  const props: RipplesWidgetProps = { rows, stale };
+  const props: BoardsWidgetProps = { rows, stale };
   const tree = runtime.__expoWidgetRender(props, { widgetFamily }) as Node;
   const flatten = (node: Node): Node[] => [node, ...[node.props.children ?? []].flat().flatMap(flatten)];
   return flatten(tree);

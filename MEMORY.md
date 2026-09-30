@@ -34,7 +34,7 @@ Product scope ships iOS UI and Android-safe core/adapters, without Android produ
 Current approved identity (fork, 2026-09-08): `studio.orbitlabs.habitsystem`, team `3V2UU7RRK9`, group
 `group.studio.orbitlabs.habitsystem`, container `iCloud.studio.orbitlabs.habitsystem`,
 private zone `habit-system`, scheme `habitsystem`. Ripples (`studio.orbitlabs.habittracker`) installs separately and its data is never touched.
-All native changes belong in `modules/ripples-apple` or its config plugin, never generated iOS files.
+All native changes belong in `modules/habit-system-apple` or its config plugin, never generated iOS files.
 EAS development/internal builds use CloudKit Development; the production profile selects Production.
 Apple login and signing profiles were recovered/configured through EAS using the local Keychain.
 Do not request credentials again. Physical acceptance remains pending; see `tasks/ripples/pre-fork.md`.

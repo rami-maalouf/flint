@@ -338,7 +338,7 @@ describe('own export round trip', () => {
     if (!snapshot.ok) {
       throw new Error(snapshot.error.message);
     }
-    expect(snapshot.value.format).toBe('ripples.export');
+    expect(snapshot.value.format).toBe('habit-system.export');
     expect(snapshot.value.boards).toHaveLength(1);
     expect(snapshot.value.checkIns).toHaveLength(3);
     expect(snapshot.value.boards[0].periods.length).toBeGreaterThanOrEqual(1);
@@ -459,12 +459,12 @@ describe('own export round trip', () => {
     expect(parseOwnExport('not json').ok).toBe(false);
     expect(parseOwnExport('42').ok).toBe(false);
     expect(parseOwnExport('{"format":"other"}').ok).toBe(false);
-    expect(parseOwnExport('{"format":"ripples.export","exportVersion":2}').ok).toBe(false);
+    expect(parseOwnExport('{"format":"habit-system.export","exportVersion":2}').ok).toBe(false);
   });
 
   it('skips malformed own-export records instead of rejecting the file', () => {
     const mixed = JSON.stringify({
-      format: 'ripples.export',
+      format: 'habit-system.export',
       exportVersion: 1,
       boards: [
         null,
@@ -515,7 +515,7 @@ describe('own export round trip', () => {
 describe('parser and command edge coverage', () => {
   it('applies defaults for minimal own-export records', () => {
     const minimal = JSON.stringify({
-      format: 'ripples.export',
+      format: 'habit-system.export',
       exportVersion: 1,
       boards: [{ id: '00000000-0000-4000-8000-0000000000aa', title: 'bare' }],
       checkIns: [
@@ -683,7 +683,7 @@ describe('parser and command edge coverage', () => {
 
   it('covers remaining parser sides: empty arrays, escaped quotes, valid defaults', () => {
     // an export without array fields parses to an empty draft
-    const empty = parseOwnExport('{"format":"ripples.export","exportVersion":1}');
+    const empty = parseOwnExport('{"format":"habit-system.export","exportVersion":1}');
     if (!empty.ok) {
       throw new Error(empty.error.message);
     }
@@ -691,7 +691,7 @@ describe('parser and command edge coverage', () => {
     expect(empty.value.checkIns).toHaveLength(0);
     // a valid-id board with a non-string title is skipped, not fatal
     const badTitle = parseOwnExport(
-      '{"format":"ripples.export","exportVersion":1,"boards":[{"id":"x","title":5}],"checkIns":[]}',
+      '{"format":"habit-system.export","exportVersion":1,"boards":[{"id":"x","title":5}],"checkIns":[]}',
     );
     expect(badTitle.ok && badTitle.value.boards).toHaveLength(0);
     // doubled quotes inside a quoted field
@@ -1237,7 +1237,7 @@ describe('reminder import edges', () => {
   it('parses reminder records from own exports fail-soft', () => {
     const parsed = parseOwnExport(
       JSON.stringify({
-        format: 'ripples.export',
+        format: 'habit-system.export',
         exportVersion: 1,
         boards: [],
         checkIns: [],
@@ -1476,5 +1476,26 @@ describe('sol confirmation follow-ups', () => {
     // tokyo is utc+9
     expect(record.offsetMinutes).toBe(540);
     await harness.db.closeAsync();
+  });
+});
+
+describe('inherited export format name', () => {
+  it('accepts version one and version two files that still carry the ripples format name', () => {
+    const legacyV1 = parseOwnExport('{"format":"ripples.export","exportVersion":1,"boards":[],"checkIns":[]}');
+    expect(legacyV1.ok).toBe(true);
+    const current = parseOwnExport('{"format":"habit-system.export","exportVersion":1,"boards":[],"checkIns":[]}');
+    expect(current.ok).toBe(true);
+    const legacyV2 = parseOwnExport(JSON.stringify({ format: 'ripples.export', exportVersion: 2, boards: [], checkIns: [],
+      reminders: [], rewards: [], habitActions: [], coinLedger: [] }));
+    expect(legacyV2.ok).toBe(true);
+    if (legacyV2.ok) expect(legacyV2.value.exportVersion).toBe(2);
+  });
+
+  it('rejects every other format name', () => {
+    for (const format of ['habit-system', 'ripples', 'other.export', 7, null]) {
+      const result = parseOwnExport(JSON.stringify({ format, exportVersion: 2, boards: [] }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toBe('This file is not a Habit System export.');
+    }
   });
 });

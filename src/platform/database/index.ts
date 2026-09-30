@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 import type { SqlDatabase } from '@/core/persistence/database';
 
-export const productDatabaseName = 'ripples.db';
+export const productDatabaseName = 'habit-system.db';
 export const appGroupId = 'group.studio.orbitlabs.habitsystem';
 
 // the shared app group container keeps one database visible to the app and
@@ -22,9 +22,12 @@ export function productDatabaseDirectory(): string | undefined {
   }
 }
 
-// installs that predate the app group entitlement created the database in
-// the default sqlite location; the first open after the entitlement lands
-// moves the files (with wal and shm) into the shared container so the app
+export const legacyDatabaseName = 'ripples.db';
+
+// older installs stored the database under the inherited ripples name, and
+// installs that predate the app group entitlement kept it in the default
+// sqlite location. the first open after either change moves the files (with
+// wal and shm) to the current name inside the shared container so the app
 // and the widget extension keep reading one store
 function relocateLegacyDatabase(containerUri: string): void {
   try {
@@ -32,9 +35,18 @@ function relocateLegacyDatabase(containerUri: string): void {
     if (target.exists) {
       return;
     }
-    const legacyDirectory = new Directory(Paths.document, 'SQLite');
+    const documentsSqlite = new Directory(Paths.document, 'SQLite');
+    const candidates = [
+      { directory: containerUri, name: legacyDatabaseName },
+      { directory: documentsSqlite, name: legacyDatabaseName },
+      { directory: documentsSqlite, name: productDatabaseName },
+    ];
+    const legacy = candidates.find(candidate => new File(candidate.directory, candidate.name).exists);
+    if (legacy === undefined) {
+      return;
+    }
     for (const suffix of ['', '-wal', '-shm']) {
-      const source = new File(legacyDirectory, `${productDatabaseName}${suffix}`);
+      const source = new File(legacy.directory, `${legacy.name}${suffix}`);
       if (source.exists) {
         source.move(new File(containerUri, `${productDatabaseName}${suffix}`));
       }

@@ -121,7 +121,7 @@ describe('settings sheet', () => {
     expect(dataTransferMock.sharedFiles).toHaveLength(1);
     const shared = dataTransferMock.sharedFiles[0];
     expect(shared.fileName).toMatch(/^habit-system-export-.*Z\.json$/);
-    expect(JSON.parse(shared.contents)).toMatchObject({ format: 'ripples.export', exportVersion: 2 });
+    expect(JSON.parse(shared.contents)).toMatchObject({ format: 'habit-system.export', exportVersion: 2 });
     // the shared bytes are a valid own-format export
     const parsed = parseOwnExport(shared.contents);
     if (!parsed.ok) {
@@ -216,7 +216,7 @@ describe('import flow', () => {
 
   it('restores this app\'s own export and skips existing records', async () => {
     const ownJson = JSON.stringify({
-      format: 'ripples.export',
+      format: 'habit-system.export',
       exportVersion: 1,
       boards: [
         {

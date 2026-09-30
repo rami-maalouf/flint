@@ -1,6 +1,6 @@
 import checkFixture from '@/core/automations/fixtures/check-coins.json';
 import bonusFixture from '@/core/automations/fixtures/bonus-coins.json';
-import wireFixture from '../../../modules/ripples-apple/tests/CloudKit/sync-records-v2.json';
+import wireFixture from '../../../modules/habit-system-apple/tests/CloudKit/sync-records-v2.json';
 import { setICloudSyncEnabled } from '@/core/domain/commands';
 import type { HabitAction } from '@/core/domain/habit-actions';
 import type { CoinLedgerRow } from '@/core/domain/coin-ledger';

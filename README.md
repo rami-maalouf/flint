@@ -28,7 +28,7 @@ Local sync tests and simulator checks do not establish live CloudKit convergence
 
 ## Development
 
-The pinned stack is Expo SDK 57, React Native 0.86, React 19, TypeScript 6, and Bun. Native UI uses `@expo/ui`; storage uses `expo-sqlite`; widgets and notifications use their Expo packages. The local `modules/ripples-apple` module supplies the shared Swift command and CloudKit implementations.
+The pinned stack is Expo SDK 57, React Native 0.86, React 19, TypeScript 6, and Bun. Native UI uses `@expo/ui`; storage uses `expo-sqlite`; widgets and notifications use their Expo packages. The local `modules/habit-system-apple` module supplies the shared Swift command and CloudKit implementations.
 
 Continuous Native Generation owns generated `ios/` and `android/` projects. Maintain native source and configuration in the local module and plugin. The plugin keeps React Native and Expo modules on a coherent source build; do not replace that with hand-edited generated projects. See [AGENTS.md](AGENTS.md) for local build, signing, simulator, and port conventions.
 

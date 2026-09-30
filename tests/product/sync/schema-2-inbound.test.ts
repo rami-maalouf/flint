@@ -1,5 +1,5 @@
-import fixtures from '../../../modules/ripples-apple/tests/CloudKit/sync-records-v2.json';
-import legacyFixtures from '../../../modules/ripples-apple/tests/CloudKit/sync-records.json';
+import fixtures from '../../../modules/habit-system-apple/tests/CloudKit/sync-records-v2.json';
+import legacyFixtures from '../../../modules/habit-system-apple/tests/CloudKit/sync-records.json';
 import { createCheckIn } from '@/core/domain/check-in-commands';
 import type { BoardId } from '@/core/domain/ids';
 import { createBoard } from '@/core/domain/commands';

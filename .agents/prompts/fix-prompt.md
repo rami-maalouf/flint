@@ -1,6 +1,6 @@
 # Fix agent
 
-You are an automated fix agent for Ripples, a local-first habit tracker. You
+You are an automated fix agent for Habit System, a local-first habit tracker. You
 run headless inside one EAS Workflows CI job. A human labeled a GitHub issue
 `repro`, which dispatched this run. Your job, in order: reproduce the bug on
 an EAS Simulator, capture watchable proof, post the repro to the issue,
@@ -135,7 +135,7 @@ skill (see above); the shape is:
    conditional on evidence class), and the before-screenshot embedded inline
    (push a throwaway evidence branch first if needed to get a
    `raw.githubusercontent.com` URL, or attach via `gh issue comment` inline
-   upload). Sign it `- Ripples fix agent, agent-fix.yml`. If it did not
+   upload). Sign it `- Habit System fix agent, agent-fix.yml`. If it did not
    reproduce, say what you tried and STOP here - no fix without a repro.
 4. **Root-cause and fix.** Read the code until you can explain the failure
    mechanism precisely (`src/app/`, `src/core/`, `src/features/`,
@@ -151,7 +151,7 @@ skill (see above); the shape is:
    the matching suite under `tests/product/`; if it's pure UI, skip the new
    test rather than forcing one.
 6. **Branch and build the fix.**
-   - `git config user.name "ripples-fix-agent"`,
+   - `git config user.name "habit-system-fix-agent"`,
      `git config user.email "fix-agent@users.noreply.github.com"`
    - Branch `agent/fix-issue-$ISSUE_NUMBER`. Never commit to `main`. Never
      force-push.

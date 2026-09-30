@@ -19,7 +19,7 @@ it('uses exactly two most recent closed eligible dates and builds a note-free re
   const candidate = planMissAlertPair(evidence(), time)!;
   expect(candidate).toEqual({ ...pair, firstMissedDate: '2026-09-07', title: 'Read 漫画' });
   expect(createMissAlertRequest(candidate, time)).toEqual({ ...pair,
-    identifier: `ripples.miss.v1:${id}:2026-09-08`, title: 'Read 漫画',
+    identifier: `habit-system.miss.v1:${id}:2026-09-08`, title: 'Read 漫画',
     body: 'Read 漫画 was missed twice. Fix the environment before anything else today.',
     timeZoneId: 'America/New_York', trigger: { kind: 'local09', date: '2026-09-09' } });
 });
@@ -102,12 +102,12 @@ it('round-trips exact UUID bytes and boundary dates without changing identity', 
     expect(parseMissAlertIdentifier(missAlertIdentifier(value))).toEqual(value);
   }
 });
-it.each([null, 7, [], 'other:abc', 'ripples.miss.v1:', `ripples.miss.v1:${id}:2026-02-30`,
-  `ripples.miss.v1:${id}:2026-09-08:extra`, `ripples.miss.v1:${id}:2026-09-08\n`,
-  `ripples.miss.v1:${id}\n:2026-09-08`, `ripples.miss.v1:not-a-uuid:2026-09-08`, `ripples.miss.v1:${id.replace("-4000-", "-5000-")}:2026-09-08`,
+it.each([null, 7, [], 'other:abc', 'habit-system.miss.v1:', `habit-system.miss.v1:${id}:2026-02-30`,
+  `habit-system.miss.v1:${id}:2026-09-08:extra`, `habit-system.miss.v1:${id}:2026-09-08\n`,
+  `habit-system.miss.v1:${id}\n:2026-09-08`, `habit-system.miss.v1:not-a-uuid:2026-09-08`, `habit-system.miss.v1:${id.replace("-4000-", "-5000-")}:2026-09-08`,
 ])('rejects malformed identifier while retaining broad namespace visibility: %j', input => {
   expect(parseMissAlertIdentifier(input)).toBeNull();
-  expect(isMissAlertIdentifierFamily(input)).toBe(typeof input === 'string' && input.startsWith('ripples.miss.v1:'));
+  expect(isMissAlertIdentifierFamily(input)).toBe(typeof input === 'string' && input.startsWith('habit-system.miss.v1:'));
 });
 function pending(): PendingMissAlertRequest {
   const request = createMissAlertRequest(planMissAlertPair(evidence(), time)!, time);

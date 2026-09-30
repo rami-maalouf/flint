@@ -25,7 +25,7 @@ const settings = { metricsEducationDismissed: [id(1)], wakeMinute: 0, lunchMinut
 const source = checkFixture.cases[0].actions[0] as HabitAction;
 const award = checkFixture.cases[0].ordinaryRows[0] as CoinLedgerRow;
 const evidence = (habitActions: unknown[] = [], coinLedger: unknown[] = []) => ({ sourceJson: JSON.stringify({
-  format: 'ripples.export', exportVersion: 2, boards: [], checkIns: [], reminders: [], rewards: [], habitActions, coinLedger,
+  format: 'habit-system.export', exportVersion: 2, boards: [], checkIns: [], reminders: [], rewards: [], habitActions, coinLedger,
 }) });
 const reminder = (n: number, parent = 1) => ({ sourceId: id(n), sourceBoardId: id(parent),
   weekdaysMask: 127, minuteOfDay: 0, message: 'remember', enabled: true, createdAtUtc: 1900000000001.5 });
@@ -36,7 +36,7 @@ const check = (n: number, parent = 1) => ({ sourceId: id(n), sourceBoardId: id(p
 function draft(patch: Partial<OwnV2ImportDraft> = {}): OwnV2ImportDraft {
   return { source: 'own', exportVersion: 2, boards: [], checkIns: [], reminders: [], rewards: [],
     settings: { kind: 'valid', value: settings }, skipped: { boards: 0, checkIns: 0, reminders: 0, rewards: 0 },
-    evidence: { sourceJson: JSON.stringify({ format: 'ripples.export', exportVersion: 2,
+    evidence: { sourceJson: JSON.stringify({ format: 'habit-system.export', exportVersion: 2,
       boards: [], checkIns: [], reminders: [], rewards: [], habitActions: [], coinLedger: [] }) }, ...patch };
 }
 const tables = ['boards', 'board_activity_periods', 'check_ins', 'reminders', 'rewards', 'habit_actions', 'coin_ledger',

@@ -48,4 +48,4 @@ jobs:
     type: github-comment
     params:
       update_group_ids: ['${{ needs.publish_preview.outputs.first_update_group_id }}']
-      message: This revision was approved for preview. Scan the QR code with a `sim` or `preview` build of Ripples to try the fix yourself before merging.
+      message: This revision was approved for preview. Scan the QR code with a `sim` or `preview` build of Habit System to try the fix yourself before merging.

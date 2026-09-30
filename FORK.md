@@ -29,7 +29,7 @@ also in `app.json` after `eas init` and prebuild: `owner: ramimaalouf` and `extr
 | `package.json` `name` | `habit-tracker` | `habit-system` |
 | signing team | `3V2UU7RRK9` | unchanged; new provisioning profiles are created by eas on the first signed build |
 
-the local native module directory `modules/ripples-apple` and its swift type names can be renamed later; they are not shared state.
+the local native module was `modules/ripples-apple` with `Ripples`-prefixed swift types until 2026-09-30. it is now `modules/habit-system-apple` with `HabitSystem`-prefixed types, the native module name `HabitSystemApple`, and the info.plist keys `HabitSystemAppGroupIdentifier` and `HabitSystemCloudKitContainerIdentifier`. the same change renamed the database file (`ripples.db` -> `habit-system.db`, moved in place on first open), the miss-alert notification prefix (`habit-system.miss.v1:`), the backup payload format (`habit-system.export`; import still accepts `ripples.export`), and the eas env var `HABIT_SYSTEM_CLOUDKIT_ENVIRONMENT`. the import-from-ripples csv feature keeps its name because it imports ripples data.
 
 ## what is inherited on purpose
 

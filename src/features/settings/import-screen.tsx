@@ -45,7 +45,7 @@ function V2Summary({ summary }: { summary: NonNullable<ImportSummary['v2']> }) {
   );
 }
 
-// two import sources: a ripples csv export from the original app, and this
+// two import sources: a csv export from the ripples app, and this
 // app's own json export (a restore that skips records it already has)
 export function ImportScreen() {
   const { scope } = useProduct();

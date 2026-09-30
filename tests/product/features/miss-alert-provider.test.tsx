@@ -64,7 +64,7 @@ describe('miss alert provider lifecycle', () => {
     await settle(); await settle();
     expect(port.schedule).toHaveBeenCalledTimes(1);
     expect(await core.db.getAllAsync('SELECT status, native_identifier FROM miss_alerts'))
-      .toEqual([{ status: 'scheduled', native_identifier: expect.stringContaining('ripples.miss.v1:') }]);
+      .toEqual([{ status: 'scheduled', native_identifier: expect.stringContaining('habit-system.miss.v1:') }]);
     expect(screen.getByTestId('product-revision')).toHaveTextContent('0');
     expect(Number(screen.getByTestId('miss-revision').props.children)).toBeGreaterThan(0);
     await settle(); expect(port.schedule).toHaveBeenCalledTimes(1);

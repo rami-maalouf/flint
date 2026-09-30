@@ -7,4 +7,4 @@ type CloudKitNativeModule = {
   cloudKitFetchChanges?: (token: string | null) => Promise<string>;
 };
 
-export default requireOptionalNativeModule<CloudKitNativeModule>('RipplesApple');
+export default requireOptionalNativeModule<CloudKitNativeModule>('HabitSystemApple');

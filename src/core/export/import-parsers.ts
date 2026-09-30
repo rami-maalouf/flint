@@ -85,6 +85,13 @@ export type ImportPreview = ImportSkippedCounts & { habitActions: number; coinLe
 const RIPPLES_DEFAULT_SYMBOL = boardSymbolAllowlist[1];
 const RIPPLES_DEFAULT_COLOR = boardPalette[2].hex;
 
+// backups written before 2026-09-30 (and every ripples json export) carry the
+// inherited format name; both names describe the same versioned payload
+export const OWN_EXPORT_FORMATS = ['habit-system.export', 'ripples.export'] as const;
+export function isOwnExportFormat(value: unknown): boolean {
+  return typeof value === 'string' && (OWN_EXPORT_FORMATS as readonly string[]).includes(value);
+}
+
 function parseInstant(value: string): number | null {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
@@ -104,11 +111,11 @@ export function parseOwnExport(json: string): DomainResult<ImportDraft> {
     return err('validation', 'This file is not valid JSON.');
   }
   if (typeof raw !== 'object' || raw === null) {
-    return err('validation', 'This file is not a Ripples export.');
+    return err('validation', 'This file is not a Habit System export.');
   }
   const data = raw as Record<string, unknown>;
-  if (data.format !== 'ripples.export') {
-    return err('validation', 'This file is not a Ripples export.');
+  if (!isOwnExportFormat(data.format)) {
+    return err('validation', 'This file is not a Habit System export.');
   }
   if (data.exportVersion === 2) return parseOwnV2(data, json);
   if (data.exportVersion !== 1) {
@@ -445,7 +452,7 @@ function array(value: unknown): unknown[] {
 
 function v2Collections(value: unknown): Record<typeof V2_COLLECTIONS[number], unknown[]> {
   const captured = fields(value, ['format', 'exportVersion', ...V2_COLLECTIONS]);
-  if (captured === null || captured.format !== 'ripples.export' || captured.exportVersion !== 2) {
+  if (captured === null || !isOwnExportFormat(captured.format) || captured.exportVersion !== 2) {
     throw new Error('Invalid version two import.');
   }
   return { boards: array(captured.boards), checkIns: array(captured.checkIns), reminders: array(captured.reminders),

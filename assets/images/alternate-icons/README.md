@@ -1,4 +1,4 @@
-# Ripples icon artwork
+# Habit System icon artwork (inherited from Ripples)
 
 Generated on 2026-09-07 for the approved cartoon, glossy plastic direction.
 The three square source images are opaque PNGs. Expo prepares the primary

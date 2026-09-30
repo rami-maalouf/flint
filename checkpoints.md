@@ -2,6 +2,52 @@
 
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
+### Native module and internal identifier rename (2026-09-30)
+
+1. Renamed the local native module from `modules/ripples-apple` to
+   `modules/habit-system-apple`: native module name `HabitSystemApple`,
+   podspec `HabitSystemApple.podspec`, Swift package targets
+   `HabitSystemIntentCore` / `HabitSystemCloudKit`, `HabitSystem`-prefixed
+   intent, entity, runtime, and shortcut provider types, Info.plist keys
+   `HabitSystemAppGroupIdentifier` / `HabitSystemCloudKitContainerIdentifier`,
+   and the EAS env var `HABIT_SYSTEM_CLOUDKIT_ENVIRONMENT`. The widget source
+   is `src/platform/widgets/boards-widget.tsx` with `BoardsWidgetProps`.
+2. Renamed the internal identifiers that still said ripples: the database
+   file is `habit-system.db` (the opener moves a legacy `ripples.db` with its
+   wal and shm files to the new name inside the shared container, or from the
+   pre-app-group documents folder), the miss-alert notification prefix is
+   `habit-system.miss.v1:` on both the JavaScript and Swift sides and in the
+   shared contract fixture, and backups are written as `habit-system.export`
+   while import accepts both `habit-system.export` and `ripples.export`.
+   The import-from-Ripples CSV feature, the fork history documents, the
+   inherited specifications, and earlier ledger entries keep the Ripples name
+   because they refer to the Ripples app.
+3. Gates: `bun run validate` passes 210 suites / 3,083 tests with all 105 core
+   files at 100 percent (the four new database relocation tests and two
+   legacy-format import tests included); `bun run test:native` passes 14
+   plugin and 195 Swift tests. A first full run exited 1 because the new
+   database test replaced the whole `react-native` module, which made an Expo
+   logger warn after teardown; the mock was removed and the rerun exits 0.
+4. Native regeneration: `--no-clean` prebuild kept the stale generated
+   `RipplesApplicationIntents.swift`, the old `AppDelegate` call, and the old
+   plist keys, so the project was regenerated with `--clean` (UTF-8 locale)
+   and rebuilt. The installed app's `habitsystem.debug.dylib` contains
+   `HabitSystemAppleModule` and no `RipplesAppleModule` or `RipplesCheckInIntent`
+   strings; `Metadata.appintents` names `HabitSystemApplicationShortcuts`.
+5. Device evidence: on `Habit Layout QA` (`1FEA4F08`) the in-place install
+   and first launch against Metro 8082 renamed `ripples.db`, `-wal`, and
+   `-shm` to `habit-system.db*` and Home shows the same 7 boards (81 check-ins
+   before). On `Habit System QA` (`62014A57`) the 135,168-byte `ripples.db`
+   became a byte-identical `habit-system.db` (md5 `fa7b9698...`); that device
+   then showed its pre-existing "Migration 7 does not match its recorded
+   checksum" state, which predates this change. Evidence:
+   `.artifacts/rename-habit-system-apple/`.
+6. Known follow-ups: a pending miss alert scheduled by an older build keeps
+   the `ripples.miss.v1:` identifier and is now treated as foreign, so it may
+   fire once; an App Intent that runs before the app's first launch after
+   this upgrade finds no `habit-system.db` until the app has moved it.
+   Independent verification by a non-author is still open.
+
 ### Layout Done button spacing (2026-09-29)
 
 1. Added the existing 16-point horizontal spacing token to the layout Done

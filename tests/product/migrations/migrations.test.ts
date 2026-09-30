@@ -62,7 +62,7 @@ describe('migrations', () => {
     const os = require('node:os') as typeof import('node:os');
     const path = require('node:path') as typeof import('node:path');
     const fs = require('node:fs') as typeof import('node:fs');
-    const location = path.join(os.tmpdir(), `ripples-wal-${process.pid}-${Date.now()}.db`);
+    const location = path.join(os.tmpdir(), `habit-system-wal-${process.pid}-${Date.now()}.db`);
     const db = new NodeSqlDatabase(location);
     await migrateDatabase(db, { hashing: createTestHashing() });
     const fk = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');

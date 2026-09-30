@@ -1,4 +1,4 @@
-import fixtures from '../../../modules/ripples-apple/tests/CloudKit/sync-records-v2.json';
+import fixtures from '../../../modules/habit-system-apple/tests/CloudKit/sync-records-v2.json';
 import { immutableSyncCandidate } from '@/core/sync/immutable-records';
 import { schema2SpecFor, toSchema2SyncRecord, type Schema2SyncEntityType } from '@/core/sync/schema-2-records';
 import { prepareRemoteFacts } from '@/core/domain/remote-fact-validation';

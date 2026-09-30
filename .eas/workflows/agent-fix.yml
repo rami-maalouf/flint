@@ -13,7 +13,7 @@
 #
 # Pattern adapted from github.com/SchroederNathan/clarity
 # (.eas/workflows/agent-fix.yml), swapped to this repo's `sim` build
-# profile, bun package manager, and no-auth-required app (Ripples has no
+# profile, bun package manager, and no-auth-required app (Habit System has no
 # sign-in step, unlike the source project).
 #
 # Required EAS environment variables (production environment):

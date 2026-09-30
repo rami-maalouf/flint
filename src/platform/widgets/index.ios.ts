@@ -3,7 +3,7 @@ import { addUserInteractionListener } from 'expo-widgets';
 import type { WidgetProjectionSnapshot } from '@/core/domain/widget-projection';
 import { widgetPropsFromProjection } from '@/features/widgets/widget-props';
 
-import RipplesBoardsWidget from './ripples-boards-widget';
+import HabitSystemBoardsWidget from './boards-widget';
 
 // pushes the current widget projection into the widget timeline: one entry
 // now, and one stale-marked entry past the next logical-day boundary so an
@@ -11,7 +11,7 @@ import RipplesBoardsWidget from './ripples-boards-widget';
 export async function refreshWidgets(snapshot: WidgetProjectionSnapshot): Promise<void> {
   try {
     const props = widgetPropsFromProjection(snapshot.rows);
-    RipplesBoardsWidget.updateTimeline([
+    HabitSystemBoardsWidget.updateTimeline([
       { date: new Date(snapshot.generatedAtUtc), props },
       { date: new Date(snapshot.expiresAtUtc), props: { ...props, stale: true } },
     ]);

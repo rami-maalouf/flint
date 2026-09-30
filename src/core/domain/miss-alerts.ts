@@ -14,7 +14,7 @@ export type MissAlertBoardEvidence = Readonly<{
 export type MissAlertTime = Readonly<{ nowUtcMs: number; timeZoneId: string; foreground: boolean }>;
 export type MissAlertCandidate = MissAlertPair & Readonly<{ firstMissedDate: LogicalDate; title: string }>;
 
-const PREFIX = 'ripples.miss.v1:';
+const PREFIX = 'habit-system.miss.v1:';
 const body = (title: string) => `${title} was missed twice. Fix the environment before anything else today.`;
 const activeDaily = (board: MissAlertBoard) => board.kind === 'daily' && board.archivedAt === null && board.deletedAt === null;
 

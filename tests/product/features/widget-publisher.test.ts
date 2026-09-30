@@ -3,10 +3,10 @@ import { addUserInteractionListener } from 'expo-widgets';
 import cases from '@/core/automations/fixtures/widget-refresh.json';
 import type { WidgetBoardRow } from '@/core/domain/entities';
 import { addWidgetQuickActionListener, refreshWidgets } from '@/platform/widgets/index.ios';
-import widget from '@/platform/widgets/ripples-boards-widget';
+import widget from '@/platform/widgets/boards-widget';
 
 jest.mock('expo-widgets', () => ({ addUserInteractionListener: jest.fn() }));
-jest.mock('@/platform/widgets/ripples-boards-widget', () => ({
+jest.mock('@/platform/widgets/boards-widget', () => ({
   __esModule: true, default: { updateTimeline: jest.fn() },
 }));
 

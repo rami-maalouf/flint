@@ -20,7 +20,7 @@ module.exports = defineConfig([
     ignores: ["dist/*"],
   },
   {
-    files: ['modules/ripples-apple/plugin/**/*.js', 'modules/ripples-apple/tests/plugin/**/*.cjs'],
+    files: ['modules/habit-system-apple/plugin/**/*.js', 'modules/habit-system-apple/tests/plugin/**/*.cjs'],
     languageOptions: {
       globals: { __dirname: 'readonly' },
     },

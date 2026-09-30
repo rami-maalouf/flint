@@ -40,7 +40,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
-design/ripples-screenshots/
 
 # private validation evidence and export bundles
 .artifacts/
@@ -54,5 +53,5 @@ ripples-export-*.csv
 coverage/
 
 # local swift package build output
-/modules/ripples-apple/.build/
-/modules/ripples-apple/.swiftpm/
+/modules/habit-system-apple/.build/
+/modules/habit-system-apple/.swiftpm/

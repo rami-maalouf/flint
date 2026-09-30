@@ -6,7 +6,7 @@ Target: the approved simulator recorded in `checkpoints.md` (iPhone 17 Pro, iOS 
 
 ## Flow: preview structural and interaction checkpoint
 
-1. `launch-app` (or `restart-app`) with the bundle id. Expect the root route: header `Ripples`, selectable text `Native foundation ready`.
+1. `launch-app` (or `restart-app`) with the bundle id. Expect the root route: header `Habit System`, selectable text `Native foundation ready`.
 2. `open-url habitsystem://foundation-preview`. Expect header `Foundation preview` and the `Typography` section header.
 3. Scroll until `Primary action` is visible (settle swipes plus `await-ui-element`).
 4. `describe`. Expected semantic states:

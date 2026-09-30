@@ -1,6 +1,6 @@
-import type { AlternateIconName } from '../../../modules/ripples-apple/src/RipplesApple.types';
+import type { AlternateIconName } from '../../../modules/habit-system-apple/src/HabitSystemApple.types';
 
-export type { AlternateIconName } from '../../../modules/ripples-apple/src/RipplesApple.types';
+export type { AlternateIconName } from '../../../modules/habit-system-apple/src/HabitSystemApple.types';
 
 export async function supportsAlternateIcons(): Promise<boolean> {
   return false;

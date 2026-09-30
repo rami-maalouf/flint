@@ -21,7 +21,7 @@ const { missAlertScheduler: adapter } = jest.requireActual<{ missAlertScheduler:
   '../../../src/platform/notifications/index');
 const boardId = '00000000-0000-4000-8000-00000000A001' as BoardId;
 const secondMissedDate = '2026-01-08' as LogicalDate;
-const identifier = `ripples.miss.v1:${boardId}:${secondMissedDate}`;
+const identifier = `habit-system.miss.v1:${boardId}:${secondMissedDate}`;
 const title = 'Café pause';
 const body = 'Café pause was missed twice. Fix the environment before anything else today.';
 const content = { title, body, data: { boardId, secondMissedDate } };
@@ -70,12 +70,12 @@ describe('actual miss notification adapter', () => {
     native.getAllScheduledNotificationsAsync.mockResolvedValue([
       { identifier, content, trigger: calendar },
       { identifier: 'ordinary', content: { data: { boardId, reminderId: 'r' } }, trigger: { type: 'weekly' } },
-      { identifier: 'ripples.miss.v1:malformed', content, trigger: null },
+      { identifier: 'habit-system.miss.v1:malformed', content, trigger: null },
     ]);
     expect(await adapter.pendingRequests()).toEqual([
       { identifier, content: { identifier, title, body, boardId, secondMissedDate }, nextFireAtUtcMs: fire, acceptance: 'confirmed' },
       { identifier: 'ordinary', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' },
-      { identifier: 'ripples.miss.v1:malformed', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' },
+      { identifier: 'habit-system.miss.v1:malformed', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' },
     ]);
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
     native.getAllScheduledNotificationsAsync.mockResolvedValue([{ identifier, content,

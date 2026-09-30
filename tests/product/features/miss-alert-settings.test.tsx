@@ -29,7 +29,7 @@ describe('pending miss alert Settings', () => {
     const pending: PendingMissAlertRequest[] = [];
     for (let day = 20; day <= 25; day++) {
       const date = `2026-08-${day}`;
-      const identifier = `ripples.miss.v1:${boardId}:${date}`;
+      const identifier = `habit-system.miss.v1:${boardId}:${date}`;
       const status = day === 23 ? 'denied' : day === 24 ? 'error' : 'scheduled';
       const nativeId = day === 23 || day === 24 ? null : identifier;
       await core.db.runAsync('INSERT INTO miss_alerts VALUES (?, ?, ?, ?)', [boardId, date, nativeId, status]);

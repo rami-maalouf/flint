@@ -65,7 +65,7 @@
         }
       ],
       "expo-web-browser",
-      "./modules/ripples-apple/plugin"
+      "./modules/habit-system-apple/plugin"
     ],
     "experiments": {
       "typedRoutes": true

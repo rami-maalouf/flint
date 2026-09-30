@@ -98,7 +98,7 @@ The expected output is `Opened: com.ramimaalouf.habittracker`.
 
 ## off-camera board setup
 
-A fresh simulator install has an empty Ripples database. Set up one board in the same
+A fresh simulator install has an empty Habit System database. Set up one board in the same
 session, then remove these commands from the edit.
 
 ```bash

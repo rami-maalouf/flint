@@ -22,7 +22,6 @@ yarn-error.*
 *.tsbuildinfo
 /ios
 /android
-design/ripples-screenshots/
 .artifacts/
 .agents/evidence/
 dist-validation/
@@ -30,8 +29,8 @@ dist-validation/
 ripples-export-*.json
 ripples-export-*.csv
 coverage/
-/modules/ripples-apple/.build/
-/modules/ripples-apple/.swiftpm/
+/modules/habit-system-apple/.build/
+/modules/habit-system-apple/.swiftpm/
 
 # local agent context, project notes and acceptance evidence are not build inputs.
 /.agents/

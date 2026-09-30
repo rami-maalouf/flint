@@ -17,8 +17,8 @@ it.each(['ordinary orphan', 'valid miss', 'malformed miss'] as const)(
       expect(created).toMatchObject({ ok: true, value: { scheduleState: 'scheduled' } });
       const tracked = [...scheduler.pending.keys()][0];
       const extra = kind === 'ordinary orphan' ? 'ordinary-orphan'
-        : kind === 'valid miss' ? `ripples.miss.v1:${boardId}:2026-08-29`
-          : 'ripples.miss.v1:malformed';
+        : kind === 'valid miss' ? `habit-system.miss.v1:${boardId}:2026-08-29`
+          : 'habit-system.miss.v1:malformed';
       // this native double deliberately supplies unrecognized content: ownership
       // must remain identifier-based, so the proper family performs its cleanup.
       scheduler.pending.set(extra, { reminderId: 'untracked', boardId, weekday: 1,

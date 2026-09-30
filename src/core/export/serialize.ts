@@ -57,7 +57,7 @@ export type ExportReminder = {
 };
 
 export type ExportSnapshotV1 = {
-  format: 'ripples.export';
+  format: 'habit-system.export';
   exportVersion: 1;
   databaseSchemaVersion: number;
   appVersion: string;
@@ -198,7 +198,7 @@ export function getExportSnapshot(
           FROM coin_ledger ORDER BY id COLLATE BINARY`)).map(assertCoinLedgerShape);
         const settings = await getSettings(tx);
         return {
-          format: 'ripples.export' as const,
+          format: 'habit-system.export' as const,
           exportVersion: 2 as const,
           databaseSchemaVersion,
           appVersion,

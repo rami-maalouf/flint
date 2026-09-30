@@ -15,7 +15,7 @@ export type WidgetRowProps = {
   strip: number[];
 };
 
-export type RipplesWidgetProps = {
+export type BoardsWidgetProps = {
   rows: WidgetRowProps[];
   // set on the entry after the next logical-day boundary: the strip may be
   // stale, and accessibility asks to open the app to refresh
@@ -32,7 +32,7 @@ export const WIDGET_ROW_LIMITS = {
 
 const MAX_ROWS = WIDGET_ROW_LIMITS.systemExtraLarge;
 
-export function widgetPropsFromProjection(rows: WidgetBoardRow[]): RipplesWidgetProps {
+export function widgetPropsFromProjection(rows: WidgetBoardRow[]): BoardsWidgetProps {
   return {
     rows: rows.slice(0, MAX_ROWS).map((row) => ({
       boardId: row.boardId,

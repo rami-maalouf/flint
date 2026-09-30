@@ -2,7 +2,7 @@ import { captureImportDraft } from '@/core/export/import-capture';
 import { getImportPreview, parseOwnExport, readOwnV2Evidence, type ImportDraft } from '@/core/export/import-parsers';
 
 const id = '00000000-0000-4000-8000-000000000001';
-const sourceJson = `{"format":"ripples.export","exportVersion":2,"boards":[],"checkIns":[],"reminders":[],"rewards":[],"habitActions":[{"id":"${id}","createdAt":-0,"extra":{"private":true}}],"coinLedger":[]}`;
+const sourceJson = `{"format":"habit-system.export","exportVersion":2,"boards":[],"checkIns":[],"reminders":[],"rewards":[],"habitActions":[{"id":"${id}","createdAt":-0,"extra":{"private":true}}],"coinLedger":[]}`;
 function fixture() {
   const result = parseOwnExport(sourceJson); if (!result.ok || result.value.exportVersion !== 2) throw Error('expected v2');
   return result.value;
@@ -26,7 +26,7 @@ describe('owned import draft capture', () => {
   });
 
   it('captures legacy direct-call arrays and period objects without retaining unknown keys', () => {
-    const result = parseOwnExport(JSON.stringify({ format: 'ripples.export', exportVersion: 1,
+    const result = parseOwnExport(JSON.stringify({ format: 'habit-system.export', exportVersion: 1,
       boards: [{ id, title: 'legacy', periods: [{ startDate: '2026-01-01', endDate: null }] }] }));
     if (!result.ok) throw Error('expected legacy');
     Object.assign(result.value.boards[0], { unknown: { private: 'never copy' } });
@@ -67,7 +67,7 @@ describe('owned import draft capture', () => {
     expect(getImportPreview(null as never).ok).toBe(false);
   });
   it('keeps version-one malformed-period fallback while isolating every copied scalar', () => {
-    const result = parseOwnExport(JSON.stringify({ format: 'ripples.export', exportVersion: 1,
+    const result = parseOwnExport(JSON.stringify({ format: 'habit-system.export', exportVersion: 1,
       boards: [{ id, title: 'legacy' }], checkIns: [{ id, boardId: id, logicalDate: '2026-01-01' }],
       reminders: [{ id, boardId: id, weekdaysMask: 1, minuteOfDay: 5 }] }));
     if (!result.ok || result.value.exportVersion === 2) throw Error('expected legacy');

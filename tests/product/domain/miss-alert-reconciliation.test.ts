@@ -173,11 +173,11 @@ it('retains an older truthful pair even when the current pair is checked', async
   expect(scheduler.refreshPending).toHaveBeenCalledTimes(1);
 });
 it('cancels owned malformed/orphan requests only, and does not reschedule behind an unknown cancellation', async () => {
-  scheduler.pendingRequests.mockResolvedValue([pendingForPair(), { identifier: 'ripples.miss.v1:bad', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' },
+  scheduler.pendingRequests.mockResolvedValue([pendingForPair(), { identifier: 'habit-system.miss.v1:bad', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' },
     { identifier: 'ordinary', content: null, nextFireAtUtcMs: null, acceptance: 'confirmed' }]);
   scheduler.cancel.mockResolvedValue({ kind: 'unknown' });
   expect(await run()).toMatchObject({ localChanged: false, refreshPendingCount: true, error: { retryable: true } });
-  expect(scheduler.cancel.mock.calls.map(call => call[0])).toEqual([missAlertIdentifier(pair), 'ripples.miss.v1:bad']);
+  expect(scheduler.cancel.mock.calls.map(call => call[0])).toEqual([missAlertIdentifier(pair), 'habit-system.miss.v1:bad']);
   expect(scheduler.schedule).not.toHaveBeenCalled();
 });
 it.each(['retired', 'throw'] as const)('does not mistake a %s orphan cancellation for success', async kind => {
@@ -319,7 +319,7 @@ it.each(['zone', 'date'] as const)('invalidates its synchronous dispatch guard a
 });
 it('stops later pending work after retirement and never enters a cancellation with an expired qualification', async () => {
   await persist('scheduled', true);
-  scheduler.pendingRequests.mockResolvedValue([pendingForPair(), { ...pendingForPair(), identifier: 'ripples.miss.v1:bad' }]);
+  scheduler.pendingRequests.mockResolvedValue([pendingForPair(), { ...pendingForPair(), identifier: 'habit-system.miss.v1:bad' }]);
   scheduler.refreshPending.mockImplementationOnce(async () => { current = false; return { kind: 'retired' }; });
   await run(); expect(scheduler.cancel).not.toHaveBeenCalled(); expect(scheduler.schedule).not.toHaveBeenCalled();
 });

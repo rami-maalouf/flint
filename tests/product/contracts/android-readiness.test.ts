@@ -71,7 +71,7 @@ describe('android readiness', () => {
       if (/\.ios\.tsx?$/.test(relative) || relative.includes('testing/')) {
         continue;
       }
-      if (relative === 'platform/widgets/ripples-boards-widget.tsx') {
+      if (relative === 'platform/widgets/boards-widget.tsx') {
         continue;
       }
       const source = readFileSync(file, 'utf8');

@@ -266,7 +266,7 @@ describe('stack query snapshots', () => {
   ])('keeps the complete imported streak after anchoring %s history', async (_name, dates) => {
     const root = h.ids.uuid() as BoardId;
     const parsed = parseOwnExport(JSON.stringify({
-      format: 'ripples.export', exportVersion: 1,
+      format: 'habit-system.export', exportVersion: 1,
       boards: [{ ...fields, id: root, createdAtUtc: 0, archivedAtUtc: null, periods: [{ startDate: dates[0], endDate: null }] }],
       checkIns: dates.map((logicalDate) => ({ id: h.ids.uuid(), boardId: root, logicalDate, createdAtUtc: 0, occurredAtUtc: null, note: 'imported early-year record' })),
     }));

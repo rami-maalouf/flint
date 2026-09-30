@@ -1,24 +1,24 @@
-import type { AlternateIconName } from '../../../modules/ripples-apple/src/RipplesApple.types';
-import RipplesAppleModule from '../../../modules/ripples-apple/src/RipplesAppleModule';
+import type { AlternateIconName } from '../../../modules/habit-system-apple/src/HabitSystemApple.types';
+import HabitSystemAppleModule from '../../../modules/habit-system-apple/src/HabitSystemAppleModule';
 
-export type { AlternateIconName } from '../../../modules/ripples-apple/src/RipplesApple.types';
+export type { AlternateIconName } from '../../../modules/habit-system-apple/src/HabitSystemApple.types';
 
 export async function supportsAlternateIcons(): Promise<boolean> {
   if (
-    typeof RipplesAppleModule?.supportsAlternateIcons !== 'function' ||
-    typeof RipplesAppleModule?.setAlternateIcon !== 'function'
+    typeof HabitSystemAppleModule?.supportsAlternateIcons !== 'function' ||
+    typeof HabitSystemAppleModule?.setAlternateIcon !== 'function'
   ) {
     return false;
   }
   try {
-    return (await RipplesAppleModule.supportsAlternateIcons()) === true;
+    return (await HabitSystemAppleModule.supportsAlternateIcons()) === true;
   } catch {
     return false;
   }
 }
 
 export async function setAlternateIcon(name: AlternateIconName | null): Promise<void> {
-  const nativeModule = RipplesAppleModule;
+  const nativeModule = HabitSystemAppleModule;
   if (
     !nativeModule ||
     typeof nativeModule.setAlternateIcon !== 'function' ||

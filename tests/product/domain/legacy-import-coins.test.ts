@@ -24,7 +24,7 @@ describe('explicit legacy import economic compatibility', () => {
     if (!exported.ok) throw new Error(exported.error.message);
     const current = JSON.parse(serializeExport(exported.value));
     // project the genuine historical v1 allowlist without newer evidence or fields.
-    const file = { format: 'ripples.export', exportVersion: 1, boards: current.boards.map((row: Record<string, unknown>) =>
+    const file = { format: 'habit-system.export', exportVersion: 1, boards: current.boards.map((row: Record<string, unknown>) =>
       Object.fromEntries(['id', 'title', 'symbol', 'accentHex', 'usesTintedBackground', 'tracksAmount', 'amountUnit',
         'quickAmount', 'tracksTime', 'startOfDayMinute', 'metricsEnabled', 'orderKey', 'createdAtUtc', 'archivedAtUtc', 'periods']
         .map(key => [key, row[key]]))), checkIns: current.checkIns, reminders: current.reminders,

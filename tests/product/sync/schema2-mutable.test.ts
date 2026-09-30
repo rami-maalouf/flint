@@ -1,4 +1,4 @@
-import fixture from '../../../modules/ripples-apple/tests/CloudKit/sync-records-v2.json';
+import fixture from '../../../modules/habit-system-apple/tests/CloudKit/sync-records-v2.json';
 import { setICloudSyncEnabled } from '@/core/domain/commands';
 import { runSync } from '@/core/sync/engine';
 import type { WireSyncRecord, SyncTransport } from '@/core/sync/transport';

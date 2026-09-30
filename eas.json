@@ -9,14 +9,14 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "RIPPLES_CLOUDKIT_ENVIRONMENT": "Development"
+        "HABIT_SYSTEM_CLOUDKIT_ENVIRONMENT": "Development"
       }
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "RIPPLES_CLOUDKIT_ENVIRONMENT": "Development"
+        "HABIT_SYSTEM_CLOUDKIT_ENVIRONMENT": "Development"
       }
     },
     "sim": {
@@ -30,7 +30,7 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "RIPPLES_CLOUDKIT_ENVIRONMENT": "Production"
+        "HABIT_SYSTEM_CLOUDKIT_ENVIRONMENT": "Production"
       }
     }
   },
