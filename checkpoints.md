@@ -2,6 +2,32 @@
 
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
+### Home Screen widget vertical spacing (2026-09-30)
+
+1. Reproduced the short, vertically centered habit stack in the actual small
+   and large Home Screen widgets. The large widget left roughly 85 points
+   unused above and below its rows. Removed the redundant eight-point inset
+   and let flexible gaps distribute rows through the system's content area;
+   the outer gaps are now approximately 18 points on the tested iPhone.
+2. The small widget now places the icon/action above a readable two-line habit
+   title and seven-day strip. Larger widget actions increase from 16 to 20
+   points. Family row limits, stored data, Daily/Count semantics, accessibility
+   labels and deep-link destinations are unchanged.
+3. Argent screenshots verify small, medium and large widgets on Habit Layout
+   QA (`1FEA4F08-BB6F-4EF4-BDE8-6C1691813BE3`, iOS 26.5). Evidence lives in
+   `.artifacts/widget-spacing/`. The iPad extra-large widget was not visually
+   tested; its columns distribute their rows independently when counts differ.
+4. The two focused widget suites pass 16 tests. Native validation passes 14
+   plugin and 195 Swift tests. Independent non-author review approves the
+   serialized closure, rendering support, link/state preservation and row
+   budgets, with its own eight-test runtime pass.
+5. A concurrent branch switch/cherry-pick stashed this session's edit and
+   introduced conflict markers during the first aggregate run. That run is
+   invalid evidence. The exact widget patch was preserved and applied in the
+   isolated `fix/widget-spacing` worktree for final validation.
+6. Final isolated `bun run validate` exits 0: 210 suites / 3,083 tests, including
+   lint, typecheck and the existing per-core-file 100-percent coverage gates.
+
 ### Native module and internal identifier rename (2026-09-30)
 
 1. Renamed the local native module from `modules/ripples-apple` to

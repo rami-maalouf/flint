@@ -1,6 +1,7 @@
 import { Circle, HStack, Image, Link, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
   accessibilityLabel,
+  font,
   foregroundStyle,
   frame,
   lineLimit,
@@ -40,6 +41,7 @@ const HabitSystemBoards = (props: BoardsWidgetProps, environment: WidgetEnvironm
           ? 12
           : 3;
   const rows = (props.rows ?? []).slice(0, limit);
+  const small = family === 'systemSmall';
 
   const renderRow = (row: WidgetRowProps) => {
     const daily = row.kind === 'daily';
@@ -58,16 +60,15 @@ const HabitSystemBoards = (props: BoardsWidgetProps, environment: WidgetEnvironm
       ? `${row.title}. Open Habit System to refresh.`
       : row.title;
     const days = row.strip.reduce((total, count) => (count > 0 ? total + 1 : total), 0);
-    return (
-      <HStack key={row.boardId}>
-        <Image systemName={row.symbol as never} color={row.accentHex} size={14} />
+    const title = (
         <Link
           destination={`habitsystem://boards/${row.boardId}`}
           modifiers={[accessibilityLabel(titleLabel)]}
         >
-          <Text modifiers={[lineLimit(1)]}>{row.title}</Text>
+          <Text modifiers={[lineLimit(small ? 2 : 1), ...(small ? [font({ weight: 'semibold' })] : [])]}>{row.title}</Text>
         </Link>
-        <Spacer />
+    );
+    const history = (
         <HStack
           spacing={3}
           modifiers={[accessibilityLabel(`${props.stale ? 'Saved history: ' : ''}${days} of the last 7 days checked in`)]}
@@ -76,24 +77,58 @@ const HabitSystemBoards = (props: BoardsWidgetProps, environment: WidgetEnvironm
             <Circle
               key={index}
               modifiers={[
-                frame({ width: 8, height: 8 }),
+                frame({ width: small ? 10 : 8, height: small ? 10 : 8 }),
                 foregroundStyle(count > 0 ? row.accentHex : '#787880'),
                 opacity(count > 0 ? daily ? 1 : Math.min(1, 0.4 + count * 0.2) : 0.25),
               ]}
             />
           ))}
         </HStack>
+    );
+    const action = (
         <Link
           destination={daily
             ? `habitsystem://boards/${row.boardId}/quick-action`
             : `habitsystem://boards/${row.boardId}/check-ins/new?source=widget`}
           modifiers={[accessibilityLabel(actionLabel)]}
         >
-          <Image systemName={actionSymbol} color={row.accentHex} size={16} />
+          <Image systemName={actionSymbol} color={row.accentHex} size={small ? 28 : 20} />
         </Link>
+    );
+    if (small) {
+      return (
+        <VStack key={row.boardId} alignment="leading" spacing={8}>
+          <HStack>
+            <Image systemName={row.symbol as never} color={row.accentHex} size={22} />
+            <Spacer />
+            {action}
+          </HStack>
+          <Spacer minLength={0} />
+          {title}
+          {history}
+        </VStack>
+      );
+    }
+    return (
+      <HStack key={row.boardId}>
+        <Image systemName={row.symbol as never} color={row.accentHex} size={14} />
+        {title}
+        <Spacer />
+        {history}
+        {action}
       </HStack>
     );
   };
+
+  // flexible gaps use the widget's height instead of centering a short list.
+  const renderColumn = (column: WidgetRowProps[]) => (
+    <VStack spacing={0}>
+      {column.flatMap((row, index) => index === 0
+        ? [renderRow(row)]
+        : [<Spacer key={`gap-${row.boardId}`} minLength={8} />, renderRow(row)])}
+      {column.length === 1 && !small ? [<Spacer key="remaining-space" minLength={0} />] : []}
+    </VStack>
+  );
 
   if (rows.length === 0) {
     return (
@@ -107,18 +142,14 @@ const HabitSystemBoards = (props: BoardsWidgetProps, environment: WidgetEnvironm
     // two balanced columns of up to six rows each
     const half = Math.ceil(rows.length / 2);
     return (
-      <HStack modifiers={[padding({ all: 8 })]} spacing={16}>
-        <VStack spacing={8}>{rows.slice(0, half).map(renderRow)}</VStack>
-        <VStack spacing={8}>{rows.slice(half).map(renderRow)}</VStack>
+      <HStack alignment="top" spacing={16}>
+        {renderColumn(rows.slice(0, half))}
+        {renderColumn(rows.slice(half))}
       </HStack>
     );
   }
 
-  return (
-    <VStack modifiers={[padding({ all: 8 })]} spacing={8}>
-      {rows.map(renderRow)}
-    </VStack>
-  );
+  return renderColumn(rows);
 };
 
 export default createWidget('HabitSystemBoards', HabitSystemBoards);
