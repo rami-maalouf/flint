@@ -1,0 +1,35 @@
+import { test } from '@e2e-dev/mobile';
+import { localSyntheticEnabled } from './local-mode';
+import { reveal } from './reveal';
+import { expect } from 'e2e';
+import { syntheticRows } from './synthetic-store';
+
+test('sample mode has history, disables external effects and closes to real boards', { skip: !localSyntheticEnabled, tags: ['deterministic', 'sample'], timeout: 180_000 }, async ({ app, screen, device }) => {
+  await app.open();
+  await expect(screen.getByTestId('coin-balance-pill')).toBeVisible();
+  const balance = await screen.getByTestId('coin-balance-pill').textContent();
+  const original = JSON.stringify(syntheticRows('select * from boards order by id'));
+  await screen.getByTestId('open-settings').tap();
+  await reveal(screen, screen.getByTestId('settings-sample'));
+  await screen.getByTestId('settings-sample').tap();
+  await expect(screen.getByTestId('sample-chrome')).toBeVisible({ timeout: 90_000 });
+  await expect(screen.getByRole('checkbox').first()).toBeVisible({ timeout: 90_000 });
+  await screen.getByTestId('open-stacks').tap();
+  await expect(screen.getByTestId('stacks-list')).toBeVisible();
+  await device.back();
+  await screen.getByTestId('coin-balance-pill').tap();
+  await expect(screen.getByTestId('coins-balance')).toBeVisible();
+  await screen.getByTestId('coins-history-link').tap();
+  await expect(screen.getByTestId('coin-history-list')).toBeVisible();
+  await device.back();
+  await device.back();
+  await screen.getByTestId('open-settings').tap();
+  await reveal(screen, screen.getByTestId('settings-export'));
+  await screen.getByTestId('settings-export').tap();
+  await expect(screen.getByText('Export is disabled in sample mode.')).toBeVisible();
+  await screen.getByTestId('sample-close').tap();
+  await expect(screen.getByTestId('sample-chrome')).not.toBeVisible();
+  await device.back();
+  await expect(screen.getByTestId('coin-balance-pill')).toHaveText(balance ?? '');
+  if (JSON.stringify(syntheticRows('select * from boards order by id')) !== original) throw new Error('sample mode changed real boards');
+});

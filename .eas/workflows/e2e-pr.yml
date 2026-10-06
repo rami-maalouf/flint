@@ -132,6 +132,9 @@ jobs:
       - uses: eas/checkout
       - uses: eas/install_node_modules
 
+      - name: Verify portable and local-only test discovery
+        run: node scripts/e2e/check-cloud-boundary.ts
+
       - name: Run the e2e suite on leased EAS Simulators
         id: e2e_run
         run: |

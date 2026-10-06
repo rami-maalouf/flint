@@ -6,6 +6,9 @@ import { easSimulators } from '@e2e-dev/eas';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { localIosDevice } from './tests/e2e/local-ios-device';
 
+// separate local daemons prevent runner versions in other projects from colliding.
+process.env.AGENT_DEVICE_STATE_DIR ??= `${process.cwd()}/.artifacts/agent-device`;
+
 // where the tests run.
 // - default: the development app on Habit System QA. E2E_TARGET=device selects a
 //   connected physical iphone. E2E_DEVICE picks a device of that kind by name or udid.
@@ -68,16 +71,25 @@ const system =
 const tools = mobileTools(iphone);
 
 export default {
-  targets: [{ name: 'ios', engine: iphone, app: { bundleId: appId } }],
+  targets: [{ name: 'ios', engine: iphone, app: {
+    bundleId: appId,
+    // native user-default arguments keep development tools from covering product controls.
+    launchArguments: onEas ? undefined : [
+      '-EXDevMenuShowsAtLaunch', 'NO',
+      '-EXDevMenuShowFloatingActionButton', 'NO',
+      '-EXDevMenuIsOnboardingFinished', 'YES',
+      ...(process.env.E2E_METRO_URL ? ['--initialUrl', process.env.E2E_METRO_URL] : []),
+    ],
+  } }],
   // on eas, one worker per leased phone. locally one simulator, one worker.
   workers: onEas ? Number(process.env.E2E_WORKERS ?? '1') : 1,
-  // two agents, same instructions, different models. `default` is the strong model and
+  // two named agents with the same verification model and instructions. `default`
   // runs everything unless a test, a group, or `--agent fast` selects the other one.
   // `fast` is for cheap scripted steps; set E2E_FAST_MODEL to change its model.
   // agents do not inherit from each other, so both get the full context.
   agents: {
     default: { model: modelFrom(process.env.E2E_MODEL ?? 'chatgpt/gpt-6-luna'), tools, system, context },
-    fast: { model: modelFrom(process.env.E2E_FAST_MODEL ?? 'chatgpt/gpt-5.6-luna'), tools, system, context },
+    fast: { model: modelFrom(process.env.E2E_FAST_MODEL ?? 'chatgpt/gpt-6-luna'), tools, system, context },
   },
   // markdown writes .e2e/summary.md, which the pr workflow posts as the comment.
   reporters: ['list', 'markdown', 'junit'],

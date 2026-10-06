@@ -72,6 +72,8 @@
     "test:native": "bun run test:native:config && swift test --package-path modules/ripples-apple",
     "validate": "bun run lint && bun run typecheck && bun run test:coverage",
     "test:e2e": "e2e run",
+    "test:e2e:local": "bun scripts/e2e/run-local.ts",
+    "test:e2e:cloud-boundary": "bun scripts/e2e/check-cloud-boundary.ts",
     "test:e2e:simulator": "E2E_EAS_SIMULATOR=0 E2E_TARGET=simulator e2e run",
     "test:e2e:device": "E2E_EAS_SIMULATOR=0 E2E_TARGET=device e2e run"
   },

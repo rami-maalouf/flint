@@ -1,0 +1,37 @@
+import { test } from '@e2e-dev/mobile';
+import { reveal } from './reveal';
+import { expect } from 'e2e';
+
+test('reminder creation, edit and deletion persist without sending external messages', { tags: ['deterministic', 'reminders'], timeout: 240_000 }, async ({ app, screen, device }) => {
+  const name = `QA Reminder ${Date.now()}`;
+  const message = `QA remind ${Date.now()}`;
+  await device.setPermission('notifications', 'grant');
+  await app.open();
+  await screen.getByTestId('create-board').tap();
+  await screen.getByTestId('board-title-input').fill(name);
+  await device.dismissKeyboard();
+  await screen.getByTestId('board-form-save').tap();
+  await screen.getByRole('button', { name, exact: true }).tap();
+  await screen.getByTestId('edit-board').tap();
+  await reveal(screen, screen.getByTestId('add-reminder-row'));
+  await screen.getByTestId('add-reminder-row').tap();
+  await screen.getByTestId('reminder-message').fill(message);
+  await device.dismissKeyboard();
+  await screen.getByTestId('reminder-save').tap();
+  await reveal(screen, screen.getByRole('button', { name: /^Reminder / }).first());
+  await screen.getByRole('button', { name: /^Reminder / }).first().tap();
+  await expect(screen.getByTestId('reminder-message')).toHaveValue(message);
+  await screen.getByTestId('reminder-message').fill(`${message} edited`);
+  await device.dismissKeyboard();
+  await screen.getByTestId('reminder-save').tap();
+  await app.restart();
+  await screen.getByRole('button', { name, exact: true }).tap();
+  await screen.getByTestId('edit-board').tap();
+  await reveal(screen, screen.getByRole('button', { name: /^Reminder / }).first());
+  await screen.getByRole('button', { name: /^Reminder / }).first().tap();
+  await expect(screen.getByTestId('reminder-message')).toHaveValue(`${message} edited`);
+  await reveal(screen, screen.getByTestId('delete-reminder'));
+  await screen.getByTestId('delete-reminder').tap();
+  await screen.getByRole('button', { name: 'Delete Reminder', exact: true }).last().tap();
+  await expect(screen.getByRole('button', { name: /^Reminder / })).toHaveCount(0);
+});
