@@ -13,6 +13,17 @@ const groupId = 'group.studio.orbitlabs.habitsystem';
 function fixture(options = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), options.quotedPath ? "synthetic-reset-quote'-" : 'synthetic-reset-')));
   const bin = join(root, 'bin');
+  execFileSync('git', ['init', '-q', root]);
+  let runnerCwd = root;
+  if (options.unrelated) {
+    runnerCwd = join(root, 'unrelated');
+    execFileSync('git', ['init', '-q', runnerCwd]);
+  }
+  if (options.worktree) {
+    execFileSync('git', ['-C', root, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.test', 'commit', '--allow-empty', '-qm', 'test: fixture']);
+    runnerCwd = join(root, 'other-worktree');
+    execFileSync('git', ['-C', root, 'worktree', 'add', '-q', '--detach', runnerCwd]);
+  }
   const group = join(root, 'Devices', device, 'data/Containers/Shared/AppGroup/group');
   const data = join(root, 'Devices', device, 'data/Containers/Data/Application/app');
   for (const path of [bin, group, join(data, 'Documents/SQLite')]) mkdirSync(path, { recursive: true });
@@ -23,14 +34,15 @@ function fixture(options = {}) {
   const log = join(root, 'commands.jsonl');
   writeFileSync(receipt, JSON.stringify({ version: 1, creation: 'simctl-create', device, name: 'Habit-System-TesterArmy-E2E-fixture', appId: app, appGroup: groupId }));
   const stub = `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);const cmd=require('node:path').basename(process.argv[1]);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({cmd,args})+'\\n');
-if(cmd==='ps'){console.log(${JSON.stringify(options.active ? `${root}/node_modules/e2e/dist/run/worker/entry.js` : options.runner ? `${root}/node_modules/e2e/dist/cli/bin.js run` : options.wrapper ? 'bun scripts/e2e/run-local.ts' : '')});}
+if(cmd==='ps'){console.log(${JSON.stringify(options.shellMention ? `123 zsh -c 'bun scripts/e2e/run-local.ts'` : options.active ? `123 bun ${runnerCwd}/node_modules/e2e/dist/run/worker/entry.js` : options.runner ? `123 node ${runnerCwd}/node_modules/e2e/dist/cli/bin.js run` : options.wrapper ? '123 bun scripts/e2e/run-local.ts' : '')});}
+else if(cmd==='lsof'){if(${Boolean(options.unknownCwd)})process.exit(1);console.log('p123\\nn'+${JSON.stringify(options.unknownRepository ? resolve(root, '..') : runnerCwd)});}
 else if(cmd==='plutil'){console.log(JSON.stringify({CFBundleIdentifier:${JSON.stringify(options.bundle ?? app)},RipplesAppGroupIdentifier:${JSON.stringify(options.groupIdentity ?? groupId)}}));}
 else if(args[1]==='list'){console.log(JSON.stringify({devices:{fixture:[{udid:${JSON.stringify(device)},name:'Habit-System-TesterArmy-E2E-fixture'}]}}));}
 else if(args[1]==='get_app_container'){if((args[4]==='data'&&${Boolean(options.dataFailure)})||(args[4]!== 'data'&&${Boolean(options.missingGroup)}))process.exit(1);console.log(args[4]==='data'?${JSON.stringify(data)}:${JSON.stringify(options.outside ?? group)});}
 else if(args[1]==='uninstall'){fs.rmSync(${JSON.stringify(data)},{recursive:true,force:true});}
 else if(cmd==='sqlite3'){${options.invalidBackup ? "if(args.includes('pragma integrity_check')){console.log('corrupt');}else{const result=require('node:child_process').spawnSync('/usr/bin/sqlite3',args,{stdio:'inherit'});process.exit(result.status??1);}" : 'process.exit(1);'}}
 `;
-  for (const command of ['xcrun', 'plutil', 'ps', ...(options.backupFailure || options.invalidBackup ? ['sqlite3'] : [])]) writeFileSync(join(bin, command), stub, { mode: 0o755 });
+  for (const command of ['xcrun', 'plutil', 'ps', 'lsof', ...(options.backupFailure || options.invalidBackup ? ['sqlite3'] : [])]) writeFileSync(join(bin, command), stub, { mode: 0o755 });
   return { root, source, group, log, run() { return spawnSync(process.execPath, [script], { cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, E2E_DEVICE: device, E2E_SYNTHETIC_DEVICE: device, E2E_SYNTHETIC_RECEIPT: receipt, E2E_NATIVE_APP: join(root, 'native.app'), E2E_EAS_SIMULATOR: '0', E2E_TARGET: 'simulator' }, encoding: 'utf8' }); }, cleanup() { rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -49,6 +61,33 @@ function refused(options, message) {
 test('active runner refuses reset before uninstall', () => refused({ active: true }, /active e2e worker/));
 test('runner before worker startup refuses reset', () => refused({ runner: true }, /active e2e worker/));
 test('local wrapper before runner startup refuses reset', () => refused({ wrapper: true }, /active e2e worker/));
+test('same repository worker in another worktree refuses reset', () => refused({ active: true, worktree: true }, /active e2e worker/));
+test('runner with unknown process cwd refuses reset', () => refused({ wrapper: true, unknownCwd: true }, /cannot establish e2e runner repository ownership/));
+test('runner outside a resolvable git repository refuses reset', () => refused({ wrapper: true, unknownRepository: true }, /cannot establish e2e runner repository ownership/));
+test('unrelated repository runner permits reset', () => {
+  const f = fixture({ runner: true, unrelated: true });
+  try {
+    const result = f.run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(readFileSync(f.log, 'utf8').includes('uninstall'));
+  } finally { f.cleanup(); }
+});
+test('unrelated repository relative wrapper permits reset', () => {
+  const f = fixture({ wrapper: true, unrelated: true });
+  try {
+    const result = f.run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(readFileSync(f.log, 'utf8').includes('lsof'));
+  } finally { f.cleanup(); }
+});
+test('shell command mentioning the local wrapper permits reset', () => {
+  const f = fixture({ shellMention: true });
+  try {
+    const result = f.run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(!readFileSync(f.log, 'utf8').includes('lsof'));
+  } finally { f.cleanup(); }
+});
 test('wrong native bundle refuses reset', () => refused({ bundle: 'studio.orbitlabs.habittracker' }, /native identity mismatch/));
 test('wrong native app group refuses reset', () => refused({ groupIdentity: 'group.studio.orbitlabs.habittracker' }, /native identity mismatch/));
 test('outside-device group container refuses reset', () => refused({ outside: '/tmp/unowned-group' }, /unexpected .*path/));
