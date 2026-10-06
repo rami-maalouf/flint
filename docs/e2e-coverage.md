@@ -30,20 +30,24 @@ The wrapper archives command, timestamps, exit code, device, Metro URL, JS commi
 | dev-client bootstrap | bootstrap.e2e.ts | exact main bootstrap passed, run 01a10ec1-e7e7-7c14-b3c6-8697747b690b | bootstrap only |
 | home and original semantic canaries | boards.e2e.ts, settings.e2e.ts, layouts.e2e.ts | rerun pending | original agent canaries remain |
 | daily create, complete, undo, persisted coin ledger | lifecycle.e2e.ts | passed run 01a10ee0-d5a8-7f15-bbd4-b8779213b0d8 | full lifecycle and balances verified |
-| count amount/note, check-in edit/delete | count-history.e2e.ts | adapter replacement failed; corrected run pending | focused keyboard probe passed exact 2; saved-value acceptance still pending |
+| count amount/note, check-in edit/delete | count-history.e2e.ts | saved 2 cups and exact note observed; edit/delete pending | native Journal entry exposes one accessible row |
 | board validation/edit/archive/restore/delete | board-management.e2e.ts | passed broad run 01a10ef1-2eb4-706a-8415-71ddabf60455 | rename, persisted archive/restore/delete and validation verified |
 | detail history/journal/analytics | lifecycle.e2e.ts | passed run 01a10ee0-d5a8-7f15-bbd4-b8779213b0d8 | navigation alone is not analytics correctness |
-| all four persisted home layouts | layout-coverage.e2e.ts | full-width passed; other cases had missing sheet readiness | focused grid screenshot passed; corrected persistence run pending |
+| all four persisted home layouts | layout-coverage.e2e.ts | 4/4 passed run 01a10f06 | selected state and reopen verified |
+| board icon, color, tint, day shift and metrics | board-options.e2e.ts | passed run 01a10ef1 | saved values verified after restart |
+| timeline, comparison, consistency and streak values | analytics.e2e.ts | passed run 01a10f06 | persisted check-in, numeric values and insufficient history verified |
+| alternate app icon selection | settings-preferences.e2e.ts | passed runs 01a10ef1, 01a10f0c and 01a10f11 | Midnight persisted and Default restored |
+| iCloud off/on preference | settings-preferences.e2e.ts | passed run 01a10f11 | confirmation and restart verified; account sync remains separate |
 | anchor presets and stack completion/bonus/reversal | stacks.e2e.ts, settings-flows.e2e.ts | pending | persisted balances asserted |
 | rewards create/claim/refusal/archive/restore | lifecycle.e2e.ts, reward-management.e2e.ts | lifecycle passed 01a10eee; archive/restore passed 01a10ef1 | balances and saved price checked across restart |
-| reminders CRUD and notification status | reminders.e2e.ts, settings-flows.e2e.ts | status passed; CRUD initially blocked by unsupported permission API | actual app permission prompt replaces simulator API; scheduled delivery separate |
-| settings children and anchor cancellation | settings-flows.e2e.ts | seven child pages and timeline passed 01a10ef1; cancellation rerun pending | generic sheet back replaced with restart |
+| reminders CRUD and notification status | reminders.e2e.ts, settings-flows.e2e.ts | actual permission and scheduled creation observed; edit/delete pending | actual app permission prompt used; scheduled delivery separate |
+| settings children and anchor cancellation | settings-flows.e2e.ts | 9/9 passed run 01a10f0c | cancellation persisted across restart |
 | real export/share-sheet cancellation | backup.e2e.ts | pending | stored row counts preserved |
 | JSON/CSV import and malformed rejection | backup.e2e.ts | prerequisite-gated, unverified | set named synthetic Files fixtures using E2E_JSON_IMPORT_FILE, E2E_CSV_IMPORT_FILE and E2E_INVALID_IMPORT_FILE |
 | unavailable-board recovery | recovery.e2e.ts | passed broad run 01a10ef1 | actual deep link |
 | sample mirrored views and real-store isolation | sample-mode.e2e.ts | pending | real board rows and balance compared |
 | widget entry/deep-link daily writer | widget-links.e2e.ts | pending | home-screen widget installation/UI separate |
-| Shortcuts App Intents | native source tests | 195 Swift checks passed | composed signed Shortcuts acceptance pending |
+| Shortcuts App Intents | native-acceptance.e2e.ts | prepared-shortcut acceptance gated and unverified | Shortcuts app is installed; a test-owned shortcut and board must be composed |
 | CloudKit two-target sync | native/domain source tests | source tests passed | isolated account and second target required |
 | physical device capabilities | no acceptance result | unverified | paired iPhone exists; isolated signed Habit acceptance is not configured |
 | Android | no acceptance result | unverified | this run targets iOS; native feature support differs |
@@ -62,7 +66,7 @@ The existing `.eas/workflows/e2e-pr.yml` runs the broad cloud suite against the 
 
 `bun scripts/e2e/stage-imports.ts` stages unique JSON, CSV and malformed files in the owned simulator Files provider. Set each named fixture and matching `E2E_JSON_IMPORT_BOARD` or `E2E_CSV_IMPORT_BOARD` from its receipt before import acceptance. Shortcuts requires a named test-owned composed shortcut and board. Both remain unverified until actually run.
 
-Additional board icon/color/day-shift/metrics persistence and alternate app icon selection passed broad run `01a10ef1`. Analytics numerical output was observed in the failure tree, but the timeline assertion overshot its section. Corrected numerical acceptance passed in run `01a10f06`; the remaining portable slice is in progress. iCloud off/on persistence uses native accessibility values, with corrected runtime acceptance pending.
+Additional board icon/color/day-shift/metrics persistence and alternate app icon selection passed broad run `01a10ef1`. Corrected analytics numerical acceptance passed in run `01a10f06`. iCloud off/on persistence uses native accessibility values and the actual Turn On confirmation; it passed in run `01a10f11`.
 
 New `coin-cap.e2e.ts`, `ordering.e2e.ts` and `appearance.e2e.ts` cover daily award capping, persisted adjacent board movement, and light/dark largest Dynamic Type with screenshot judgments and minimum completion target bounds. They remain unverified.
 
@@ -76,4 +80,6 @@ An interrupted appearance scenario left the owned simulator at largest Dynamic T
 
 ## current red-to-green harness evidence
 
-Broad run `01a10ef1-2eb4-706a-8415-71ddabf60455` at `9ae37bc` finished 14/22 passing, exit 3. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-00-49.258Z`. No product defect is inferred from an adapter failure. Focused numeric keyboard run `01a10f04-d376-77c4-bc25-2056a4c7dbe2` passed: after waiting for the keyboard, the field moved from its collapsed sheet position to its expanded position; a fresh end-of-field tap and visible Delete/2 keys replaced the value correctly. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-22-16.718Z`. Corrected portable slice at `697a5bc` is in progress.
+Broad run `01a10ef1-2eb4-706a-8415-71ddabf60455` at `9ae37bc` finished 14/22 passing, exit 3. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-00-49.258Z`. No product defect is inferred from an adapter failure. Focused numeric keyboard run `01a10f04-d376-77c4-bc25-2056a4c7dbe2` passed: after waiting for the keyboard, the field moved from its collapsed sheet position to its expanded position; a fresh end-of-field tap and visible Delete/2 keys replaced the value correctly. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-22-16.718Z`.
+
+Run `01a10f06` at `697a5bc` passed analytics and all four layouts, then was deliberately interrupted after two retained-list navigation failures: exit 130, archive `.artifacts/e2e-evidence/2026-10-06T02-23-56.623Z`. The home list now has an explicit automation identifier. Run `01a10f0c` at `16798ea` completed 10/13 passing with exit 2, archive `.artifacts/e2e-evidence/2026-10-06T02-30-10.626Z`. Run `01a10f11` at `65965fa` passed both preferences cases, with count/reminder failures and exit 3, archive `.artifacts/e2e-evidence/2026-10-06T02-36-22.903Z`. Their actual saved data, native row labels and visible confirmation overlays guided the corrections. Focused count/reminder runtime at `07155ac` is in progress.
