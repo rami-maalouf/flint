@@ -54,7 +54,7 @@ test('iCloud setting persists off and on without claiming account sync', { tags:
   try {
     if (original) await toggle.tap();
     await expect(toggle).not.toBeChecked();
-    await expect(screen.getByTestId('icloud-status')).toContainText('Off');
+    await expect(screen.getByTestId('icloud-status')).toHaveValue('Off');
     await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await open();

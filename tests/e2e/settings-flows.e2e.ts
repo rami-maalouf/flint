@@ -32,7 +32,9 @@ test('anchor editor cancels without changing the stored time', { tags: ['determi
   await expect(screen.getByTestId('anchor-minute-picker')).toBeVisible();
   await screen.getByTestId('anchor-cancel').tap();
   await expect(screen.getByTestId('anchor-minute-picker')).not.toBeVisible();
-  await device.back();
+  await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({timeout: 60_000});
+  await screen.getByTestId('open-settings').tap();
   await screen.getByTestId('settings-anchors').tap();
   await expect(screen.getByTestId('anchor-wake')).toHaveText(label ?? '');
 });

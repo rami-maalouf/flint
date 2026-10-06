@@ -1,3 +1,4 @@
+import { replaceField } from './replace-field';
 import { test } from '@e2e-dev/mobile';
 import { localSyntheticEnabled } from './local-mode';
 import { reveal } from './reveal';
@@ -24,10 +25,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await screen.getByTestId('board-title-input').clear();
-  await expect(screen.getByTestId('board-title-input')).toHaveValue('Board name');
-  await screen.getByTestId('board-title-input').fill(renamed);
-  await expect(screen.getByTestId('board-title-input')).toHaveValue(renamed);
+  await replaceField(screen.getByTestId('board-title-input'), renamed);
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await app.restart();

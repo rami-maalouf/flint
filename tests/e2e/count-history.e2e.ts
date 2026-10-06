@@ -1,3 +1,4 @@
+import { replaceField } from './replace-field';
 import { test } from '@e2e-dev/mobile';
 import { reveal } from './reveal';
 import { expect } from 'e2e';
@@ -21,8 +22,8 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await screen.getByRole('button', { name, exact: true }).tap();
   await reveal(device, screen, screen.getByTestId('detail-add-check-in'));
   await screen.getByTestId('detail-add-check-in').tap();
-  await screen.getByTestId('check-in-amount').fill('2');
-  await screen.getByTestId('check-in-note').fill(note);
+  await replaceField(screen.getByTestId('check-in-amount'), '2', {device, screen, numeric: true});
+  await replaceField(screen.getByTestId('check-in-note'), note);
   await device.dismissKeyboard();
   await screen.getByTestId('check-in-save').tap();
   await reveal(device, screen, screen.getByTestId('open-journal'));
@@ -30,6 +31,7 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await expect(screen.getByText(note)).toBeVisible();
   await screen.getByLabel(new RegExp(note)).first().tap();
   await expect(screen.getByTestId('check-in-note')).toHaveValue(note);
+  await expect(screen.getByTestId('check-in-amount')).toHaveValue('2');
   await screen.getByTestId('check-in-note').fill(`${note} edited`);
   await device.dismissKeyboard();
   await screen.getByTestId('check-in-save').tap();

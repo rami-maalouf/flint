@@ -6,12 +6,14 @@ for (const name of ['Full-width cards', 'Two-column grid', 'Compact rows', '14-d
     await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await screen.getByTestId('open-board-layout').tap();
+    await expect(screen.getByTestId('done-board-layout')).toBeVisible();
     await screen.getByLabel(name).tap();
     await expect(screen.getByLabel(name)).toBeSelected();
     await screen.getByTestId('done-board-layout').tap();
     await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await screen.getByTestId('open-board-layout').tap();
+    await expect(screen.getByTestId('done-board-layout')).toBeVisible();
     await expect(screen.getByLabel(name)).toBeSelected();
     await screen.getByTestId('done-board-layout').tap();
   });
