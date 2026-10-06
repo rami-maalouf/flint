@@ -42,6 +42,9 @@ ui('appearance', 'light');
 ui('content_size', 'large');
 const root = process.cwd();
 const startedAt = new Date().toISOString();
+const jsCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const jsDiff = execFileSync('git', ['diff', 'HEAD'], { encoding: 'utf8' });
+const gitStatus = execFileSync('git', ['status', '--short'], { encoding: 'utf8' });
 const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'modules/ripples-apple', '.eas/workflows', 'tests/e2e', 'scripts/e2e', 'e2e.config.ts', 'app.json', 'app.config.js', 'package.json', 'bun.lock'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const sourceHashes = Object.fromEntries(sourcePaths.map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')]));
 const destination = resolve('.artifacts/e2e-evidence', startedAt.replaceAll(':', '-'));
@@ -72,9 +75,8 @@ writeFileSync(resolve(destination, 'provenance.json'), JSON.stringify({
   device, metro, initialUi, observedFinalUi, visualBaseline: { appearance: 'light', contentSize: 'large' }, exitCode: result.status, signal: result.signal, reportFresh,
   sourceHashes,
   fixtureMode: fullSuite ? 'fresh-full-suite' : 'focused-retained-data', resetReceipt, beforeFixtureCounts, afterFixtureCounts,
-  gitStatus: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }),
-  jsCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  jsDiff: execFileSync('git', ['diff', 'HEAD'], { encoding: 'utf8' }),
+  gitStatus, jsCommit, jsDiff,
+  finishingGitStatus: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }),
   nativeReceipt: nativeReceiptText,
 }, null, 2));
 console.log(`evidence: ${destination}`);
