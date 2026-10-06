@@ -7,6 +7,7 @@ import { syntheticBoardId, syntheticQuickControl, syntheticRows } from './synthe
 test('repeated count check-ins persist while the daily coin cap awards once', { skip: !localSyntheticEnabled, tags: ['deterministic', 'coins'], timeout: 180_000 }, async ({ app, screen, device }) => {
   const title = `QA Cap ${Date.now()}`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-title-input').fill(title);
   await device.dismissKeyboard();

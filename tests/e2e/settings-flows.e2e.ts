@@ -14,6 +14,7 @@ const pages = [
 for (const [row, assertion] of pages) {
   test(`settings opens ${row} with its actual content`, { tags: ['deterministic', 'settings'] }, async ({ app, screen, device }) => {
     await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await screen.getByTestId('open-settings').tap();
     await reveal(device, screen, screen.getByTestId(row));
     await screen.getByTestId(row).tap();
@@ -23,6 +24,7 @@ for (const [row, assertion] of pages) {
 
 test('anchor editor cancels without changing the stored time', { tags: ['deterministic'] }, async ({ app, screen, device }) => {
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('open-settings').tap();
   await screen.getByTestId('settings-anchors').tap();
   const label = await screen.getByTestId('anchor-wake').textContent();
@@ -37,6 +39,7 @@ test('anchor editor cancels without changing the stored time', { tags: ['determi
 
 test('settings timeline renders the current release notes', { tags: ['deterministic', 'settings'] }, async ({ app, screen, device }) => {
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('open-settings').tap();
   await reveal(device, screen, screen.getByTestId('settings-timeline'));
   await screen.getByTestId('settings-timeline').tap();

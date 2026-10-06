@@ -58,10 +58,16 @@ Consult installed packaged docs and `bunx e2e run --help`, keeping APIs consiste
 
 ## execution boundaries
 
-The existing `.eas/workflows/e2e-pr.yml` runs the broad cloud suite against the base app identity. `bun run test:e2e:cloud-boundary` proves cloud precedence even when synthetic flags are inherited: 17 new portable tests remain selected, and host filesystem acceptance is skipped. The local command above separately runs SQLite, simulated appearance, shared-group and Files-provider acceptance. These local results must never be represented as EAS results.
+The existing `.eas/workflows/e2e-pr.yml` runs the broad cloud suite against the base app identity. `bun run test:e2e:cloud-boundary` proves cloud precedence even when synthetic flags are inherited: 21 new portable tests remain selected, and host filesystem acceptance is skipped. The local command above separately runs SQLite, simulated appearance, shared-group and Files-provider acceptance. These local results must never be represented as EAS results.
 
 `bun scripts/e2e/stage-imports.ts` stages unique JSON, CSV and malformed files in the owned simulator Files provider. Set each named fixture and matching `E2E_JSON_IMPORT_BOARD` or `E2E_CSV_IMPORT_BOARD` from its receipt before import acceptance. Shortcuts requires a named test-owned composed shortcut and board. Both remain unverified until actually run.
 
 New `coin-cap.e2e.ts`, `ordering.e2e.ts` and `appearance.e2e.ts` cover daily award capping, persisted adjacent board movement, and light/dark largest Dynamic Type with screenshot judgments and minimum completion target bounds. They remain unverified.
 
 The opt-in reset script requires the exact owned simulator name and UUID, expected development identity and app group, and no active runner. It backs up the synthetic database, resets only the owned app/shared database, reinstalls the recorded native app and verifies the empty database postcondition. Use only between runs to reestablish global coin budget preconditions; it is not a test step and cannot run on retained or personal devices.
+
+## owned simulator setup
+
+A new machine creates a fresh simulator with `E2E_SIM_DEVICE_TYPE` and `E2E_SIM_RUNTIME` from `xcrun simctl list`, then runs `bun scripts/e2e/create-synthetic.ts`. The creation receipt defaults to `.artifacts/synthetic-device.json`; `E2E_SYNTHETIC_RECEIPT` selects another receipt path. Local execution, reset and Files staging validate the receipt UUID and exact name against native inventory. Existing retained QA simulators cannot be adopted implicitly. This session registered only its previously created E2CB simulator from known task creation evidence.
+
+An interrupted appearance scenario left the owned simulator at largest Dynamic Type. Independent review at 4dbe624 reported three failures: text replacement verification, an offscreen completion row after undo, and startup observation between restart and the home screen. The current suite waits for the home landmark after every authored open/restart, verifies clearing before board rename, and reveals the owned completion control again after undo. The owned simulator was restored to light/large and reset with a preserved database receipt at `.artifacts/synthetic-resets/2026-10-06T01-57-31.055Z`. These corrections need fresh runtime and repeat evidence.

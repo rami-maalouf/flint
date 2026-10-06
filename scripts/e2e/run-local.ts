@@ -1,3 +1,4 @@
+import { ownedSyntheticDevice } from './synthetic-device';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -8,18 +9,15 @@ const device = process.env.E2E_DEVICE;
 if (!device || process.env.E2E_SYNTHETIC_DEVICE !== device) {
   throw new Error('set matching E2E_DEVICE and E2E_SYNTHETIC_DEVICE to an isolated simulator');
 }
-const inventory = JSON.parse(execFileSync('xcrun', ['simctl', 'list', 'devices', '-j'], { encoding: 'utf8' })) as { devices: Record<string, { udid: string; name: string }[]> };
-const selected = Object.values(inventory.devices).flat().find(entry => entry.udid === device);
-if (device !== 'E2CB451D-AC1F-42BB-96A3-ED4FF08E01D0' || selected?.name !== 'Habit-System-TesterArmy-E2E') {
-  throw new Error('local evidence requires the exact task-owned synthetic simulator');
-}
+ownedSyntheticDevice();
 const metro = process.env.E2E_METRO_URL;
 if (!metro) throw new Error('set E2E_METRO_URL to the isolated checkout Metro URL');
 const nativeReceipt = process.env.E2E_NATIVE_RECEIPT;
 if (!nativeReceipt) throw new Error('set E2E_NATIVE_RECEIPT to the exact source-build signing receipt');
+const nativeReceiptText = readFileSync(nativeReceipt, 'utf8');
 const root = process.cwd();
 const startedAt = new Date().toISOString();
-const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'modules/ripples-apple/ios', 'tests/e2e', 'scripts/e2e', 'e2e.config.ts', 'app.json', 'app.config.js', 'package.json', 'bun.lock'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'modules/ripples-apple', '.eas/workflows', 'tests/e2e', 'scripts/e2e', 'e2e.config.ts', 'app.json', 'app.config.js', 'package.json', 'bun.lock'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const sourceHashes = Object.fromEntries(sourcePaths.map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')]));
 const destination = resolve('.artifacts/e2e-evidence', startedAt.replaceAll(':', '-'));
 mkdirSync(destination, { recursive: true });
@@ -46,7 +44,7 @@ writeFileSync(resolve(destination, 'provenance.json'), JSON.stringify({
   gitStatus: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }),
   jsCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   jsDiff: execFileSync('git', ['diff', 'HEAD'], { encoding: 'utf8' }),
-  nativeReceipt: readFileSync(nativeReceipt, 'utf8'),
+  nativeReceipt: nativeReceiptText,
 }, null, 2));
 console.log(`evidence: ${destination}`);
 process.exit(result.status ?? 1);

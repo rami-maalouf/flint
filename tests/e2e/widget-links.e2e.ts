@@ -6,6 +6,7 @@ import { syntheticBoardId } from './synthetic-store';
 test('widget daily deep link completes, undoes and preserves a check after restart', { skip: !localSyntheticEnabled, tags: ['deterministic', 'widget'], timeout: 180_000 }, async ({ app, screen, device }) => {
   const name = `QA Widget ${Date.now()}`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
@@ -20,6 +21,7 @@ test('widget daily deep link completes, undoes and preserves a check after resta
   await screen.getByTestId('daily-widget-action').tap();
   await expect(screen.getByTestId('daily-widget-action')).toHaveText('Uncheck');
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await device.openLink(`habitsystem://boards/${id}/quick-action`);
   await expect(screen.getByTestId('daily-widget-action')).toHaveText('Uncheck');
 });

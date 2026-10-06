@@ -6,6 +6,7 @@ test('count board amounts and notes persist through check-in edit and deletion',
   const name = `QA Count ${Date.now()}`;
   const note = `QA note ${Date.now()}`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();

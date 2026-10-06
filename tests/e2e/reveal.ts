@@ -1,7 +1,7 @@
 import { expect, type Locator, type Screen } from 'e2e';
 import type { Device } from '@e2e-dev/mobile';
 
-// the pinned iOS runner's synthesized scroll can target a nested inert container.
+// the pinned ios runner's synthesized scroll can target a nested inert container.
 // raw drags start inside the application's content area and scale with its viewport.
 export async function reveal(device: Device, screen: Screen, target: Locator, options: { direction?: 'up' | 'down' } = {}) {
   if (await target.isVisible()) return;

@@ -1,20 +1,16 @@
+import { ownedSyntheticDevice } from './synthetic-device';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 // destructive fixture setup is restricted to the task-owned simulator and app identity.
-const owned = 'E2CB451D-AC1F-42BB-96A3-ED4FF08E01D0';
-const app = 'studio.orbitlabs.habitsystem.dev';
-if (process.env.E2E_DEVICE !== owned || process.env.E2E_SYNTHETIC_DEVICE !== owned) {
-  throw new Error('reset is permitted only on the task-owned synthetic simulator');
-}
+const device = ownedSyntheticDevice();
+const owned = device.device;
+const app = device.appId;
 const artifact = process.env.E2E_NATIVE_APP;
 if (!artifact) throw new Error('set E2E_NATIVE_APP to the verified development-signed native app');
 const processes = execFileSync('ps', ['-axo', 'args'], { encoding: 'utf8' });
 if (processes.includes(`${process.cwd()}/node_modules/e2e/dist/run/worker/entry.js`)) throw new Error('cannot reset while this checkout has an active e2e worker');
-const devices = JSON.parse(execFileSync('xcrun', ['simctl', 'list', 'devices', '-j'], { encoding: 'utf8' })) as { devices: Record<string, { udid: string; name: string }[]> };
-const device = Object.values(devices.devices).flat().find(entry => entry.udid === owned);
-if (device?.name !== 'Habit-System-TesterArmy-E2E') throw new Error('synthetic device name mismatch');
 const info = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', join(artifact, 'Info.plist')], { encoding: 'utf8' }));
 if (info.CFBundleIdentifier !== app || info.RipplesAppGroupIdentifier !== 'group.studio.orbitlabs.habitsystem') {
   throw new Error('native identity mismatch');

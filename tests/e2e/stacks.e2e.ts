@@ -8,6 +8,7 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
   const root = `QA Stack Root ${Date.now()}`;
   const leaf = `${root} next`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toBeVisible();
   const baseline = Number((await screen.getByTestId('coins-balance').textContent())?.match(/-?\d+/)?.[0]);
@@ -39,9 +40,11 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
   await expect(screen.getByTestId('stack-detail')).toBeVisible();
   await expect(screen.getByTestId('stack-heatmap')).toBeVisible();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toHaveText(new RegExp(`(?:^|\\D)${baseline + 3}(?:\\D|$)`));
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   const leafQuick = screen.getByTestId(syntheticQuickControl(leaf));
   await reveal(device, screen, leafQuick);
   await leafQuick.tap();

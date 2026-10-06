@@ -21,6 +21,7 @@ test('composed Shortcuts daily action persists in the shared database', {
   });
   await expect.poll(() => syntheticRows(`select id from check_ins where board_id='${id}' and deleted_at is null`).length).toBe(before.length + 1);
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByRole('button', { name: title, exact: true }).tap();
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
 });

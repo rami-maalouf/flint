@@ -8,6 +8,7 @@ test('moving a test-owned board above its adjacent sibling persists its order', 
   const first = `QA Order ${Date.now()}`;
   const second = `${first} next`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   for (const title of [first, second]) {
     await screen.getByTestId('create-board').tap();
     await screen.getByTestId('board-title-input').fill(title);

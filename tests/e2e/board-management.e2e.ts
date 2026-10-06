@@ -8,6 +8,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   const original = `QA Manage ${Date.now()}`;
   const renamed = `${original} edited`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-form-save').tap();
   await reveal(device, screen, screen.getByTestId('board-form-error'));
@@ -23,10 +24,14 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
+  await screen.getByTestId('board-title-input').clear();
+  await expect(screen.getByTestId('board-title-input')).toHaveValue('');
   await screen.getByTestId('board-title-input').fill(renamed);
+  await expect(screen.getByTestId('board-title-input')).toHaveValue(renamed);
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByRole('button', { name: renamed })).toBeVisible();
   await expect(screen.getByRole('button', { name: original })).not.toBeVisible();
   await reveal(device, screen, screen.getByRole('button', { name: renamed }));
@@ -39,6 +44,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await screen.getByRole('button', { name: 'Archive', exact: true }).tap();
   await expect.poll(() => syntheticRows(`select id from boards where id='${id}' and archived_at is not null and deleted_at is null`).length).toBe(1);
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByRole('button', { name: renamed })).not.toBeVisible();
   await screen.getByTestId('open-settings').tap();
   await reveal(device, screen, screen.getByTestId('open-archived-boards'));
@@ -47,6 +53,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await screen.getByTestId('restore-board').tap();
   await expect.poll(() => syntheticRows(`select id from boards where id='${id}' and archived_at is null and deleted_at is null`).length).toBe(1);
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await reveal(device, screen, screen.getByRole('button', { name: renamed }));
   await screen.getByRole('button', { name: renamed }).tap();
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
@@ -57,5 +64,6 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await screen.getByRole('button', { name: 'Delete Board', exact: true }).last().tap();
   await expect.poll(() => syntheticRows(`select id from boards where id='${id}' and deleted_at is not null`).length).toBe(1);
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByRole('button', { name: renamed })).not.toBeVisible();
 });

@@ -1,12 +1,13 @@
+import { ownedSyntheticDevice } from './synthetic-device';
+import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 // fixtures live only in the task-owned simulator's local Files provider.
-const owned = 'E2CB451D-AC1F-42BB-96A3-ED4FF08E01D0';
-if (process.env.E2E_DEVICE !== owned || process.env.E2E_SYNTHETIC_DEVICE !== owned) throw new Error('fixture staging requires the owned synthetic simulator');
-const root = `/Users/rami/Library/Developer/CoreSimulator/Devices/${owned}/data/Containers/Shared/AppGroup`;
+const owned = ownedSyntheticDevice().device;
+const root = join(homedir(), 'Library/Developer/CoreSimulator/Devices', owned, 'data/Containers/Shared/AppGroup');
 const groups = readdirSync(root).map(name => join(root, name));
 const provider = groups.find(path => {
   try {

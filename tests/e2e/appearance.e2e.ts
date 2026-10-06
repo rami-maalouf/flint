@@ -40,6 +40,7 @@ for (const appearance of ['light', 'dark'] as const) {
       await app.screenshot(`${appearance}-largest-type-detail`);
       await agent.assert('This habit detail screen has readable headings and no clipped or overlapping navigation controls at the largest text size. Inspect the screenshot.', { vision: 'only' });
       await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
       await screen.getByTestId('open-settings').tap();
       await reveal(device, screen, screen.getByTestId('settings-export'));
       await expect(screen.getByTestId('settings-export')).toBeVisible();

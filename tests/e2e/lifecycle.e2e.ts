@@ -8,6 +8,7 @@ import { syntheticQuickControl } from './synthetic-store';
 test('daily completion, undo, persisted coins and reward refusal', { skip: !localSyntheticEnabled, tags: ['deterministic', 'lifecycle'], timeout: 180_000 }, async ({ app, screen, device }) => {
   const name = `QA Daily ${Date.now()}`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toBeVisible();
   const baseline = Number((await screen.getByTestId('coins-balance').textContent())?.match(/-?\d+/)?.[0]);
@@ -24,10 +25,12 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   await reveal(device, screen, quick);
   await quick.tap();
   await screen.getByTestId('undo-check-in').tap();
+  await reveal(device, screen, quick);
   await expect(quick).not.toBeChecked();
   await quick.tap();
   await expect(quick).toBeChecked();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await reveal(device, screen, quick);
   await expect(quick).toBeChecked();
   await screen.getByTestId('coin-balance-pill').tap();
@@ -36,6 +39,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   await expect(screen.getByTestId('coin-history-list')).toBeVisible();
   await expect(screen.getByLabel(new RegExp(name))).toHaveCount(3);
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await screen.getByTestId('create-reward').tap();
   const reward = `QA Reward ${Date.now()}`;
@@ -51,6 +55,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   await screen.getByRole('button', { name: 'Claim', exact: true }).tap();
   await expect(screen.getByTestId('reward-claim-success')).toContainText(reward);
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toHaveText(new RegExp(`(?:^|\\D)${baseline}(?:\\D|$)`));
   const rewardEdit = screen.getByRole('button', { name: `${reward}, 1 coin` });
@@ -68,6 +73,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   await screen.getByRole('button', { name: `Claim ${reward} for 100000 coins` }).tap();
   await expect(screen.getByTestId('reward-claim-error')).toBeVisible();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toHaveText(new RegExp(`(?:^|\\D)${baseline}(?:\\D|$)`));
 });
@@ -75,6 +81,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
 test('board detail exposes history, journal and analytics', { skip: !localSyntheticEnabled, tags: ['deterministic'], timeout: 180_000 }, async ({ app, screen, device }) => {
   const name = `QA History ${Date.now()}`;
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
@@ -86,12 +93,14 @@ test('board detail exposes history, journal and analytics', { skip: !localSynthe
   await screen.getByTestId('open-check-ins').tap();
   await expect(screen.getByText('Check-Ins', { exact: false }).first()).toBeVisible();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await reveal(device, screen, screen.getByRole('button', { name }));
   await screen.getByRole('button', { name }).tap();
   await reveal(device, screen, screen.getByTestId('open-journal'));
   await screen.getByTestId('open-journal').tap();
   await expect(screen.getByText('Journal').first()).toBeVisible();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await reveal(device, screen, screen.getByRole('button', { name }));
   await screen.getByRole('button', { name }).tap();
   await reveal(device, screen, screen.getByTestId('open-analytics'));

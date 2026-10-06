@@ -7,6 +7,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   const message = `QA remind ${Date.now()}`;
   await device.setPermission('notifications', 'grant');
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
@@ -25,6 +26,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   await device.dismissKeyboard();
   await screen.getByTestId('reminder-save').tap();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByRole('button', { name, exact: true }).tap();
   await screen.getByTestId('edit-board').tap();
   await reveal(device, screen, screen.getByRole('button', { name: /^Reminder / }).first());

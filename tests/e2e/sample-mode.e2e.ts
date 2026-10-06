@@ -6,14 +6,21 @@ import { syntheticRows } from './synthetic-store';
 
 test('sample mode has history, disables external effects and closes to real boards', { skip: !localSyntheticEnabled, tags: ['deterministic', 'sample'], timeout: 180_000 }, async ({ app, screen, device }) => {
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByTestId('coin-balance-pill')).toBeVisible();
   const balance = await screen.getByTestId('coin-balance-pill').textContent();
-  const original = JSON.stringify(syntheticRows('select * from boards order by id'));
+  const realStore = () => JSON.stringify(['boards', 'check_ins', 'coin_ledger'].map(table => syntheticRows(`select * from ${table} order by id`)));
+  const original = realStore();
   await screen.getByTestId('open-settings').tap();
   await reveal(device, screen, screen.getByTestId('settings-sample'));
   await screen.getByTestId('settings-sample').tap();
   await expect(screen.getByTestId('sample-chrome')).toBeVisible({ timeout: 90_000 });
-  await expect(screen.getByRole('checkbox').first()).toBeVisible({ timeout: 90_000 });
+  const completion = screen.getByRole('checkbox').first();
+  await expect(completion).toBeVisible({ timeout: 90_000 });
+  const checked = await completion.isChecked();
+  await completion.tap();
+  if (checked) await expect(completion).not.toBeChecked();
+  else await expect(completion).toBeChecked();
   await screen.getByTestId('open-stacks').tap();
   await expect(screen.getByTestId('stacks-list')).toBeVisible();
   await device.back();
@@ -31,5 +38,5 @@ test('sample mode has history, disables external effects and closes to real boar
   await expect(screen.getByTestId('sample-chrome')).not.toBeVisible();
   await device.back();
   await expect(screen.getByTestId('coin-balance-pill')).toHaveText(balance ?? '');
-  if (JSON.stringify(syntheticRows('select * from boards order by id')) !== original) throw new Error('sample mode changed real boards');
+  expect(realStore()).toBe(original);
 });

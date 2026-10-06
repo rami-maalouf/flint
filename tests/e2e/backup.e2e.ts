@@ -10,6 +10,7 @@ function storedCounts() {
 
 test('export opens a real share sheet and cancellation preserves stored records', { skip: !localSyntheticEnabled, tags: ['deterministic', 'backup'], timeout: 180_000 }, async ({ app, screen, device }) => {
   await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByTestId('open-settings')).toBeVisible();
   const before = storedCounts();
   await screen.getByTestId('open-settings').tap();
@@ -20,6 +21,7 @@ test('export opens a real share sheet and cancellation preserves stored records'
   await screen.getByRole('button', { name: 'Close', exact: true }).tap();
   await expect(screen.getByTestId('export-shared')).toBeVisible();
   await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   expect(storedCounts()).toEqual(before);
 });
 
@@ -33,6 +35,7 @@ for (const [source, variable, expectedBoardVariable, outcome] of [
     tags: ['acceptance', 'backup'], skip: !localSyntheticEnabled || !process.env[variable] || (outcome === 'import-done' && !process.env[expectedBoardVariable]), timeout: 240_000,
   }, async ({ app, screen, device, agent }) => {
     await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await screen.getByTestId('open-settings').tap();
     await reveal(device, screen, screen.getByTestId('settings-import'));
     await screen.getByTestId('settings-import').tap();

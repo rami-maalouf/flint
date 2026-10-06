@@ -1,0 +1,37 @@
+import { test } from '@e2e-dev/mobile';
+import { expect } from 'e2e';
+import { reveal } from './reveal';
+
+test('analytics reflects a persisted check-in and distinguishes insufficient history', { tags: ['deterministic', 'analytics'], timeout: 240_000 }, async ({ app, screen, device }) => {
+  const title = `QA Analytics ${Date.now()}`;
+  await app.open();
+  await expect(screen.getByTestId('create-board')).toBeVisible();
+  await screen.getByTestId('create-board').tap();
+  await expect(screen.getByTestId('board-title-input')).toBeVisible();
+  await screen.getByTestId('board-title-input').fill(title);
+  await device.dismissKeyboard();
+  await screen.getByTestId('board-form-save').tap();
+  await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));
+  await screen.getByRole('button', { name: title, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
+  await screen.getByTestId('detail-add-check-in').tap();
+  await expect(screen.getByTestId('check-in-save')).toBeVisible();
+  await screen.getByTestId('check-in-save').tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
+  await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
+  await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));
+  await screen.getByRole('button', { name: title, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
+  await screen.getByTestId('open-analytics').tap();
+  await expect(screen.getByTestId('analytics-overview')).toBeVisible();
+  await reveal(device, screen, screen.getByTestId('timeline-summary'));
+  await expect(screen.getByTestId('timeline-summary')).toContainText('1 check-ins');
+  await expect(screen.getByTestId('timeline-chart')).toBeVisible();
+  await reveal(device, screen, screen.getByTestId('comparison-summary'));
+  await expect(screen.getByTestId('comparison-summary')).toContainText('1 check-ins');
+  await reveal(device, screen, screen.getByTestId('consistency-empty'));
+  await expect(screen.getByTestId('consistency-empty')).toContainText('seven eligible days');
+  await reveal(device, screen, screen.getByTestId('streak-summary'));
+  await expect(screen.getByTestId('streak-summary')).toContainText('Longest streak - 1 day');
+});
