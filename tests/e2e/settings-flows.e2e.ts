@@ -39,26 +39,29 @@ test('anchor editor cancels without changing the stored time', { tags: ['determi
   await expect(screen.getByTestId('anchor-wake')).toHaveText(label ?? '');
 });
 
-test('a changed global wake anchor persists after saving and reopening', { tags: ['settings'], timeout: 180_000 }, async ({ app, screen, agent }) => {
+test('a changed global wake anchor persists after saving and reopening', { tags: ['deterministic', 'settings'], timeout: 180_000 }, async ({ app, screen, device }) => {
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('open-settings').tap();
   await screen.getByTestId('settings-anchors').tap();
   const row = screen.getByTestId('anchor-wake');
   await expect(row).toBeVisible();
-  const original = await row.textContent();
-  const chosen = original?.includes('5:45') ? '6:00 AM' : '5:45 AM';
   await row.tap();
   await expect(screen.getByTestId('anchor-minute-picker')).toBeVisible();
-  await agent.act(`select ${chosen} in the visible anchor time wheel, leaving the editor open`);
+  const wheel = device.locator('role=picker-wheel');
+  await expect(wheel).toBeVisible();
+  const original = await wheel.inputValue();
+  await wheel.swipe({ direction: 'down', momentum: 'slow' });
+  await expect(wheel).not.toHaveValue(original);
+  const chosen = (await wheel.inputValue()).replace(/\s+/g, ' ');
   await screen.getByTestId('anchor-save').tap();
   await expect(screen.getByTestId('anchor-minute-picker')).not.toBeVisible();
-  await expect(row).toHaveText(new RegExp(chosen.replace(' ', '\\s*')));
+  await expect(row).toHaveText(`Waking up, ${chosen}`);
   await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('open-settings').tap();
   await screen.getByTestId('settings-anchors').tap();
-  await expect(row).toHaveText(new RegExp(chosen.replace(' ', '\\s*')));
+  await expect(row).toHaveText(`Waking up, ${chosen}`);
 });
 
 test('settings timeline renders the current release notes', { tags: ['deterministic', 'settings'] }, async ({ app, screen, device }) => {
