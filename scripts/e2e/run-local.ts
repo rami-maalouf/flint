@@ -1,5 +1,5 @@
 import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -35,6 +35,9 @@ try {
 } catch { /* interrupted discovery may not write a report */ }
 for (const file of reportFresh ? ['report.json', 'summary.md', 'junit.xml'] : []) {
   try { copyFileSync(resolve('.e2e', file), resolve(destination, file)); } catch { /* missing report is recorded below */ }
+}
+if (reportFresh) {
+  try { cpSync(resolve('.e2e/artifacts'), resolve(destination, 'artifacts'), { recursive: true }); } catch { /* an attempt may have no artifacts */ }
 }
 writeFileSync(resolve(destination, 'provenance.json'), JSON.stringify({
   startedAt, finishedAt: new Date().toISOString(), command: ['bun', ...args], root,

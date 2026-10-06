@@ -10,7 +10,7 @@ test('sample mode has history, disables external effects and closes to real boar
   const balance = await screen.getByTestId('coin-balance-pill').textContent();
   const original = JSON.stringify(syntheticRows('select * from boards order by id'));
   await screen.getByTestId('open-settings').tap();
-  await reveal(screen, screen.getByTestId('settings-sample'));
+  await reveal(device, screen, screen.getByTestId('settings-sample'));
   await screen.getByTestId('settings-sample').tap();
   await expect(screen.getByTestId('sample-chrome')).toBeVisible({ timeout: 90_000 });
   await expect(screen.getByRole('checkbox').first()).toBeVisible({ timeout: 90_000 });
@@ -24,7 +24,7 @@ test('sample mode has history, disables external effects and closes to real boar
   await device.back();
   await device.back();
   await screen.getByTestId('open-settings').tap();
-  await reveal(screen, screen.getByTestId('settings-export'));
+  await reveal(device, screen, screen.getByTestId('settings-export'));
   await screen.getByTestId('settings-export').tap();
   await expect(screen.getByText('Export is disabled in sample mode.')).toBeVisible();
   await screen.getByTestId('sample-close').tap();

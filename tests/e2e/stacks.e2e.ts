@@ -16,19 +16,19 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
     await screen.getByTestId('create-board').tap();
     await screen.getByTestId('board-title-input').fill(title);
     await device.dismissKeyboard();
-    await reveal(screen, screen.getByTestId('board-anchor-row'));
+    await reveal(device, screen, screen.getByTestId('board-anchor-row'));
     await screen.getByTestId('board-anchor-row').tap();
     if (title === root) await screen.getByTestId('anchor-preset-wake').tap();
     else await screen.getByRole('button', { name: root, exact: true }).tap();
     await screen.getByTestId('anchor-picker-done').tap();
-    await reveal(screen, screen.getByTestId('earn-coins-toggle'));
+    await reveal(device, screen, screen.getByTestId('earn-coins-toggle'));
     await screen.getByTestId('earn-coins-toggle').tap();
     await screen.getByTestId('board-form-save').tap();
     await expect(screen.getByRole('button', { name: title, exact: true })).toBeVisible();
   }
   for (const title of [root, leaf]) {
     const quick = screen.getByTestId(syntheticQuickControl(title));
-    await reveal(screen, quick);
+    await reveal(device, screen, quick);
     await quick.tap();
     await expect(quick).toBeChecked();
   }
@@ -43,7 +43,7 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
   await expect(screen.getByTestId('coins-balance')).toHaveText(new RegExp(`(?:^|\\D)${baseline + 3}(?:\\D|$)`));
   await app.restart();
   const leafQuick = screen.getByTestId(syntheticQuickControl(leaf));
-  await reveal(screen, leafQuick);
+  await reveal(device, screen, leafQuick);
   await leafQuick.tap();
   await screen.getByTestId('coin-balance-pill').tap();
   await expect(screen.getByTestId('coins-balance')).toHaveText(new RegExp(`(?:^|\\D)${baseline + 1}(?:\\D|$)`));

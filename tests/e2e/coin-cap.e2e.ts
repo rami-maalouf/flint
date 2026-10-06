@@ -1,0 +1,33 @@
+import { test } from '@e2e-dev/mobile';
+import { expect } from 'e2e';
+import { localSyntheticEnabled } from './local-mode';
+import { reveal } from './reveal';
+import { syntheticBoardId, syntheticQuickControl, syntheticRows } from './synthetic-store';
+
+test('repeated count check-ins persist while the daily coin cap awards once', { skip: !localSyntheticEnabled, tags: ['deterministic', 'coins'], timeout: 180_000 }, async ({ app, screen, device }) => {
+  const title = `QA Cap ${Date.now()}`;
+  await app.open();
+  await screen.getByTestId('create-board').tap();
+  await screen.getByTestId('board-title-input').fill(title);
+  await device.dismissKeyboard();
+  await reveal(device, screen, screen.getByTestId('board-kind-picker'));
+  await screen.getByTestId('board-kind-picker').tap();
+  await screen.getByRole('button', { name: 'Count', exact: true }).tap();
+  await reveal(device, screen, screen.getByTestId('earn-coins-toggle'));
+  await screen.getByTestId('earn-coins-toggle').tap();
+  await expect(screen.getByTestId('earn-coins-toggle')).toBeChecked();
+  await screen.getByTestId('coin-cap-picker').tap();
+  await screen.getByRole('button', { name: '1', exact: true }).tap();
+  await screen.getByTestId('board-form-save').tap();
+  await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));
+  const id = syntheticBoardId(title);
+  const quick = screen.getByTestId(syntheticQuickControl(title));
+  await reveal(device, screen, quick);
+  await quick.tap();
+  await expect.poll(() => syntheticRows(`select id from check_ins where board_id='${id}' and deleted_at is null`).length).toBe(1);
+  await quick.tap();
+  await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible();
+  expect(syntheticRows(`select id from check_ins where board_id='${id}' and deleted_at is null`).length).toBe(2);
+  expect(syntheticRows(`select id from coin_ledger where board_id='${id}' and delta=1`).length).toBe(1);
+});

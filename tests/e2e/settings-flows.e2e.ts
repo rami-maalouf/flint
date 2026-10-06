@@ -12,10 +12,10 @@ const pages = [
   ['settings-app-icon', 'icon-preview-default'],
 ] as const;
 for (const [row, assertion] of pages) {
-  test(`settings opens ${row} with its actual content`, { tags: ['deterministic', 'settings'] }, async ({ app, screen }) => {
+  test(`settings opens ${row} with its actual content`, { tags: ['deterministic', 'settings'] }, async ({ app, screen, device }) => {
     await app.open();
     await screen.getByTestId('open-settings').tap();
-    await reveal(screen, screen.getByTestId(row));
+    await reveal(device, screen, screen.getByTestId(row));
     await screen.getByTestId(row).tap();
     await expect(screen.getByTestId(assertion)).toBeVisible();
   });
@@ -35,10 +35,10 @@ test('anchor editor cancels without changing the stored time', { tags: ['determi
   await expect(screen.getByTestId('anchor-wake')).toHaveText(label ?? '');
 });
 
-test('settings timeline renders the current release notes', { tags: ['deterministic', 'settings'] }, async ({ app, screen }) => {
+test('settings timeline renders the current release notes', { tags: ['deterministic', 'settings'] }, async ({ app, screen, device }) => {
   await app.open();
   await screen.getByTestId('open-settings').tap();
-  await reveal(screen, screen.getByTestId('settings-timeline'));
+  await reveal(device, screen, screen.getByTestId('settings-timeline'));
   await screen.getByTestId('settings-timeline').tap();
   await expect(screen.getByText('In development')).toBeVisible();
 });

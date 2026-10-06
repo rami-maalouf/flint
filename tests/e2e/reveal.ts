@@ -1,10 +1,14 @@
 import { expect, type Locator, type Screen } from 'e2e';
+import type { Device } from '@e2e-dev/mobile';
 
 // the pinned iOS runner's synthesized scroll can target a nested inert container.
 // raw drags start inside the application's content area and scale with its viewport.
-export async function reveal(screen: Screen, target: Locator, options: { direction?: 'up' | 'down' } = {}) {
-  const viewport = await screen.getByLabel('Habit System').first().boundingBox();
-  if (!viewport || viewport.height < 500) throw new Error('application viewport is unavailable');
+export async function reveal(device: Device, screen: Screen, target: Locator, options: { direction?: 'up' | 'down' } = {}) {
+  if (await target.isVisible()) return;
+  const scroller = device.locator('role=scroll-view').first();
+  await expect(scroller).toBeVisible({ timeout: 30_000 });
+  const viewport = await scroller.boundingBox();
+  if (!viewport || viewport.height < 100) throw new Error('scrollable content bounds are unavailable');
   const x = viewport.x + viewport.width / 2;
   const top = viewport.y + viewport.height * 0.36;
   const bottom = viewport.y + viewport.height * 0.82;

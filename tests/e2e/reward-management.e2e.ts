@@ -12,7 +12,7 @@ test('reward archive and restore preserve its saved price', { tags: ['determinis
   await device.dismissKeyboard();
   await screen.getByTestId('reward-form-save').tap();
   await screen.getByRole('button', { name: `${name}, 7 coins` }).tap();
-  await reveal(screen, screen.getByTestId('archive-reward'));
+  await reveal(device, screen, screen.getByTestId('archive-reward'));
   await screen.getByTestId('archive-reward').tap();
   await screen.getByRole('button', { name: 'Archive', exact: true }).tap();
   await app.restart();
