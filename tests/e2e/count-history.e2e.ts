@@ -48,6 +48,18 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await screen.getByTestId('open-journal').tap();
   await expect(screen.getByRole('button', { name: new RegExp(`3 cups.*${note} edited`) })).toBeVisible();
   await screen.getByLabel(new RegExp(`${note} edited`)).first().tap();
+  await expect(screen.getByTestId('check-in-note')).toBeVisible();
+  const grabber = screen.getByRole('button', { name: 'Sheet Grabber', exact: true });
+  if (await grabber.isVisible()) {
+    const box = await grabber.boundingBox();
+    if (!box) throw new Error('the visible sheet grabber has no bounds');
+    await screen.swipe({
+      from: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+      to: { x: box.x + box.width / 2, y: box.y / 4 },
+    });
+    await expect.poll(async () => (await grabber.boundingBox())?.y ?? Infinity,
+      { timeout: 10_000, message: 'the check-in sheet must expand before scrolling to delete' }).toBeLessThan(box.y / 2);
+  }
   await reveal(device, screen, screen.getByTestId('delete-check-in'));
   await screen.getByTestId('delete-check-in').tap();
   await screen.getByRole('group', { name: 'Delete Check-In', exact: true }).getByRole('button', { name: 'Delete Check-In', exact: true }).tap();
