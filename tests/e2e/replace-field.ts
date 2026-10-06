@@ -36,7 +36,7 @@ export async function replaceField(input: Locator, value: string, { device, scre
     }
   } else {
     await input.clear();
-    await expect(input).toHaveValue('');
+    // ios exposes an empty field's placeholder as its value; verify the committed result below.
     await input.fill(value);
   }
   await expect(input).toHaveValue(value);
