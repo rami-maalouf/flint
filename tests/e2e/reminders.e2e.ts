@@ -22,7 +22,6 @@ test('reminder creation, edit and deletion persist without sending external mess
   await reveal(device, screen, screen.getByTestId('add-reminder-row'));
   await screen.getByTestId('add-reminder-row').tap();
   await replaceField(screen.getByTestId('reminder-message'), message);
-  await device.dismissKeyboard();
   await screen.getByTestId('reminder-save').tap();
   {
     const allow = screen.getByRole('button', {name: 'Allow', exact: true});
@@ -40,7 +39,6 @@ test('reminder creation, edit and deletion persist without sending external mess
   await expect(screen.getByTestId('reminder-message')).toBeVisible();
   await expect(screen.getByTestId('reminder-message')).toHaveValue(message);
   await replaceField(screen.getByTestId('reminder-message'), `${message} edited`);
-  await device.dismissKeyboard();
   await screen.getByTestId('reminder-save').tap();
   {
     const allow = screen.getByRole('button', {name: 'Allow', exact: true});
@@ -58,7 +56,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   await expect(screen.getByTestId('reminder-message')).toHaveValue(`${message} edited`);
   await reveal(device, screen, screen.getByTestId('delete-reminder'));
   await screen.getByTestId('delete-reminder').tap();
-  await screen.getByRole('button', { name: 'Delete Reminder', exact: true }).last().tap();
+  await screen.getByRole('group', { name: 'Delete Reminder', exact: true }).getByRole('button', { name: 'Delete Reminder', exact: true }).tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await expect(screen.getByRole('button', { name: /^Reminder / })).toHaveCount(0);
 });
