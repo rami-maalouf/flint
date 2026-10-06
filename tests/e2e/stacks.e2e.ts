@@ -25,6 +25,8 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
     await reveal(device, screen, screen.getByTestId('earn-coins-toggle'));
     await screen.getByTestId('earn-coins-toggle').tap();
     await screen.getByTestId('board-form-save').tap();
+    await expect(screen.getByTestId('create-board')).toBeVisible();
+    await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));
     await expect(screen.getByRole('button', { name: title, exact: true })).toBeVisible();
   }
   for (const title of [root, leaf]) {

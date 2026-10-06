@@ -2,6 +2,7 @@ import { test } from '@e2e-dev/mobile';
 import { localSyntheticEnabled } from './local-mode';
 import { expect } from 'e2e';
 import { syntheticBoardId } from './synthetic-store';
+import { reveal } from './reveal';
 
 test('widget daily deep link completes, undoes and preserves a check after restart', { skip: !localSyntheticEnabled, tags: ['deterministic', 'widget'], timeout: 180_000 }, async ({ app, screen, device }) => {
   const name = `QA Widget ${Date.now()}`;
@@ -11,6 +12,8 @@ test('widget daily deep link completes, undoes and preserves a check after resta
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
+  await expect(screen.getByTestId('create-board')).toBeVisible();
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
   await expect(screen.getByRole('button', { name, exact: true })).toBeVisible();
   const id = syntheticBoardId(name);
   await device.openLink(`habitsystem://boards/${id}/quick-action`);
