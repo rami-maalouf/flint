@@ -28,16 +28,15 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await screen.getByTestId('detail-add-check-in').tap();
   await replaceField(screen.getByTestId('check-in-amount'), '2', {device, screen, numeric: true});
   await replaceField(screen.getByTestId('check-in-note'), note);
-  await device.dismissKeyboard();
   await screen.getByTestId('check-in-save').tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('open-journal'));
   await screen.getByTestId('open-journal').tap();
   await expect(screen.getByText(note)).toBeVisible();
   await screen.getByLabel(new RegExp(note)).first().tap();
   await expect(screen.getByTestId('check-in-note')).toHaveValue(note);
   await expect(screen.getByTestId('check-in-amount')).toHaveValue('2');
-  await screen.getByTestId('check-in-note').fill(`${note} edited`);
-  await device.dismissKeyboard();
+  await replaceField(screen.getByTestId('check-in-note'), `${note} edited`);
   await screen.getByTestId('check-in-save').tap();
   await expect(screen.getByText(`${note} edited`)).toBeVisible();
   await screen.getByLabel(new RegExp(`${note} edited`)).first().tap();

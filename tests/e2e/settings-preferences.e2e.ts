@@ -60,12 +60,16 @@ test('iCloud setting persists off and on without claiming account sync', { tags:
     await open();
     await expect(toggle).not.toBeChecked();
     await toggle.tap();
+    await screen.getByRole('button', { name: 'Turn On', exact: true }).tap();
     await expect(toggle).toBeChecked();
     await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
     await open();
     await expect(toggle).toBeChecked();
   } finally {
-    if (await toggle.isVisible() && (await toggle.isChecked()) !== original) await toggle.tap();
+    if (await toggle.isVisible() && (await toggle.isChecked()) !== original) {
+      await toggle.tap();
+      if (original) await screen.getByRole('button', { name: 'Turn On', exact: true }).tap();
+    }
   }
 });

@@ -28,10 +28,18 @@ test('reminder creation, edit and deletion persist without sending external mess
     const allow = screen.getByRole('button', {name: 'Allow', exact: true});
     if (await allow.isVisible()) await allow.tap();
   }
+  await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
+  await screen.getByRole('button', { name, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
+  await screen.getByTestId('edit-board').tap();
+  await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await reveal(device, screen, screen.getByRole('button', { name: /^Reminder / }).first());
   await screen.getByRole('button', { name: /^Reminder / }).first().tap();
+  await expect(screen.getByTestId('reminder-message')).toBeVisible();
   await expect(screen.getByTestId('reminder-message')).toHaveValue(message);
-  await screen.getByTestId('reminder-message').fill(`${message} edited`);
+  await replaceField(screen.getByTestId('reminder-message'), `${message} edited`);
   await device.dismissKeyboard();
   await screen.getByTestId('reminder-save').tap();
   {
@@ -46,9 +54,11 @@ test('reminder creation, edit and deletion persist without sending external mess
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await reveal(device, screen, screen.getByRole('button', { name: /^Reminder / }).first());
   await screen.getByRole('button', { name: /^Reminder / }).first().tap();
+  await expect(screen.getByTestId('reminder-message')).toBeVisible();
   await expect(screen.getByTestId('reminder-message')).toHaveValue(`${message} edited`);
   await reveal(device, screen, screen.getByTestId('delete-reminder'));
   await screen.getByTestId('delete-reminder').tap();
   await screen.getByRole('button', { name: 'Delete Reminder', exact: true }).last().tap();
+  await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await expect(screen.getByRole('button', { name: /^Reminder / })).toHaveCount(0);
 });
