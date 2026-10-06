@@ -15,6 +15,11 @@ if (!metro) throw new Error('set E2E_METRO_URL to the isolated checkout Metro UR
 const nativeReceipt = process.env.E2E_NATIVE_RECEIPT;
 if (!nativeReceipt) throw new Error('set E2E_NATIVE_RECEIPT to the exact source-build signing receipt');
 const nativeReceiptText = readFileSync(nativeReceipt, 'utf8');
+const ui = (option: string, value?: string) => execFileSync('xcrun', ['simctl', 'ui', device, option, ...(value ? [value] : [])], { encoding: 'utf8' }).trim();
+const initialUi = { appearance: ui('appearance'), contentSize: ui('content_size') };
+// each local run begins with explicit visual preconditions on the owned simulator.
+ui('appearance', 'light');
+ui('content_size', 'large');
 const root = process.cwd();
 const startedAt = new Date().toISOString();
 const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'modules/ripples-apple', '.eas/workflows', 'tests/e2e', 'scripts/e2e', 'e2e.config.ts', 'app.json', 'app.config.js', 'package.json', 'bun.lock'], { encoding: 'utf8' }).split('\0').filter(Boolean);
@@ -26,6 +31,10 @@ const result = spawnSync('bun', args, {
   stdio: 'inherit',
   env: { ...process.env, AGENT_DEVICE_STATE_DIR: resolve('.artifacts/agent-device') },
 });
+const observedFinalUi = { appearance: ui('appearance'), contentSize: ui('content_size') };
+// restore the suite baseline even when an appearance attempt is interrupted.
+ui('appearance', 'light');
+ui('content_size', 'large');
 let reportFresh = false;
 try {
   const report = JSON.parse(readFileSync(resolve('.e2e/report.json'), 'utf8'));
@@ -39,7 +48,7 @@ if (reportFresh) {
 }
 writeFileSync(resolve(destination, 'provenance.json'), JSON.stringify({
   startedAt, finishedAt: new Date().toISOString(), command: ['bun', ...args], root,
-  device, metro, exitCode: result.status, signal: result.signal, reportFresh,
+  device, metro, initialUi, observedFinalUi, visualBaseline: { appearance: 'light', contentSize: 'large' }, exitCode: result.status, signal: result.signal, reportFresh,
   sourceHashes,
   gitStatus: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }),
   jsCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),

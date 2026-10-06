@@ -25,7 +25,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await screen.getByTestId('board-title-input').clear();
-  await expect(screen.getByTestId('board-title-input')).toHaveValue('');
+  await expect(screen.getByTestId('board-title-input')).toHaveValue('Board name');
   await screen.getByTestId('board-title-input').fill(renamed);
   await expect(screen.getByTestId('board-title-input')).toHaveValue(renamed);
   await device.dismissKeyboard();
