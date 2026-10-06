@@ -9,10 +9,14 @@ test('reminder creation, edit and deletion persist without sending external mess
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
+  await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
+  await expect(screen.getByTestId('create-board')).toBeVisible();
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
   await screen.getByRole('button', { name, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('add-reminder-row'));
@@ -36,6 +40,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   }
   await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
   await screen.getByRole('button', { name, exact: true }).tap();
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();

@@ -287,6 +287,7 @@ export function BoardsHomeScreen() {
         </View>
       ) : (
         <FlatList
+          testID="boards-list"
           key={columns}
           numColumns={columns}
           columnWrapperStyle={columns === 2 ? { gap: spacing.lg } : undefined}

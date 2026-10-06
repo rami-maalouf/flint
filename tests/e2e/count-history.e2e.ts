@@ -9,6 +9,7 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
+  await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await screen.getByTestId('board-title-input').fill(name);
   await device.dismissKeyboard();
   await reveal(device, screen, screen.getByTestId('board-kind-picker'));
@@ -19,7 +20,10 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await screen.getByTestId('unit-input').fill('cups');
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
+  await expect(screen.getByTestId('create-board')).toBeVisible();
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
   await screen.getByRole('button', { name, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('detail-add-check-in'));
   await screen.getByTestId('detail-add-check-in').tap();
   await replaceField(screen.getByTestId('check-in-amount'), '2', {device, screen, numeric: true});
