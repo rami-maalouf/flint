@@ -11,7 +11,8 @@ export async function reveal(device: Device, screen: Screen, target: Locator, op
     return box.y >= viewport.y + 24 && box.y + box.height <= viewport.y + viewport.height - 24;
   };
   if (!await reachable()) {
-    const homeList = screen.getByTestId('boards-list');
+    const sampleList = screen.getByTestId('sample-boards-list');
+    const homeList = await sampleList.isVisible() ? sampleList : screen.getByTestId('boards-list');
     const scroller = await homeList.isVisible() ? homeList : device.locator('role=scroll-view').first();
     await expect(scroller).toBeVisible({ timeout: 30_000 });
     for (let attempt = 0; attempt < 24 && !await reachable(); attempt++) {

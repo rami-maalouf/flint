@@ -287,7 +287,7 @@ export function BoardsHomeScreen() {
         </View>
       ) : (
         <FlatList
-          testID="boards-list"
+          testID={scope.kind === 'sample' ? 'sample-boards-list' : 'boards-list'}
           key={columns}
           numColumns={columns}
           columnWrapperStyle={columns === 2 ? { gap: spacing.lg } : undefined}
@@ -303,7 +303,7 @@ export function BoardsHomeScreen() {
               <BoardCard
                 card={item}
                 layout={layoutPreference.layout}
-                testID={`board-card-${index}`}
+                testID={`${scope.kind === 'sample' ? 'sample-' : ''}board-card-${index}`}
                 onOpen={() => { if (isCurrent()) router.push(`/boards/${item.board.id}`); }}
                 onQuickCheckIn={() => { if (isCurrent()) { setLayoutMode(false); void quickCheckIn(item); } }}
                 quickPending={pendingBoardIds.has(item.board.id)}

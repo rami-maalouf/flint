@@ -7,7 +7,23 @@ type InputContext = { device: Device; screen: Screen; numeric?: boolean };
 export async function replaceField(input: Locator, value: string, { device, screen, numeric }: InputContext) {
   await expect(input).toBeVisible();
   await input.tap();
-  await expect(device.locator('role=key').first()).toBeVisible();
+  const firstKey = device.locator("role=key").first();
+  await expect(firstKey).toBeVisible();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const field = await input.boundingBox();
+    const key = await firstKey.boundingBox();
+    if (!field || !key) throw new Error("focused input and keyboard bounds are required");
+    if (field.y + field.height < key.y - 60) break;
+    await screen.swipe({
+      from: { x: 16, y: key.y - 80 },
+      to: { x: 16, y: Math.max(140, key.y - 260) },
+    });
+  }
+  const field = await input.boundingBox();
+  const key = await firstKey.boundingBox();
+  expect(field).not.toBeNull();
+  expect(key).not.toBeNull();
+  expect(field!.y + field!.height).toBeLessThan(key!.y - 60);
   let previousBounds = '';
   let stationary = 0;
   await expect.poll(async () => {

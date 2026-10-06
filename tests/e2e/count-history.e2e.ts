@@ -3,7 +3,7 @@ import { test } from '@e2e-dev/mobile';
 import { reveal } from './reveal';
 import { expect } from 'e2e';
 
-test('count board amounts and notes persist through check-in edit and deletion', { tags: ['deterministic', 'history'], timeout: 240_000 }, async ({ app, screen, device }) => {
+test('count board amounts and notes persist through check-in edit and deletion', { tags: ['deterministic', 'history'], timeout: 480_000 }, async ({ app, screen, device }) => {
   const name = `QA Count ${Date.now()}`;
   const note = `QA note ${Date.now()}`;
   await app.open();

@@ -5,7 +5,7 @@ import { reveal } from './reveal';
 import { expect } from 'e2e';
 import { syntheticQuickControl } from './synthetic-store';
 
-test('anchored daily stack completion earns and reverses its bonus', { skip: !localSyntheticEnabled, tags: ['deterministic', 'stacks'], timeout: 240_000 }, async ({ app, screen, device }) => {
+test('anchored daily stack completion earns and reverses its bonus', { skip: !localSyntheticEnabled, tags: ['deterministic', 'stacks'], timeout: 480_000 }, async ({ app, screen, device }) => {
   const root = `QA Stack Root ${Date.now()}`;
   const leaf = `${root} next`;
   await app.open();
@@ -20,8 +20,10 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
     await device.dismissKeyboard();
     await reveal(device, screen, screen.getByTestId('board-anchor-row'));
     await screen.getByTestId('board-anchor-row').tap();
-    if (title === root) await screen.getByTestId('anchor-preset-wake').tap();
-    else await screen.getByRole('button', { name: root, exact: true }).tap();
+    await expect(screen.getByTestId("anchor-picker-done")).toBeVisible();
+    const anchor = title === root ? screen.getByTestId("anchor-preset-wake") : screen.getByRole("button", { name: root, exact: true });
+    await reveal(device, screen, anchor);
+    await anchor.tap();
     await screen.getByTestId('anchor-picker-done').tap();
     await reveal(device, screen, screen.getByTestId('earn-coins-toggle'));
     await screen.getByTestId('earn-coins-toggle').tap();

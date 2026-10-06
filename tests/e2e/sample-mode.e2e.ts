@@ -15,7 +15,9 @@ test('sample mode has history, disables external effects and closes to real boar
   await reveal(device, screen, screen.getByTestId('settings-sample'));
   await screen.getByTestId('settings-sample').tap();
   await expect(screen.getByTestId('sample-chrome')).toBeVisible({ timeout: 90_000 });
-  const completion = screen.getByRole('checkbox').first();
+  await expect(screen.getByTestId('sample-boards-list')).toBeVisible({ timeout: 90_000 });
+  const completion = screen.getByTestId('sample-board-card-0-quick');
+  await reveal(device, screen, completion);
   await expect(completion).toBeVisible({ timeout: 90_000 });
   const checked = await completion.isChecked();
   await completion.tap();

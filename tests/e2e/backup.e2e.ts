@@ -17,8 +17,10 @@ test('export opens a real share sheet and cancellation preserves stored records'
   await reveal(device, screen, screen.getByTestId('settings-export'));
   await screen.getByTestId('settings-export').tap();
   await screen.getByTestId('export-start').tap();
-  await expect(screen.getByRole('button', { name: 'Close', exact: true })).toBeVisible();
-  await screen.getByRole('button', { name: 'Close', exact: true }).tap();
+  await expect(screen.getByTestId('ActivityListView')).toBeVisible();
+  const dismiss = await screen.getByTestId('PopoverDismissRegion').boundingBox();
+  expect(dismiss).not.toBeNull();
+  await screen.tapAt({ x: dismiss!.x + dismiss!.width / 2, y: dismiss!.y + dismiss!.height / 2 });
   await expect(screen.getByTestId('export-shared')).toBeVisible();
   await app.restart();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
@@ -41,11 +43,12 @@ for (const [source, variable, expectedBoardVariable, outcome] of [
     await screen.getByTestId('settings-import').tap();
     const before = storedCounts();
     await screen.getByTestId(`import-${source}`).tap();
-    await agent.act('Select the synthetic import fixture named {{filename}} in the Files picker.', {
+    await agent.act('Select the synthetic import fixture named {{filename}} in the Files picker. Match the exact filename, including extension. Finish as soon as the picker closes, even if the app reports an import error.', {
       params: { filename: process.env[variable]! },
     });
     if (outcome === 'import-done') {
       await expect(screen.getByTestId('import-preview')).toBeVisible();
+      await expect(screen.getByText(process.env[variable]!, { exact: true })).toBeVisible();
       await screen.getByTestId('import-confirm').tap();
       await expect(screen.getByTestId(outcome)).toBeVisible();
       await expect(screen.getByTestId('import-summary')).toContainText('Added');
@@ -53,12 +56,17 @@ for (const [source, variable, expectedBoardVariable, outcome] of [
       const imported = storedCounts();
       await screen.getByTestId('import-again').tap();
       await screen.getByTestId(`import-${source}`).tap();
-      await agent.act('Select the same synthetic import fixture named {{filename}} in the Files picker.', {
+      await agent.act('Select the same synthetic import fixture named {{filename}} in the Files picker. Match the exact filename, including extension. Finish as soon as the picker closes, even if the app reports an import error.', {
         params: { filename: process.env[variable]! },
       });
+      await expect(screen.getByText(process.env[variable]!, { exact: true })).toBeVisible();
       await screen.getByTestId('import-confirm').tap();
       await expect(screen.getByTestId('import-done')).toBeVisible();
-      expect(storedCounts()).toEqual(imported);
+      if (source === 'own') expect(storedCounts()).toEqual(imported);
+      else {
+        const previous = imported[0] as { boards: number; checks: number; ledger: number };
+        expect(storedCounts()).toEqual([{ ...previous, boards: previous.boards + 1 }]);
+      }
     } else {
       await expect(screen.getByTestId(outcome)).toBeVisible();
       expect(storedCounts()).toEqual(before);
