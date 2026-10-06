@@ -10,7 +10,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await screen.getByTestId('board-title-input').fill(name);
+  await replaceField(screen.getByTestId('board-title-input'), name, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await expect(screen.getByTestId('create-board')).toBeVisible();
@@ -21,7 +21,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('add-reminder-row'));
   await screen.getByTestId('add-reminder-row').tap();
-  await replaceField(screen.getByTestId('reminder-message'), message);
+  await replaceField(screen.getByTestId('reminder-message'), message, { device, screen });
   await screen.getByTestId('reminder-save').tap();
   {
     const allow = screen.getByRole('button', {name: 'Allow', exact: true});
@@ -38,7 +38,7 @@ test('reminder creation, edit and deletion persist without sending external mess
   await screen.getByRole('button', { name: /^Reminder / }).first().tap();
   await expect(screen.getByTestId('reminder-message')).toBeVisible();
   await expect(screen.getByTestId('reminder-message')).toHaveValue(message);
-  await replaceField(screen.getByTestId('reminder-message'), `${message} edited`);
+  await replaceField(screen.getByTestId('reminder-message'), `${message} edited`, { device, screen });
   await screen.getByTestId('reminder-save').tap();
   {
     const allow = screen.getByRole('button', {name: 'Allow', exact: true});

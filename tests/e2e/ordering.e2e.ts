@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { expect } from 'e2e';
 import { localSyntheticEnabled } from './local-mode';
@@ -11,7 +12,7 @@ test('moving a test-owned board above its adjacent sibling persists its order', 
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   for (const title of [first, second]) {
     await screen.getByTestId('create-board').tap();
-    await screen.getByTestId('board-title-input').fill(title);
+    await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
     await device.dismissKeyboard();
     await screen.getByTestId('board-form-save').tap();
     await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));

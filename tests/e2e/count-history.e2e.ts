@@ -10,14 +10,14 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await screen.getByTestId('board-title-input').fill(name);
+  await replaceField(screen.getByTestId('board-title-input'), name, { device, screen });
   await device.dismissKeyboard();
   await reveal(device, screen, screen.getByTestId('board-kind-picker'));
   await screen.getByTestId('board-kind-picker').tap();
   await screen.getByRole('button', { name: 'Count', exact: true }).tap();
   await reveal(device, screen, screen.getByTestId('amounts-toggle'));
   await screen.getByTestId('amounts-toggle').tap();
-  await screen.getByTestId('unit-input').fill('cups');
+  await replaceField(screen.getByTestId('unit-input'), 'cups', { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await expect(screen.getByTestId('create-board')).toBeVisible();
@@ -26,8 +26,8 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('detail-add-check-in'));
   await screen.getByTestId('detail-add-check-in').tap();
-  await replaceField(screen.getByTestId('check-in-amount'), '2', {device, screen, numeric: true});
-  await replaceField(screen.getByTestId('check-in-note'), note);
+  await replaceField(screen.getByTestId('check-in-amount'), '2', { device, screen, numeric: true });
+  await replaceField(screen.getByTestId('check-in-note'), note, { device, screen });
   await screen.getByTestId('check-in-save').tap();
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('open-journal'));
@@ -37,7 +37,7 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await expect(screen.getByTestId('check-in-note')).toHaveValue(note);
   await expect(screen.getByTestId('check-in-amount')).toHaveValue('2');
   await replaceField(screen.getByTestId('check-in-amount'), '3', { device, screen, numeric: true });
-  await replaceField(screen.getByTestId('check-in-note'), `${note} edited`);
+  await replaceField(screen.getByTestId('check-in-note'), `${note} edited`, { device, screen });
   await screen.getByTestId('check-in-save').tap();
   await expect(screen.getByRole('button', { name: new RegExp(`3 cups.*${note} edited`) })).toBeVisible();
   await app.restart();

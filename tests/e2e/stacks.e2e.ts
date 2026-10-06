@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { localSyntheticEnabled } from './local-mode';
 import { reveal } from './reveal';
@@ -15,7 +16,7 @@ test('anchored daily stack completion earns and reverses its bonus', { skip: !lo
   await device.back();
   for (const title of [root, leaf]) {
     await screen.getByTestId('create-board').tap();
-    await screen.getByTestId('board-title-input').fill(title);
+    await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
     await device.dismissKeyboard();
     await reveal(device, screen, screen.getByTestId('board-anchor-row'));
     await screen.getByTestId('board-anchor-row').tap();

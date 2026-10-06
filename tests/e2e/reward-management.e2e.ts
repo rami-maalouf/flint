@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { reveal } from './reveal';
 import { expect } from 'e2e';
@@ -8,8 +9,8 @@ test('reward archive and restore preserve its saved price', { tags: ['determinis
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('coin-balance-pill').tap();
   await screen.getByTestId('create-reward').tap();
-  await screen.getByTestId('reward-title-input').fill(name);
-  await screen.getByTestId('reward-cost-input').fill('7');
+  await replaceField(screen.getByTestId('reward-title-input'), name, { device, screen });
+  await replaceField(screen.getByTestId('reward-cost-input'), '7', { device, screen, numeric: true });
   await device.dismissKeyboard();
   await screen.getByTestId('reward-form-save').tap();
   await screen.getByRole('button', { name: `${name}, 7 coins` }).tap();

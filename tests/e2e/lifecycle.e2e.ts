@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { localSyntheticEnabled } from './local-mode';
 import { reveal } from './reveal';
@@ -14,7 +15,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   const baseline = Number((await screen.getByTestId('coins-balance').textContent())?.match(/-?\d+/)?.[0]);
   await device.back();
   await screen.getByTestId('create-board').tap();
-  await screen.getByTestId('board-title-input').fill(name);
+  await replaceField(screen.getByTestId('board-title-input'), name, { device, screen });
   await device.dismissKeyboard();
   await reveal(device, screen, screen.getByTestId('earn-coins-toggle'));
   await screen.getByTestId('earn-coins-toggle').tap();
@@ -43,8 +44,8 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
   await screen.getByTestId('coin-balance-pill').tap();
   await screen.getByTestId('create-reward').tap();
   const reward = `QA Reward ${Date.now()}`;
-  await screen.getByTestId('reward-title-input').fill(reward);
-  await screen.getByTestId('reward-cost-input').fill('1');
+  await replaceField(screen.getByTestId('reward-title-input'), reward, { device, screen });
+  await replaceField(screen.getByTestId('reward-cost-input'), '1', { device, screen, numeric: true });
   await device.dismissKeyboard();
   await screen.getByTestId('reward-form-save').tap();
   const claim = screen.getByRole('button', { name: `Claim ${reward} for 1 coin` });
@@ -63,7 +64,7 @@ test('daily completion, undo, persisted coins and reward refusal', { skip: !loca
     await screen.swipe({ from: { x: 200, y: 720 }, to: { x: 200, y: 300 } });
   }
   await screen.getByRole('button', { name: `${reward}, 1 coin` }).tap();
-  await screen.getByTestId('reward-cost-input').fill('100000');
+  await replaceField(screen.getByTestId('reward-cost-input'), '100000', { device, screen, numeric: true });
   await device.dismissKeyboard();
   await screen.getByTestId('reward-form-save').tap();
   const refusal = screen.getByRole('button', { name: `Claim ${reward} for 100000 coins` });
@@ -83,7 +84,7 @@ test('board detail exposes history, journal and analytics', { skip: !localSynthe
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
-  await screen.getByTestId('board-title-input').fill(name);
+  await replaceField(screen.getByTestId('board-title-input'), name, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await reveal(device, screen, screen.getByRole('button', { name }));

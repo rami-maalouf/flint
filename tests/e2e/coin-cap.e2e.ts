@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { expect } from 'e2e';
 import { localSyntheticEnabled } from './local-mode';
@@ -9,7 +10,7 @@ test('repeated count check-ins persist while the daily coin cap awards once', { 
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
-  await screen.getByTestId('board-title-input').fill(title);
+  await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
   await device.dismissKeyboard();
   await reveal(device, screen, screen.getByTestId('board-kind-picker'));
   await screen.getByTestId('board-kind-picker').tap();

@@ -15,7 +15,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await reveal(device, screen, screen.getByTestId('board-form-error'));
   await expect(screen.getByTestId('board-form-error')).toBeVisible();
   await reveal(device, screen, screen.getByTestId('board-title-input'), { direction: 'up' });
-  await screen.getByTestId('board-title-input').fill(original);
+  await replaceField(screen.getByTestId('board-title-input'), original, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await reveal(device, screen, screen.getByRole('button', { name: original }));
@@ -25,7 +25,7 @@ test('board edit, archive, restore and delete persist across relaunch', { skip: 
   await expect(screen.getByTestId('board-heatmap')).toBeVisible();
   await screen.getByTestId('edit-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await replaceField(screen.getByTestId('board-title-input'), renamed);
+  await replaceField(screen.getByTestId('board-title-input'), renamed, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await app.restart();

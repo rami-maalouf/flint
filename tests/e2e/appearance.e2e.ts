@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { execFileSync } from 'node:child_process';
 import { test } from '@e2e-dev/mobile';
 import { expect } from 'e2e';
@@ -19,7 +20,7 @@ for (const appearance of ['light', 'dark'] as const) {
       await expect(screen.getByTestId('create-board')).toBeVisible();
       await screen.getByTestId('create-board').tap();
       const title = `QA Accessible ${appearance} ${Date.now()}`;
-      await screen.getByTestId('board-title-input').fill(title);
+      await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
       await device.dismissKeyboard();
       await reveal(device, screen, screen.getByTestId('board-form-save'));
       await screen.getByTestId('board-form-save').tap();

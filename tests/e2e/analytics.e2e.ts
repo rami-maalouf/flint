@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { expect } from 'e2e';
 import { reveal } from './reveal';
@@ -8,7 +9,7 @@ test('analytics reflects a persisted check-in and distinguishes insufficient his
   await expect(screen.getByTestId('create-board')).toBeVisible();
   await screen.getByTestId('create-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await screen.getByTestId('board-title-input').fill(title);
+  await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await reveal(device, screen, screen.getByRole('button', { name: title, exact: true }));

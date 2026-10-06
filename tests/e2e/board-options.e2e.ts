@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { expect } from 'e2e';
 import { reveal } from './reveal';
@@ -8,17 +9,17 @@ test('board icon search, custom color, day shift and metrics preferences persist
   await expect(screen.getByTestId('create-board')).toBeVisible();
   await screen.getByTestId('create-board').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
-  await screen.getByTestId('board-title-input').fill(title);
+  await replaceField(screen.getByTestId('board-title-input'), title, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('open-symbol-picker').tap();
   await expect(screen.getByTestId('symbol-search')).toBeVisible();
-  await screen.getByTestId('symbol-search').fill('coffee');
+  await replaceField(screen.getByTestId('symbol-search'), 'coffee', { device, screen });
   await expect(screen.getByTestId('symbol-cup.and.saucer.fill')).toBeVisible();
   await screen.getByTestId('symbol-cup.and.saucer.fill').tap();
   await expect(screen.getByTestId('board-title-input')).toBeVisible();
   await screen.getByTestId('custom-color').tap();
   await expect(screen.getByTestId('custom-color-input')).toBeVisible();
-  await screen.getByTestId('custom-color-input').fill('#123456');
+  await replaceField(screen.getByTestId('custom-color-input'), '#123456', { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('tinted-toggle').tap();
   const tinted = await screen.getByTestId('tinted-toggle').isChecked();
@@ -47,7 +48,7 @@ test('board icon search, custom color, day shift and metrics preferences persist
   await expect(screen.getByTestId('custom-color-input')).toHaveValue('#123456');
   await screen.getByTestId('open-symbol-picker').tap();
   await expect(screen.getByTestId('symbol-search')).toBeVisible();
-  await screen.getByTestId('symbol-search').fill('coffee');
+  await replaceField(screen.getByTestId('symbol-search'), 'coffee', { device, screen });
   await expect(screen.getByTestId('symbol-cup.and.saucer.fill')).toBeSelected();
   await screen.getByTestId('close-symbol-picker').tap();
   await reveal(device, screen, screen.getByTestId('open-options'));

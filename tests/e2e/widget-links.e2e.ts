@@ -1,3 +1,4 @@
+import { replaceField } from "./replace-field";
 import { test } from '@e2e-dev/mobile';
 import { localSyntheticEnabled } from './local-mode';
 import { expect } from 'e2e';
@@ -9,7 +10,7 @@ test('widget daily deep link completes, undoes and preserves a check after resta
   await app.open();
   await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
   await screen.getByTestId('create-board').tap();
-  await screen.getByTestId('board-title-input').fill(name);
+  await replaceField(screen.getByTestId('board-title-input'), name, { device, screen });
   await device.dismissKeyboard();
   await screen.getByTestId('board-form-save').tap();
   await expect(screen.getByTestId('create-board')).toBeVisible();
