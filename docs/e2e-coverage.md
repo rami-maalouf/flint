@@ -18,10 +18,11 @@ E2E_DEVICE=E2CB451D-AC1F-42BB-96A3-ED4FF08E01D0 \
 E2E_SYNTHETIC_DEVICE=E2CB451D-AC1F-42BB-96A3-ED4FF08E01D0 \
 E2E_METRO_URL=http://127.0.0.1:8085 \
 E2E_NATIVE_RECEIPT=.artifacts/native-receipt.json \
+E2E_FRESH_RESET_RECEIPT=.artifacts/synthetic-reset-latest.json \
 bun scripts/e2e/run-local.ts
 ```
 
-The wrapper archives command, timestamps, exit code, device, Metro URL, JS commit/diff, native receipt and reports under `.artifacts/e2e-evidence/`. A failed or interrupted command is never success. Bootstrap is opt-in with `E2E_BOOTSTRAP=1`; launch arguments independently pin the Metro URL and hide development tools that cover product controls.
+The wrapper archives command, timestamps, exit code, device, Metro URL, JS commit/diff, tracked and untracked source hashes, native receipt, fresh reset receipt, before/after fixture counts and reports under `.artifacts/e2e-evidence/`. A failed or interrupted command is never success. Bootstrap is opt-in with `E2E_BOOTSTRAP=1`; launch arguments independently pin the Metro URL and hide development tools that cover product controls.
 
 ## coverage matrix
 
@@ -62,7 +63,7 @@ Consult installed packaged docs and `bunx e2e run --help`, keeping APIs consiste
 
 ## execution boundaries
 
-The existing `.eas/workflows/e2e-pr.yml` runs the broad cloud suite against the base app identity. `bun run test:e2e:cloud-boundary` proves cloud precedence even when synthetic flags are inherited: 21 new portable tests remain selected, and host filesystem acceptance is skipped. The local command above separately runs SQLite, simulated appearance, shared-group and Files-provider acceptance. These local results must never be represented as EAS results.
+The existing `.eas/workflows/e2e-pr.yml` runs the broad cloud suite against the base app identity. `bun run test:e2e:cloud-boundary` proves cloud precedence even when synthetic flags are inherited: 22 new portable tests remain selected, and host filesystem acceptance is skipped. The local command above separately runs SQLite, simulated appearance, shared-group and Files-provider acceptance. These local results must never be represented as EAS results.
 
 `bun scripts/e2e/stage-imports.ts` stages unique JSON, CSV and malformed files in the owned simulator Files provider. Set each named fixture and matching `E2E_JSON_IMPORT_BOARD` or `E2E_CSV_IMPORT_BOARD` from its receipt before import acceptance. Shortcuts requires a named test-owned composed shortcut and board. Both remain unverified until actually run.
 
@@ -82,4 +83,6 @@ An interrupted appearance scenario left the owned simulator at largest Dynamic T
 
 Broad run `01a10ef1-2eb4-706a-8415-71ddabf60455` at `9ae37bc` finished 14/22 passing, exit 3. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-00-49.258Z`. No product defect is inferred from an adapter failure. Focused numeric keyboard run `01a10f04-d376-77c4-bc25-2056a4c7dbe2` passed: after waiting for the keyboard, the field moved from its collapsed sheet position to its expanded position; a fresh end-of-field tap and visible Delete/2 keys replaced the value correctly. Its archive is `.artifacts/e2e-evidence/2026-10-06T02-22-16.718Z`.
 
-Run `01a10f06` at `697a5bc` passed analytics and all four layouts, then was deliberately interrupted after two retained-list navigation failures: exit 130, archive `.artifacts/e2e-evidence/2026-10-06T02-23-56.623Z`. The home list now has an explicit automation identifier. Run `01a10f0c` at `16798ea` completed 10/13 passing with exit 2, archive `.artifacts/e2e-evidence/2026-10-06T02-30-10.626Z`. Run `01a10f11` at `65965fa` passed both preferences cases, with count/reminder failures and exit 3, archive `.artifacts/e2e-evidence/2026-10-06T02-36-22.903Z`. Their actual saved data, native row labels and visible confirmation overlays guided the corrections. Focused count/reminder runtime at `07155ac` is in progress.
+Run `01a10f06` at `697a5bc` passed analytics and all four layouts, then was deliberately interrupted after two retained-list navigation failures: exit 130, archive `.artifacts/e2e-evidence/2026-10-06T02-23-56.623Z`. The home list now has an explicit automation identifier. Run `01a10f0c` at `16798ea` completed 10/13 passing with exit 2, archive `.artifacts/e2e-evidence/2026-10-06T02-30-10.626Z`. Run `01a10f11` at `65965fa` passed both preferences cases, with count/reminder failures and exit 3, archive `.artifacts/e2e-evidence/2026-10-06T02-36-22.903Z`. Their actual saved data, native row labels and visible confirmation overlays guided the corrections. Run `01a10f17` at `07155ac` saved the edited amount 3 and reminder message but failed later navigation, exit 1, archive `.artifacts/e2e-evidence/2026-10-06T02-42-10.182Z`. Run `01a10f1c` at `26ed23c` persisted and reopened amount 3, then stalled revealing Delete through the multiline note. It was stopped after the shared gesture failure, exit 130, archive `.artifacts/e2e-evidence/2026-10-06T02-48-32.027Z`. The active focused run checks a gutter gesture, deletion after restart, and positive anchor save/reopen.
+
+Full local passes now require `E2E_FRESH_RESET_RECEIPT=.artifacts/synthetic-reset-latest.json` from the owned reset and an empty initial synthetic store. The archive records preserved database backup and before/after fixture counts. Direct local runner selection also validates the creation receipt against native simulator inventory before executing acceptance. Wrong matching flags were rejected before discovery; EAS discovery with conflicting local flags selected 22 portable tests without host acceptance.

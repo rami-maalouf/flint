@@ -29,5 +29,7 @@ execFileSync('xcrun', ['simctl', 'uninstall', owned, app]);
 if (group) for (const suffix of ['', '-wal', '-shm']) rmSync(join(group, `ripples.db${suffix}`), { force: true });
 if (group && existsSync(join(group, 'ripples.db'))) throw new Error('synthetic database survived reset');
 execFileSync('xcrun', ['simctl', 'install', owned, artifact]);
-writeFileSync(join(archive, 'receipt.json'), JSON.stringify({ device: owned, name: device.name, app, artifact: resolve(artifact), preservedDatabase: group !== undefined, resetAt: new Date().toISOString() }, null, 2));
+const receipt = { device: owned, name: device.name, app, artifact: resolve(artifact), preservedDatabase: existsSync(join(archive, 'before.db')), archive, resetAt: new Date().toISOString(), emptyDatabaseVerified: true };
+writeFileSync(join(archive, 'receipt.json'), JSON.stringify(receipt, null, 2));
+writeFileSync(resolve('.artifacts/synthetic-reset-latest.json'), JSON.stringify(receipt, null, 2));
 console.log(`synthetic reset receipt: ${archive}`);

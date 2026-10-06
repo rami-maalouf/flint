@@ -8,7 +8,15 @@ export async function reveal(device: Device, screen: Screen, target: Locator, op
     const scroller = await homeList.isVisible() ? homeList : device.locator('role=scroll-view').first();
     await expect(scroller).toBeVisible({ timeout: 30_000 });
     for (let attempt = 0; attempt < 24 && !await target.isVisible(); attempt++) {
-      await scroller.swipe({ direction: options.direction ?? 'down', momentum: 'slow' });
+      const box = await scroller.boundingBox();
+      if (!box) throw new Error('the active scroller has no visible bounds');
+      // the left gutter avoids multiline inputs and embedded heatmaps consuming the gesture.
+      const x = box.x + Math.min(8, box.width / 10);
+      const down = options.direction !== 'up';
+      await screen.swipe({
+        from: { x, y: box.y + box.height * (down ? 0.75 : 0.5) },
+        to: { x, y: box.y + box.height * (down ? 0.5 : 0.75) },
+      });
     }
   }
   await expect(target).toBeVisible();

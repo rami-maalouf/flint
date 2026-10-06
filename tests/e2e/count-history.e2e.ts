@@ -52,4 +52,12 @@ test('count board amounts and notes persist through check-in edit and deletion',
   await screen.getByTestId('delete-check-in').tap();
   await screen.getByRole('group', { name: 'Delete Check-In', exact: true }).getByRole('button', { name: 'Delete Check-In', exact: true }).tap();
   await expect(screen.getByTestId('journal-empty')).toBeVisible();
+  await app.restart();
+  await expect(screen.getByTestId('create-board')).toBeVisible({ timeout: 60_000 });
+  await reveal(device, screen, screen.getByRole('button', { name, exact: true }));
+  await screen.getByRole('button', { name, exact: true }).tap();
+  await expect(screen.getByTestId('board-heatmap')).toBeVisible();
+  await reveal(device, screen, screen.getByTestId('open-journal'));
+  await screen.getByTestId('open-journal').tap();
+  await expect(screen.getByTestId('journal-empty')).toBeVisible();
 });
