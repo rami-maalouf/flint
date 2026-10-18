@@ -1,0 +1,5 @@
+.build/
+.swiftpm/
+Sources/HabitEngine/Resources/engine.js
+build/
+*.xcodeproj/

@@ -3881,3 +3881,12 @@ convergence remain open. T24 and Checkpoints C/D are not complete.
     development variant also uses its own opaque square icon: the familiar
     droplet wears an orange hard hat in a purple-and-blue palette, while preview
     and production retain the original green icon.
+
+### Native Mac U1 - shared engine foundation (2026-10-18)
+
+- Rami selected a proper Mac app and full mobile feature parity. Plan: `docs/plans/2026-10-18-1200-feat-native-mac-app-plan.md`. Independent document review completed with no findings.
+- Added a serial JavaScriptCore host over native SQLite, CryptoKit hashing and UUID/time-zone adapters. The Mac bundle imports the existing TypeScript core and exposes an explicit operation allowlist. Domain error fields and command receipt semantics remain intact.
+- The first integration test failed against the initial host with `engine not implemented`, then passed with the real engine. Six native tests cover durable daily check/receipt replay/coins, rollback and retry, count/unicode backup round trip without minting coins, exact SQL value mapping, migration mismatch preservation, and existing historical/economic calendar plus UTF-8 parity.
+- Non-author review identified field-error preservation and stale bundle risks; both were corrected. SwiftPM generates the engine as a build resource from tracked inputs, including normal Swift builds.
+- Baseline mobile validation passed 210 suites/3,090 tests and native checks. The shell lacked Node on PATH; adding the desktop bundled Node runtime corrected the initial Jest/node:test runner mismatch without changing product code.
+- Desktop UI and live CloudKit acceptance are subsequent units, not claimed by this foundation.
