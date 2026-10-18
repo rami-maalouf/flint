@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import HabitEngine
 
 struct AppPreferences: Decodable {
   var wakeMinute: Int
@@ -29,9 +30,30 @@ struct SettingsView: View {
   @State private var importPreview: ImportPreview?
   @State private var importCommand = UUID().uuidString.lowercased()
   @State private var showImport = false
+  @State private var notificationDiagnostics: String?
 
   var body: some View {
     Form {
+      if model.runtimePolicy.requiresQAStore {
+        Section("Notification acceptance testing") {
+          Text("This separate QA app uses its own local store and notification permission. iCloud and desktop widget publishing are disabled.")
+            .font(.callout).foregroundStyle(.secondary)
+          LabeledContent("App identity", value: Bundle.main.bundleIdentifier ?? "Unknown")
+          Text(model.databasePath).font(.caption).textSelection(.enabled)
+          if !model.runtimePolicy.notificationQA {
+            Text("Notification effects are disabled because this build has the wrong QA app identity.").foregroundStyle(.red)
+          }
+          if model.runtimePolicy.notificationQA {
+            if let board = model.boards.first { LabeledContent("Preview habit", value: board.title) }
+            Button("Preview Reminder Destination") { previewNotification(.newCheck) }
+              .disabled(model.boards.isEmpty || model.sampleMode || model.loading)
+            Button("Preview Missed Habit Destination") { previewNotification(.board) }
+              .disabled(model.boards.isEmpty || model.sampleMode || model.loading)
+            Text("These previews open the same destination as a notification tap. They do not schedule or send notifications, or request permission.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
+        }
+      }
       Section("Daily anchors") {
         Text("Habits anchored to these moments follow the same times on your phone and Mac.")
           .font(.callout).foregroundStyle(.secondary)
@@ -76,6 +98,20 @@ struct SettingsView: View {
             if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
           }
         }
+        if model.runtimePolicy.notificationQA {
+          Button("Read Notification Inventory") { Task { await readNotificationDiagnostics() } }
+            .disabled(model.sampleMode || busy || !model.ready)
+          if let notificationDiagnostics {
+            ScrollView {
+              Text(notificationDiagnostics).font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+            }.frame(height: 180)
+            Button("Copy Notification Inventory") {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(notificationDiagnostics, forType: .string)
+            }
+          }
+        }
       }
       Section("Your data") {
         HStack {
@@ -104,6 +140,12 @@ struct SettingsView: View {
     .task { await load() }
     .onChange(of: model.revision) { _, _ in Task { await load() } }
     .sheet(isPresented: $showImport) { importSheet }
+  }
+
+  private func previewNotification(_ kind: HabitNotificationSelection.Kind) {
+    guard model.runtimePolicy.notificationQA, !model.sampleMode, !model.loading, let board = model.boards.first else { return }
+    NSApplication.shared.keyWindow?.close()
+    HabitNotificationInbox.shared.submit(HabitNotificationSelection(boardID: board.id, kind: kind))
   }
 
   private func anchor(_ title: String, preset: String, value: Int) -> some View {
@@ -172,6 +214,22 @@ struct SettingsView: View {
       _ = try await model.engine?.call("requestNotificationAuthorization")
       _ = try await model.engine?.call("reconcileNotifications")
       await load()
+    } catch { status = error.localizedDescription }
+  }
+
+  private func readNotificationDiagnostics() async {
+    guard model.runtimePolicy.notificationQA, !model.sampleMode, let service = model.notifications?.service else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let authorization = try await service.handle(request: ["method": "authorization"])
+      let pending = try await service.handle(request: ["method": "pending"])
+      let presented = try await service.handle(request: ["method": "presented"])
+      let evidence: [String: Any] = ["capturedAt": ISO8601DateFormatter().string(from: Date()),
+        "bundleIdentifier": Bundle.main.bundleIdentifier ?? "", "databasePath": model.databasePath,
+        "authorization": authorization, "pending": pending, "presentedIdentifiers": presented]
+      let data = try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys])
+      notificationDiagnostics = String(decoding: data, as: UTF8.self)
     } catch { status = error.localizedDescription }
   }
 

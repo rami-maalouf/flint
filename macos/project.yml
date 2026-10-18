@@ -65,12 +65,32 @@ targets:
         CODE_SIGN_ENTITLEMENTS: HabitWidget.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+  HabitSystemNotificationQA:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/HabitSystemApp
+    dependencies:
+      - package: HabitEngine
+        product: HabitEngine
+      - package: HabitEngine
+        product: HabitWidgetData
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac.notificationqa
+        PRODUCT_NAME: Habit System Notification QA
+        INFOPLIST_FILE: NotificationQAInfo.plist
+        CODE_SIGN_ENTITLEMENTS: NotificationQA.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) HABIT_NOTIFICATION_QA
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
   HabitSystemTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - Tests/HabitSystemTests
       - Sources/HabitSystemApp/DomainModels.swift
+      - Sources/HabitSystemApp/WallClockTime.swift
       - Sources/HabitSystemApp/AppModel.swift
       - Sources/HabitSystemApp/WidgetPublishing.swift
       - Sources/HabitSystemApp/Settings/AppServices.swift
@@ -84,6 +104,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac.tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
+  HabitSystemNotificationQA:
+    build:
+      targets:
+        HabitSystemNotificationQA: all
   HabitSystem:
     build:
       targets:

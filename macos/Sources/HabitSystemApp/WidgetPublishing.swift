@@ -1,11 +1,12 @@
 import Foundation
+import HabitEngine
 import HabitWidgetData
 import WidgetKit
 
 extension AppModel {
   func publishWidgets() {
     let args = ProcessInfo.processInfo.arguments
-    guard !sampleMode, !isolatedStore || args.contains("--widget-preview"), let host = engine else { return }
+    guard !runtimePolicy.requiresQAStore, !sampleMode, !isolatedStore || args.contains("--widget-preview"), let host = engine else { return }
     widgetPublication?.cancel()
     widgetPublication = Task { [weak self] in
       guard let self else { return }
@@ -24,30 +25,57 @@ extension AppModel {
   }
 
   func resumePendingWidgetLink() async {
-    guard let url = pendingWidgetURL else { return }
-    pendingWidgetURL = nil
-    await openWidgetURL(url)
+    await resumePendingNavigation()
   }
 
   func openWidgetURL(_ url: URL) async {
     guard url.scheme == "habitsystem-mac", let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
       components.queryItems?.first(where: { $0.name == "environment" })?.value == cloudEnvironment else { return }
-    widgetLinkGeneration += 1
-    let request = widgetLinkGeneration
-    guard ready, !loading else { pendingWidgetURL = url; return }
+    guard url.host == "today" || url.host == "habit" else { return }
+    let boardID = url.host == "habit" ? url.lastPathComponent : nil
+    guard boardID == nil || UUID(uuidString: boardID!) != nil else { return }
+    queueNavigation(boardID: boardID, kind: .board, widgetURL: url)
+    await resumePendingNavigation()
+  }
+
+  func connectNotificationInbox(_ inbox: HabitNotificationInbox, activate: (() -> Void)? = nil) {
+    inbox.attach { [weak self] selection in
+      guard let self, UUID(uuidString: selection.boardID) != nil else { return }
+      self.queueNavigation(boardID: selection.boardID, kind: selection.kind)
+      activate?()
+      Task { await self.resumePendingNavigation() }
+    }
+  }
+
+  func openNotification(_ selection: HabitNotificationSelection) async {
+    guard UUID(uuidString: selection.boardID) != nil else { return }
+    queueNavigation(boardID: selection.boardID, kind: selection.kind)
+    await resumePendingNavigation()
+  }
+
+  private func queueNavigation(boardID: String?, kind: HabitNotificationSelection.Kind, widgetURL: URL? = nil) {
+    navigationGeneration += 1
+    pendingNavigation = PendingAppNavigation(generation: navigationGeneration, boardID: boardID, kind: kind, widgetURL: widgetURL)
+  }
+
+  func resumePendingNavigation() async {
+    guard ready, !loading, let request = pendingNavigation else { return }
+    pendingNavigation = nil
     if sampleMode { await setSampleMode(false) }
-    guard !sampleMode, widgetLinkGeneration == request else { return }
-    notificationBoardID = nil
+    guard !sampleMode, !loading, navigationGeneration == request.generation, let host = engine else { return }
+    navigationDestination = nil
     section = .today
-    if url.host == "habit" {
-      let id = url.lastPathComponent
-      guard UUID(uuidString: id) != nil else { return }
+    showNewHabit = false
+    pendingToggle = nil
+    if let id = request.boardID {
       do {
         let board: Board? = try await query("getBoard", [id])
-        guard widgetLinkGeneration == request else { return }
-        guard board != nil else { error = "This habit is no longer available. Choose another habit in Edit Widget."; return }
-        notificationBoardID = id
-      } catch { self.error = error.localizedDescription }
+        guard navigationGeneration == request.generation, engine === host, !loading, !sampleMode else { return }
+        guard let board else { error = "This habit is no longer available."; return }
+        navigationDestination = HabitNavigationDestination(boardID: id, kind: board.archivedAt == nil ? request.kind : .board)
+      } catch {
+        if navigationGeneration == request.generation { self.error = error.localizedDescription }
+      }
     }
   }
 }

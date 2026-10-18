@@ -94,9 +94,7 @@ private struct ReminderEditor: View {
       Text(reminder == nil ? "New reminder" : "Edit reminder").font(.title2.bold())
       Text(board.title).foregroundStyle(.secondary)
       Form {
-        Picker("Time", selection: $minute) {
-          ForEach(0..<1440, id: \.self) { value in Text(minuteLabel(value)).tag(value) }
-        }
+        WallClockTimeField(title: "Time", minute: $minute)
         LabeledContent("Days") {
           HStack(spacing: 6) {
             ForEach(Array(dayNames.enumerated()), id: \.offset) { index, day in

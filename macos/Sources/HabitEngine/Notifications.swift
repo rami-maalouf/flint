@@ -2,6 +2,36 @@ import AppKit
 import Foundation
 import UserNotifications
 
+public struct HabitNotificationSelection: Equatable, Sendable {
+  public enum Kind: String, Sendable { case board, newCheck = "new-check" }
+  public let boardID: String
+  public let kind: Kind
+  public init(boardID: String, kind: Kind) { self.boardID = boardID; self.kind = kind }
+  public init?(identifier: String, userInfo: [AnyHashable: Any]) {
+    guard let boardID = userInfo["boardId"] as? String, UUID(uuidString: boardID) != nil else { return nil }
+    let kind: Kind
+    if identifier.hasPrefix("habit-system.miss.v1:") { kind = .board }
+    else if identifier.hasPrefix("habit-system.reminder.") { kind = .newCheck }
+    else { return nil }
+    self.init(boardID: boardID, kind: kind)
+  }
+}
+
+// notification responses can arrive before the app's first scene or store is ready.
+@MainActor public final class HabitNotificationInbox {
+  public static let shared = HabitNotificationInbox()
+  private var pending: HabitNotificationSelection?
+  private var receive: ((HabitNotificationSelection) -> Void)?
+  public init() {}
+  public func submit(_ selection: HabitNotificationSelection) {
+    if let receive { receive(selection) } else { pending = selection }
+  }
+  public func attach(_ receive: @escaping (HabitNotificationSelection) -> Void) {
+    self.receive = receive
+    if let pending { self.pending = nil; receive(pending) }
+  }
+}
+
 protocol NotificationCenterPort: Sendable {
   func authorization() async -> String
   func requestAuthorization() async throws -> String
@@ -12,6 +42,7 @@ protocol NotificationCenterPort: Sendable {
 }
 
 private final class SystemNotificationCenter: NSObject, NotificationCenterPort, UNUserNotificationCenterDelegate, @unchecked Sendable {
+  static let shared = SystemNotificationCenter()
   private let center = UNUserNotificationCenter.current()
   override init() { super.init(); center.delegate = self }
   func authorization() async -> String {
@@ -34,10 +65,10 @@ private final class SystemNotificationCenter: NSObject, NotificationCenterPort, 
     NotificationCenter.default.post(name: .habitNotificationDelivered, object: nil)
   }
   func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-    if let boardID = response.notification.request.content.userInfo["boardId"] as? String {
-      let destination = response.notification.request.identifier.hasPrefix("habit-system.miss.v1:") ? "board" : "new-check"
+    if response.actionIdentifier != UNNotificationDismissActionIdentifier,
+      let selection = HabitNotificationSelection(identifier: response.notification.request.identifier, userInfo: response.notification.request.content.userInfo) {
       DispatchQueue.main.async {
-        NotificationCenter.default.post(name: .habitNotificationSelected, object: nil, userInfo: ["boardId": boardID, "kind": destination])
+        HabitNotificationInbox.shared.submit(selection)
       }
     }
     completionHandler()
@@ -45,11 +76,11 @@ private final class SystemNotificationCenter: NSObject, NotificationCenterPort, 
 }
 
 public extension Notification.Name {
-  static let habitNotificationSelected = Notification.Name("studio.orbitlabs.habitsystem.notificationSelected")
   static let habitNotificationDelivered = Notification.Name("studio.orbitlabs.habitsystem.notificationDelivered")
 }
 
 public final class HabitNotificationService: @unchecked Sendable {
+  public static func prepareForResponses() { _ = SystemNotificationCenter.shared }
   private let center: NotificationCenterPort?
   private let effectsEnabled: Bool
   private let lock = NSLock()
@@ -59,7 +90,7 @@ public final class HabitNotificationService: @unchecked Sendable {
 
   public init(effectsEnabled: Bool = true) {
     self.effectsEnabled = effectsEnabled
-    center = effectsEnabled ? SystemNotificationCenter() : nil
+    center = effectsEnabled ? SystemNotificationCenter.shared : nil
   }
   init(center: NotificationCenterPort, effectsEnabled: Bool) {
     self.center = center; self.effectsEnabled = effectsEnabled

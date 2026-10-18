@@ -4,6 +4,7 @@ import Charts
 struct HabitDetailView: View {
   @ObservedObject var model: AppModel
   let boardID: String
+  var initialDestination: HabitNavigationDestination? = nil
   @Environment(\.dismiss) private var dismiss
   @State private var board: Board?
   @State private var summary: BoardSummary?
@@ -18,6 +19,7 @@ struct HabitDetailView: View {
   @State private var failure: String?
   @State private var tab = "Overview"
   @State private var historyLimit = 100
+  @State private var openedReminderEditor = false
   var body: some View {
     Group {
       if let board {
@@ -110,6 +112,11 @@ struct HabitDetailView: View {
       journalEntries = try await model.query("getJournalTimeline", [boardID])
       heatmap = try await model.query("getBoardHeatmap", [boardID])
       failure = nil
+      if !Task.isCancelled, initialDestination?.kind == .newCheck, !openedReminderEditor, board?.archivedAt == nil {
+        openedReminderEditor = true
+        logDate = summary?.today
+        log = true
+      }
     } catch { failure = error.localizedDescription }
   }
 }

@@ -174,7 +174,7 @@ struct BoardEditor: View {
         }
         if let failure { Text(failure).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
       }.formStyle(.grouped)
-      HStack { Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction); Spacer(); Button(saving ? "Saving..." : "Save Habit") { Task { await save() } }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }.padding(20)
+      HStack { Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction); Spacer(); Button(saving ? "Saving..." : "Save Habit") { Task { await save() } }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (usualTime && !WallClockTime.isValid(minute, step: 15))) }.padding(20)
     }.frame(width: 540, height: 660).onAppear(perform: load)
   }
   func load() {
@@ -187,6 +187,7 @@ struct BoardEditor: View {
     usualTime = board.usualTimeMinute != nil; minute = board.usualTimeMinute ?? 480; required = board.requiredInStack
   }
   func save() async {
+    guard !usualTime || WallClockTime.isValid(minute, step: 15) else { return }
     guard let amount = parseEditableNumber(quickAmount), amount > 0 else { failure = "Enter a positive quick amount."; return }
     saving = true; defer { saving = false }
     var input: [String: Any] = ["title": title, "kind": kind, "symbol": symbol, "accentHex": accent, "usesTintedBackground": tinted, "tracksAmount": tracksAmount, "amountUnit": amountUnit.isEmpty ? NSNull() : amountUnit as Any, "quickAmount": amount, "tracksTime": tracksTime, "startOfDayMinute": dayStart, "metricsEnabled": metrics, "earnsCoins": earnsCoins, "coinCapPerDay": coinCap, "requiredInStack": required, "usualTimeMinute": usualTime ? minute as Any : NSNull()]
@@ -204,5 +205,5 @@ struct BoardEditor: View {
 struct MinutePicker: View {
   let title: String
   @Binding var minute: Int
-  var body: some View { Picker(title, selection: $minute) { ForEach(Array(stride(from: 0, through: 1425, by: 15)), id: \.self) { Text(minuteLabel($0)).tag($0) } } }
+  var body: some View { WallClockTimeField(title: title, minute: $minute, step: 15) }
 }

@@ -3,7 +3,15 @@ import HabitEngine
 
 @main
 struct HabitSystemApp: App {
-  @StateObject private var model = AppModel()
+  @StateObject private var model: AppModel
+  init() {
+    let model = AppModel()
+    if model.runtimePolicy.allowsNotifications(sampleMode: false, isolatedStore: model.isolatedStore) {
+      HabitNotificationService.prepareForResponses()
+    }
+    model.connectNotificationInbox(.shared, activate: { NSApplication.shared.activate(ignoringOtherApps: true) })
+    _model = StateObject(wrappedValue: model)
+  }
   var body: some Scene {
     WindowGroup {
       ContentView(model: model)
@@ -15,10 +23,6 @@ struct HabitSystemApp: App {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)) { _ in Task { await model.periodicRefresh() } }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemClockDidChange)) { _ in Task { await model.periodicRefresh() } }
         .onReceive(NotificationCenter.default.publisher(for: .habitNotificationDelivered)) { _ in model.notifications?.requestReconciliation() }
-        .onReceive(NotificationCenter.default.publisher(for: .habitNotificationSelected)) { notification in
-          model.notificationBoardID = notification.userInfo?["boardId"] as? String
-          NSApplication.shared.activate(ignoringOtherApps: true)
-        }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in Task { await model.periodicRefresh() } }
     }
     .defaultSize(width: 1100, height: 760)

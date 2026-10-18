@@ -9,12 +9,13 @@ extension AppModel {
     await synchronizer?.cancel()
     synchronizer = nil
     let isQA = isolatedStore
-    let effects = !sampleMode && !isQA
-    let coordinator = NotificationCoordinator(engine: engine, effectsEnabled: effects)
+    let notificationEffects = runtimePolicy.allowsNotifications(sampleMode: sampleMode, isolatedStore: isQA)
+    let cloudEffects = runtimePolicy.allowsCloud(sampleMode: sampleMode, isolatedStore: isQA)
+    let coordinator = NotificationCoordinator(engine: engine, effectsEnabled: notificationEffects)
     notifications = coordinator
     coordinator.setForeground(applicationActive)
     await coordinator.start()
-    if effects && CloudKitAdapter.isSupportedBuild {
+    if cloudEffects && CloudKitAdapter.isSupportedBuild {
       await CloudKitAdapter.configureCloudKit(on: engine)
       let sync = SyncCoordinator(engine: engine)
       sync.onOutcome = { [weak self] outcome in

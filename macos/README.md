@@ -36,7 +36,7 @@ Each Mac owns its own SQLite database and device identity. Default storage is `H
 
 The CloudKit container is `iCloud.studio.orbitlabs.habitsystem`, shared with the mobile app. Production data is not a testing fixture. Production convergence has not been exercised during this implementation; the signed Development build successfully pulled existing records without a habit mutation. Settings reports account, connection and sync failures while retaining local data.
 
-For local UI testing, launch with `--database-path <absolute-path>` inside the app sandbox. This explicitly disables CloudKit and notifications for that test store. Explore Sample Habits uses a separate in-memory store; leaving discards its changes. Sample mode disables sync, notifications and data transfer. Initial sample generation includes years of shared-engine history and can take around 30 seconds.
+For local UI testing, launch with `--database-path <absolute-path>` inside the app sandbox, or `--database-path :memory:`. This explicitly disables CloudKit and notifications for that test store. A missing or invalid path stops startup without opening personal storage. Explore Sample Habits uses a separate in-memory store; leaving discards its changes. Sample mode disables sync, notifications and data transfer. Initial sample generation includes years of shared-engine history and can take around 30 seconds.
 
 ## Verification
 
@@ -50,6 +50,24 @@ xcodebuild -project macos/HabitSystem.xcodeproj -scheme HabitSystem \
 ```
 
 The engine suite checks durable command replay, rollback/retry, backup parity, native values, migrations, notification scheduling, sample isolation, sync convergence and cancellation. Presentation tests decode real engine output and check decimal editing across locales. UI acceptance uses synthetic local stores, including import/export, journal editing, rewards and navigation. See `checkpoints.md` for completed checks and limits.
+
+### Isolated notification acceptance
+
+Use the separate notification QA app for real macOS delivery checks:
+
+```sh
+xcodegen generate --spec macos/project.yml
+xcodebuild -project macos/HabitSystem.xcodeproj -scheme HabitSystemNotificationQA \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath macos/build/NotificationQA -skipPackagePluginValidation build
+open 'macos/build/NotificationQA/Build/Products/Debug/Habit System Notification QA.app'
+```
+
+This target has its own bundle identity, sandbox database and notification permission. It has no CloudKit, network, shared app-group entitlement or production URL scheme. Its compile-time policy forces the QA store, refuses notification effects if the bundle identity is wrong, and prevents widget publication even with `--widget-preview`. The normal app's `--database-path` mode still disables both notifications and CloudKit.
+
+Create a synthetic habit, allow notifications through the app, and schedule a reminder a few minutes ahead. Settings offers a read-only notification inventory showing native pending requests and delivered identifiers. Check foreground/background delivery, edit/cancel behavior and notification-tap navigation, then remove the QA reminder. OS permission and banner interactions require a UI session capable of accessing macOS's permission dialog; a successful build or pending request does not prove delivery.
+
+The QA settings also provide explicit destination previews using the same typed notification inbox. They open a reminder's check-in editor or a missed habit's overview without sending notifications or requesting permission. Repeated reminder navigation was exercised through these controls. Actual delivery remains unverified because the available computer-use tool cannot access the macOS notification permission dialog.
 
 ## Engine boundary
 

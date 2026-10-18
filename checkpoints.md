@@ -1,5 +1,43 @@
 # Checkpoints
 
+### Native Mac acceptance follow-up (2026-10-18)
+
+1. Added a separately signed notification QA app with its own sandbox and
+   notification identity. It has no CloudKit, network, app-group or production
+   URL entitlement. Runtime policy forces its QA store and prevents widget
+   publishing. Production iCloud was not read or changed during these checks.
+2. Notification responses now survive cold startup, preserve reminder versus
+   overview destinations, and share latest-request precedence with widget links.
+   Repeated reminder taps receive a fresh presentation. Independent review found
+   case-sensitive imported IDs were being lowercased; a real uppercase backup
+   import reproduced the failure, and both routing adapters now preserve IDs.
+3. Replaced the long reminder time menu with a native editable NSDatePicker,
+   explicitly configured for wall-clock time. The installed Release app was
+   inspected while typing 09:14, saving a reminder and reopening it at 09:14.
+   Usual habit time rejects :14 with inline feedback and a disabled Save button;
+   :15 saves successfully. The isolated database contains reminder minute 554
+   and usual-time minute 555. Native-control tests cover configuration and the
+   binding callback, alongside exhaustive minute conversion tests.
+4. Malformed --database-path arguments now fail closed. A regression reproduced
+   the old fallback without opening any database. The installed Release app
+   now displays a startup error for a missing path and never opens personal
+   storage. All mutation acceptance used synthetic local stores.
+5. QA destination previews exercised reminder editor opening, cancel/reopen,
+   and missed-habit overview navigation. The QA native inventory reported
+   authorization denied with no pending or delivered notifications. Computer
+   use rejects access to the macOS notification permission dialog; no alternate
+   permission mechanism was used. Actual notification delivery remains unverified.
+6. Actual desktop widget placement could not be completed: native desktop
+   targeting returned no-window errors, and Notification Centre did not expose
+   a usable editing menu. The earlier eight real WidgetKit Simulator variants,
+   expiry timelines and native fixture renders remain the widget evidence.
+7. Full validation passes 210 mobile suites / 3,090 tests and 197 shared Swift
+   tests. Mac package tests pass 27 engine and two widget-data tests. Signed
+   Release and QA builds pass. The installed Release app and embedded widget
+   pass strict deep signature verification after a clean bundle replacement.
+   All 19 app tests pass, covering startup isolation, navigation, uppercase import,
+   native time editing, presentation and sample transitions.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### Native module and internal identifier rename (2026-09-30)

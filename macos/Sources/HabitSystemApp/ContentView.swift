@@ -27,7 +27,9 @@ struct ContentView: View {
             }
             .navigationTitle((model.section ?? .today).rawValue)
             .navigationDestination(isPresented: Binding(get: { model.notificationBoardID != nil }, set: { if !$0 { model.notificationBoardID = nil } })) {
-              if let boardID = model.notificationBoardID { HabitDetailView(model: model, boardID: boardID) }
+              if let destination = model.navigationDestination {
+                HabitDetailView(model: model, boardID: destination.boardID, initialDestination: destination).id(destination.id)
+              }
             }
           }.id(model.section?.rawValue ?? "Today")
         }.id(model.sampleMode)

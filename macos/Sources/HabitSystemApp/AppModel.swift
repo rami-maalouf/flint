@@ -2,6 +2,40 @@ import Foundation
 import SwiftUI
 import HabitEngine
 
+struct HabitNavigationDestination: Identifiable {
+  let id = UUID()
+  let boardID: String
+  let kind: HabitNotificationSelection.Kind
+}
+
+struct PendingAppNavigation {
+  let generation: Int
+  let boardID: String?
+  let kind: HabitNotificationSelection.Kind
+  let widgetURL: URL?
+}
+
+struct AppRuntimePolicy {
+  let notificationQABuild: Bool
+  let bundleIdentifier: String?
+  static let qaBundleIdentifier = "studio.orbitlabs.habitsystem.mac.notificationqa"
+  static var current: Self {
+    #if HABIT_NOTIFICATION_QA
+    return Self(notificationQABuild: true, bundleIdentifier: Bundle.main.bundleIdentifier)
+    #else
+    return Self(notificationQABuild: false, bundleIdentifier: Bundle.main.bundleIdentifier)
+    #endif
+  }
+  var requiresQAStore: Bool { notificationQABuild }
+  var notificationQA: Bool { notificationQABuild && bundleIdentifier == Self.qaBundleIdentifier }
+  func allowsNotifications(sampleMode: Bool, isolatedStore: Bool) -> Bool {
+    !sampleMode && (notificationQABuild ? notificationQA : !isolatedStore)
+  }
+  func allowsCloud(sampleMode: Bool, isolatedStore: Bool) -> Bool {
+    !notificationQABuild && !sampleMode && !isolatedStore
+  }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
   @Published var engine: EngineHost?
@@ -18,11 +52,16 @@ final class AppModel: ObservableObject {
   @Published var section: AppSection? = .today
   @Published var sampleMode = false
   @Published var syncStatus: String?
-  @Published var notificationBoardID: String?
+  @Published var navigationDestination: HabitNavigationDestination?
+  var notificationBoardID: String? {
+    get { navigationDestination?.boardID }
+    set { navigationDestination = newValue.map { HabitNavigationDestination(boardID: $0, kind: .board) } }
+  }
   var applicationActive = NSApplication.shared.isActive
   var widgetPublication: Task<Void, Never>?
-  var pendingWidgetURL: URL?
-  var widgetLinkGeneration = 0
+  var pendingNavigation: PendingAppNavigation?
+  var pendingWidgetURL: URL? { pendingNavigation?.widgetURL }
+  var navigationGeneration = 0
   @Published var widgetStatus: String?
   var realEngine: EngineHost?
   var notifications: NotificationCoordinator?
@@ -30,16 +69,22 @@ final class AppModel: ObservableObject {
   var syncResume: Task<Void, Never>?
   var boards: [Board] { cards.map(\.board) }
   let cloudEnvironment = Bundle.main.object(forInfoDictionaryKey: "HabitSystemCloudEnvironment") as? String ?? "Development"
+  let runtimePolicy = AppRuntimePolicy.current
   let isolatedStore: Bool
   let databasePath: String
 
-  init(databasePath override: String? = nil) {
-    let args = ProcessInfo.processInfo.arguments
-    if let override {
+  init(databasePath override: String? = nil, arguments: [String] = ProcessInfo.processInfo.arguments) {
+    let args = arguments
+    if runtimePolicy.requiresQAStore {
+      isolatedStore = true
+      let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      databasePath = support.appendingPathComponent("Habit System Notification QA/habit-system.db").path
+    } else if let override {
       databasePath = override
       isolatedStore = true
-    } else if let index = args.firstIndex(of: "--database-path"), args.indices.contains(index + 1) {
-      databasePath = args[index + 1]
+    } else if let index = args.firstIndex(of: "--database-path") {
+      let candidate = args.indices.contains(index + 1) ? args[index + 1] : ""
+      databasePath = candidate == ":memory:" || candidate.hasPrefix("/") ? candidate : ""
       isolatedStore = true
     } else {
       isolatedStore = false
@@ -51,6 +96,10 @@ final class AppModel: ObservableObject {
   func start() async {
     guard !loading, !ready else { return }
     error = nil
+    guard !databasePath.isEmpty else {
+      error = "The test database path is missing or invalid. Use an absolute path or :memory:. Your personal store has not been opened."
+      return
+    }
     loading = true
     defer { loading = false }
     do {
