@@ -33,7 +33,10 @@ struct HabitEntry: TimelineEntry {
   let date: Date
   let snapshot: WidgetSnapshot?
   let selectedID: String?
+  var selectionKey: WidgetSelectionKey? = nil
+  var selectionState = WidgetSelectionState()
   var selectedHabit: WidgetHabit? {
+    if let selectionKey { return selectionState.selectedHabit(in: snapshot, configuredHabitID: selectionKey.configuredHabitID) }
     guard let selectedID else { return snapshot?.habits.first }
     return snapshot?.habits.first { $0.id == selectedID }
   }
@@ -41,21 +44,27 @@ struct HabitEntry: TimelineEntry {
 }
 
 struct HabitProvider: AppIntentTimelineProvider {
+  let kind: String
   func placeholder(in context: Context) -> HabitEntry { HabitEntry(date: .now, snapshot: nil, selectedID: nil) }
-  func snapshot(for configuration: HabitConfiguration, in context: Context) async -> HabitEntry { entry(configuration) }
+  func snapshot(for configuration: HabitConfiguration, in context: Context) async -> HabitEntry { entry(configuration, family: context.family) }
   func timeline(for configuration: HabitConfiguration, in context: Context) async -> Timeline<HabitEntry> {
-    widgetTimeline(entry(configuration))
+    widgetTimeline(entry(configuration, family: context.family))
   }
 
-  private func entry(_ configuration: HabitConfiguration) -> HabitEntry {
-    HabitEntry(date: .now, snapshot: WidgetSnapshotStore.read(from: WidgetSnapshotStore.url(), environment: WidgetSnapshotStore.environment), selectedID: configuration.habit?.id)
+  private func entry(_ configuration: HabitConfiguration, family: WidgetFamily) -> HabitEntry {
+    let key = WidgetSelectionKey(environment: WidgetSnapshotStore.environment, kind: kind,
+      family: family == .systemSmall ? "small" : family == .systemLarge ? "large" : "medium", configuredHabitID: configuration.habit?.id)
+    return HabitEntry(date: .now, snapshot: WidgetSnapshotStore.read(from: WidgetSnapshotStore.url(), environment: WidgetSnapshotStore.environment),
+      selectedID: configuration.habit?.id, selectionKey: key, selectionState: key.map { WidgetSelectionStore(key: $0).read() } ?? WidgetSelectionState())
   }
 }
 
 private func widgetTimeline(_ current: HabitEntry) -> Timeline<HabitEntry> {
   var entries = [current]
   if let expiry = current.snapshot?.expiresAt, expiry > current.date {
-    entries.append(HabitEntry(date: expiry, snapshot: current.snapshot, selectedID: current.selectedID))
+    let expired = HabitEntry(date: expiry, snapshot: current.snapshot, selectedID: current.selectedID,
+      selectionKey: current.selectionKey, selectionState: current.selectionState)
+    entries.append(expired)
   }
   return Timeline(entries: entries, policy: .after(current.date.addingTimeInterval(900)))
 }
@@ -73,17 +82,27 @@ struct HabitWidgetEntryView: View {
   let entry: HabitEntry
   let style: HabitWidgetStyle
   @Environment(\.widgetFamily) private var family
+  private var showsChooser: Bool {
+    style != .today && entry.selectionKey != nil && entry.snapshot?.habits.isEmpty == false && entry.selectionState.isChoosing
+  }
   var body: some View {
-    HabitWidgetView(style: style, snapshot: entry.snapshot, selectedHabit: entry.selectedHabit, family: family, isStale: entry.isStale)
+    Group {
+      if showsChooser, let key = entry.selectionKey, let snapshot = entry.snapshot {
+        HabitWidgetChooser(snapshot: snapshot, key: key, state: entry.selectionState)
+      } else {
+        HabitWidgetView(style: style, snapshot: entry.snapshot, selectedHabit: entry.selectedHabit, family: family, isStale: entry.isStale,
+          habitPicker: style == .today ? nil : entry.selectionKey.map { AnyView(HabitWidgetChooserButton(habit: entry.selectedHabit, key: $0)) })
+      }
+    }
       .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
-      .widgetURL(WidgetSnapshotStore.destination(habitID: style == .today ? nil : entry.selectedHabit?.id))
+      .widgetURL(showsChooser ? nil : WidgetSnapshotStore.destination(habitID: style == .today ? nil : entry.selectedHabit?.id))
   }
 }
 
 struct ActivityGridWidget: Widget {
   let kind = "HabitSystem.ActivityGrid"
   var body: some WidgetConfiguration {
-    AppIntentConfiguration(kind: kind, intent: HabitConfiguration.self, provider: HabitProvider()) { HabitWidgetEntryView(entry: $0, style: .activity) }
+    AppIntentConfiguration(kind: kind, intent: HabitConfiguration.self, provider: HabitProvider(kind: kind)) { HabitWidgetEntryView(entry: $0, style: .activity) }
       .configurationDisplayName("Activity Grid")
       .description("A GitHub-style record of the days you showed up.")
       .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
@@ -92,7 +111,7 @@ struct ActivityGridWidget: Widget {
 struct WeeklyFocusWidget: Widget {
   let kind = "HabitSystem.WeeklyFocus"
   var body: some WidgetConfiguration {
-    AppIntentConfiguration(kind: kind, intent: HabitConfiguration.self, provider: HabitProvider()) { HabitWidgetEntryView(entry: $0, style: .week) }
+    AppIntentConfiguration(kind: kind, intent: HabitConfiguration.self, provider: HabitProvider(kind: kind)) { HabitWidgetEntryView(entry: $0, style: .week) }
       .configurationDisplayName("Weekly Focus")
       .description("One habit, seven days, and your next small step.")
       .supportedFamilies([.systemSmall, .systemMedium])
