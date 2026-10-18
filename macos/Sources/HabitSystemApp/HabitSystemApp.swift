@@ -9,6 +9,7 @@ struct HabitSystemApp: App {
       ContentView(model: model)
         .frame(minWidth: 760, minHeight: 560)
         .task { await model.start() }
+        .onOpenURL { url in Task { await model.openWidgetURL(url) } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await model.setActive(true) } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in Task { await model.setActive(false) } }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)) { _ in Task { await model.periodicRefresh() } }

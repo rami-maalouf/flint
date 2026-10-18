@@ -216,11 +216,11 @@ struct HabitProgressMetrics: View {
   private var accent: Color { habitAccent(board, colorScheme) }
   var body: some View {
     HStack(spacing: 12) {
-      stat("This month", value: String(summary.currentMonthCount), unit: "check-ins", symbol: "calendar")
+      stat("This month", value: String(summary.currentMonthCount), unit: summary.currentMonthCount == 1 ? "check-in" : "check-ins", symbol: "calendar")
       if board.metricsEnabled {
         stat("Current streak", value: String(summary.currentStreak), unit: summary.currentStreak == 1 ? "day" : "days", symbol: "flame")
         stat("Longest streak", value: String(summary.longestStreak), unit: summary.longestStreak == 1 ? "day" : "days", symbol: "sparkle")
-      } else { stat("This week", value: String(summary.currentWeekCount), unit: "check-ins", symbol: "checkmark.circle") }
+      } else { stat("This week", value: String(summary.currentWeekCount), unit: summary.currentWeekCount == 1 ? "check-in" : "check-ins", symbol: "checkmark.circle") }
     }
   }
   private func stat(_ title: String, value: String, unit: String, symbol: String) -> some View {

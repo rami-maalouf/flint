@@ -8,7 +8,7 @@ extension AppModel {
     await notifications?.stopAndDrain()
     await synchronizer?.cancel()
     synchronizer = nil
-    let isQA = ProcessInfo.processInfo.arguments.contains("--database-path")
+    let isQA = isolatedStore
     let effects = !sampleMode && !isQA
     let coordinator = NotificationCoordinator(engine: engine, effectsEnabled: effects)
     notifications = coordinator
@@ -103,6 +103,8 @@ extension AppModel {
       self.error = error.localizedDescription
       await configureServices()
     }
+    loading = false
+    await resumePendingWidgetLink()
   }
 
   private func syncLabel(_ value: String) -> String {

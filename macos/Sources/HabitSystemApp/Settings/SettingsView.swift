@@ -85,6 +85,10 @@ struct SettingsView: View {
         Text("JSON backups preserve habits, history, rewards and coin evidence. You can also import a Ripples CSV file.")
           .font(.callout).foregroundStyle(.secondary)
       }
+      Section("Desktop widgets") {
+        Text("Add Activity Grid, Weekly Focus or Today from the Mac widget gallery. Click a widget to open its habit.").font(.callout).foregroundStyle(.secondary)
+        if let status = model.widgetStatus { Text(status).font(.callout).foregroundStyle(.secondary) }
+      }
       Section("Explore") {
         Button(model.sampleMode ? "Return to My Habits" : "Explore Sample Habits") {
           Task { busy = true; await model.setSampleMode(!model.sampleMode); await load(); busy = false }
@@ -229,4 +233,3 @@ private struct ImportPreview: Decodable {
   let boards: Int; let checkIns: Int; let reminders: Int; let rewards: Int; let habitActions: Int; let coinLedger: Int
 }
 struct NotificationStatus: Decodable { let authorization: String; let remainingCapacity: Int }
-

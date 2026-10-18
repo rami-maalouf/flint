@@ -20,19 +20,29 @@ final class AppModel: ObservableObject {
   @Published var syncStatus: String?
   @Published var notificationBoardID: String?
   var applicationActive = NSApplication.shared.isActive
+  var widgetPublication: Task<Void, Never>?
+  var pendingWidgetURL: URL?
+  var widgetLinkGeneration = 0
+  @Published var widgetStatus: String?
   var realEngine: EngineHost?
   var notifications: NotificationCoordinator?
   var synchronizer: SyncCoordinator?
   var syncResume: Task<Void, Never>?
   var boards: [Board] { cards.map(\.board) }
   let cloudEnvironment = Bundle.main.object(forInfoDictionaryKey: "HabitSystemCloudEnvironment") as? String ?? "Development"
+  let isolatedStore: Bool
   let databasePath: String
 
-  init() {
+  init(databasePath override: String? = nil) {
     let args = ProcessInfo.processInfo.arguments
-    if let index = args.firstIndex(of: "--database-path"), args.indices.contains(index + 1) {
+    if let override {
+      databasePath = override
+      isolatedStore = true
+    } else if let index = args.firstIndex(of: "--database-path"), args.indices.contains(index + 1) {
       databasePath = args[index + 1]
+      isolatedStore = true
     } else {
+      isolatedStore = false
       let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       databasePath = support.appendingPathComponent("Habit System/\(cloudEnvironment)/habit-system.db").path
     }
@@ -52,6 +62,9 @@ final class AppModel: ObservableObject {
       try await reload()
       ready = true
       await configureServices()
+      publishWidgets()
+      loading = false
+      await resumePendingWidgetLink()
     } catch { self.error = error.localizedDescription }
   }
 
@@ -99,6 +112,7 @@ final class AppModel: ObservableObject {
     archivedBoards = nextArchived
     totals = nextTotals
     revision += 1
+    publishWidgets()
   }
   func refresh() async {
     guard engine != nil else { return }

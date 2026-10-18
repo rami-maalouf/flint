@@ -332,7 +332,7 @@ struct AnalyticsView: View {
                 RoundedRectangle(cornerRadius: 3).fill(accent.opacity(0.7)).frame(width: 3, height: 28)
                 Text("\(dateLabel(span.startDate)) - \(dateLabel(span.endDate))").font(.callout)
                 Spacer()
-                Text("\(span.length) days").font(.callout.weight(.medium)).monospacedDigit()
+                Text("\(span.length) \(span.length == 1 ? "day" : "days")").font(.callout.weight(.medium)).monospacedDigit()
               }
             }
           }.padding(.top, 16)
@@ -340,7 +340,7 @@ struct AnalyticsView: View {
           HStack {
             Label("Your streak history", systemImage: "flame").font(.headline)
             Spacer()
-            Text("Best: \(streaks.allTimeLongest) days").font(.caption).foregroundStyle(.secondary)
+            Text("Best: \(streaks.allTimeLongest) \(streaks.allTimeLongest == 1 ? "day" : "days")").font(.caption).foregroundStyle(.secondary)
           }
         }.habitSurface()
       }

@@ -13,6 +13,7 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
+    HABIT_APP_ENTITLEMENTS: HabitSystem.entitlements
   configs:
     Debug:
       HABIT_CLOUD_ENVIRONMENT: Development
@@ -27,12 +28,16 @@ targets:
     dependencies:
       - package: HabitEngine
         product: HabitEngine
+      - package: HabitEngine
+        product: HabitWidgetData
+      - target: HabitSystemWidgets
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac
         PRODUCT_NAME: Habit System
         INFOPLIST_FILE: Info.plist
-        CODE_SIGN_ENTITLEMENTS: HabitSystem.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(HABIT_APP_ENTITLEMENTS)
         COMBINE_HIDPI_IMAGES: YES
     preBuildScripts:
       - name: Build application icon
@@ -42,15 +47,38 @@ targets:
       - name: Copy application icon
         script: 'cp "$SRCROOT/build/HabitSystem.icns" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/HabitSystem.icns"'
         basedOnDependencyAnalysis: false
+  HabitSystemWidgets:
+    type: app-extension
+    platform: macOS
+    sources:
+      - Sources/HabitWidgetExtension
+    dependencies:
+      - package: HabitEngine
+        product: HabitWidgetData
+      - package: HabitEngine
+        product: HabitWidgetViews
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac.widgets
+        PRODUCT_NAME: Habit System Widgets
+        INFOPLIST_FILE: WidgetInfo.plist
+        CODE_SIGN_ENTITLEMENTS: HabitWidget.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
   HabitSystemTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - Tests/HabitSystemTests
       - Sources/HabitSystemApp/DomainModels.swift
+      - Sources/HabitSystemApp/AppModel.swift
+      - Sources/HabitSystemApp/WidgetPublishing.swift
+      - Sources/HabitSystemApp/Settings/AppServices.swift
     dependencies:
       - package: HabitEngine
         product: HabitEngine
+      - package: HabitEngine
+        product: HabitWidgetData
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac.tests

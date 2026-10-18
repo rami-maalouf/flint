@@ -15,4 +15,5 @@
   <key>HabitSystemCloudEnvironment</key><string>$(HABIT_CLOUD_ENVIRONMENT)</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>Habit System</string><key>CFBundleURLSchemes</key><array><string>habitsystem-mac</string></array></dict></array>
 </dict></plist>

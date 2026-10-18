@@ -20,6 +20,16 @@ macos/scripts/build.sh -allowProvisioningUpdates
 
 The generated project is `macos/HabitSystem.xcodeproj`. Do not edit it directly; edit `project.yml` and regenerate with XcodeGen. The build plugin rebuilds shared JavaScript when its tracked TypeScript inputs change. Icons and JavaScript bundles are generated and not committed.
 
+For a signed Release build with the Production entitlement, use `macos/scripts/build.sh --release -allowProvisioningUpdates`. Building does not access iCloud. A fresh Release store still starts with sync disabled.
+
+## Desktop widgets
+
+The app includes three WidgetKit variations: Activity Grid (small, medium and large), Weekly Focus (small and medium), and Today (small, medium and large). Activity Grid uses a GitHub-style calendar; its large layout shows a full year. Right-click the desktop, choose Edit Widgets, and select Habit System. Edit an Activity Grid or Weekly Focus widget to choose its habit. Clicking opens the corresponding habit or Today in the Mac app.
+
+Widgets read an atomic snapshot in the Mac app group `3V2UU7RRK9.studio.orbitlabs.habitsystem.mac`. They never open the database, connect to CloudKit, or mutate habits. Development and Production snapshots and links are separate. Notes, amounts and sync metadata are excluded. Each view displays its save time; after the next shared-calendar refresh boundary it shows saved activity and asks you to reopen the app. WidgetKit controls refresh timing, and the app republishes after reloads and changes.
+
+Sample mode never replaces real widget content. Isolated QA stores also cannot publish unless launched with the explicit `--widget-preview` testing flag. The signed local extension was exercised in Apple's `/System/Library/CoreServices/WidgetKit Simulator.app`, across all eight supported size/variation combinations and their expiry entries. Additional native fixture renders cover light, dark, tinted, populated, stale and missing-habit states. Actual desktop placement and OS-budgeted background refresh remain separate from simulator verification.
+
 ## Data and environments
 
 Each Mac owns its own SQLite database and device identity. Default storage is `Habit System/<environment>/habit-system.db` inside the app's sandbox Application Support directory. Debug uses Development iCloud. Release uses Production iCloud. Those configurations have separate local stores, preventing test data from being uploaded through a later Production build. Sync starts disabled in a fresh store and is enabled from Settings.

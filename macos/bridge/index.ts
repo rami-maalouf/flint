@@ -2,6 +2,7 @@ import { bind, deps, install, type Operations } from './runtime';
 import { installSyncOperations } from './sync';
 import { installNotificationOperations } from './notifications';
 import { initializeSample } from './sample';
+import { getWidgetSnapshot } from './widgets';
 import * as commands from '../../src/core/domain/commands';
 import * as checks from '../../src/core/domain/check-in-commands';
 import * as queries from '../../src/core/domain/queries';
@@ -17,6 +18,7 @@ import { getImportPreview, parseOwnExport, parseRipplesCsv } from '../../src/cor
 import type { ImportDraft } from '../../src/core/export/import-parsers';
 
 const operations: Operations = {
+  getWidgetSnapshot,
   initialize: () => initializeProductDatabase(deps.db, deps.ids, deps.hashing),
   catalog: () => ({ ok: true, value: { symbols: boardSymbolAllowlist, palette: boardPalette } }),
   export: async () => {

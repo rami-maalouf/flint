@@ -38,10 +38,11 @@ The current implementation is an iOS app. Rami wants to use his existing habit s
 - R6. Support native notifications for reminders and never-miss-twice, with actual permission/status handling.
 - R7. Fresh installs are empty; sample data is explicitly entered in an isolated disposable store. Errors never silently reset data.
 - R8. Support light/dark appearance, accessibility labels, narrow windows and long content. Visually inspect actual latest-build windows.
+- R9. After the full desktop experience, add and test multiple native widgets, including a GitHub-style activity grid. This is a subsequent explicit user request.
 
 ### Scope Boundaries
 
-No new coin economics, seeded personal habits, web service, or shared filesystem database across devices. Public App Store distribution and a menu-bar extension are follow-up work; neither is needed for the desktop app's full main-window functionality. Existing iOS widgets and Shortcuts keep working; a new Mac widget extension is not part of the main-window port.
+No new coin economics, seeded personal habits, web service, or shared filesystem database across devices. Public App Store distribution and a menu-bar extension are follow-up work; neither is needed for the desktop app's full main-window functionality. Existing iOS widgets and Shortcuts keep working. The user's subsequent request adds a Mac widget extension after main-window acceptance.
 
 ---
 
@@ -147,6 +148,13 @@ The existing CloudKit Swift package declares macOS support but currently has no 
 **Approach:** Reproducible local app build including bundle/resources/icon and signing. Launch with a dedicated QA store for test data; preserve real app data. Run required gates and independent review, fix verified defects, document build/run and any live-service blocker.
 **Test scenarios:** Cold launch/relaunch, persistence, missing/corrupt bundle, startup recovery, clock changes, offline restart, independent light/dark/narrow visual acceptance.
 **Verification:** Current app bundle launches and all applicable checks pass, with evidence and explicit limitations.
+
+### U6. Native desktop widgets
+
+**Goal:** Three visually distinct WidgetKit variations backed by the same shared-engine projections: Activity Grid, Weekly Focus and Today.
+**Requirements:** R8-R9; completed after U5.
+**Boundary:** The app publishes a minimal atomic snapshot. The extension only reads it, supports habit selection and opens an environment-qualified app link. No widget database, CloudKit client or mutation path. Sample and QA stores cannot replace normal snapshots. Production remains untouched during testing.
+**Verification:** Real-engine projection tests, atomic/version/environment/expiry tests, real AppModel cold and sample-transition link tests, signed extension loading in Apple's WidgetKit Simulator, and native visual renders across appearances. Record desktop placement/background-refresh limits separately.
 
 ---
 
