@@ -8,13 +8,20 @@ public struct EngineFailure: LocalizedError {
   public let retryable: Bool
   public var field: String? = nil
   public var errorDescription: String? { message }
+  public init(code: String, message: String, retryable: Bool = false, field: String? = nil) {
+    self.code = code; self.message = message; self.retryable = retryable; self.field = field
+  }
 }
 
 public final class EngineHost: @unchecked Sendable {
+  public typealias NativeService = ([String: Any]) async throws -> Any
   private let lane = DispatchQueue(label: "studio.orbitlabs.habitsystem.engine", qos: .userInitiated)
   private var context: JSContext!
   private var store: SQLiteStore!
   private var pending: [String: CheckedContinuation<Any, Error>] = [:]
+  private var services: [String: NativeService] = [:]
+  private var serviceTasks: [String: (name: String, task: Task<Void, Never>)] = [:]
+  private var syncGeneration = 0
   public let databasePath: String
 
   public init(databasePath: String) throws {
@@ -48,12 +55,68 @@ public final class EngineHost: @unchecked Sendable {
       }
       context.setObject(native, forKeyedSubscript: "__habitNative" as NSString)
       context.setObject(complete, forKeyedSubscript: "__habitComplete" as NSString)
+      let service: @convention(block) (String, String, String) -> Void = { [weak self] identifier, name, payload in
+        self?.startService(identifier: identifier, name: name, payload: payload)
+      }
+      context.setObject(service, forKeyedSubscript: "__habitService" as NSString)
       let source = try String(contentsOf: scriptURL, encoding: .utf8)
       context.evaluateScript(source, withSourceURL: scriptURL)
       if let exception = context.exception {
         throw EngineFailure(code: "bundle", message: exception.toString(), retryable: false)
       }
     }
+  }
+
+  public func registerService(_ name: String, handler: @escaping NativeService) async {
+    await withCheckedContinuation { continuation in
+      lane.async { self.services[name] = handler; continuation.resume() }
+    }
+  }
+
+  // this bypasses the operation queue so a stalled network call cannot delay disabling sync.
+  public func invalidateSync() async {
+    await withCheckedContinuation { continuation in
+      lane.async {
+        self.syncGeneration += 1
+        let cancelled = self.serviceTasks.filter { $0.value.name.hasPrefix("sync.") }
+        for (identifier, entry) in cancelled {
+          entry.task.cancel()
+          self.finishService(identifier, response: self.serviceError(EngineFailure(code: "cancelled", message: "Sync cancelled.")))
+        }
+        continuation.resume()
+      }
+    }
+  }
+
+  private func startService(identifier: String, name: String, payload: String) {
+    guard let service = services[name] else {
+      context.objectForKeyedSubscript("HabitEngine").invokeMethod("settleService", withArguments: [identifier,
+        serviceError(EngineFailure(code: "unavailable", message: "This native service is unavailable."))])
+      return
+    }
+    let task = Task { [weak self] in
+      let response: String
+      do {
+        let input = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] ?? [:]
+        let result = try await service(input)
+        response = try Self.json(["ok": true, "value": result])
+      } catch {
+        guard let self else { return }
+        response = self.serviceError(error)
+      }
+      self?.lane.async { [weak self] in self?.finishService(identifier, response: response) }
+    }
+    serviceTasks[identifier] = (name, task)
+  }
+
+  private func serviceError(_ error: Error) -> String {
+    let failure = error as? EngineFailure ?? EngineFailure(code: "failure", message: "The native service could not finish.", retryable: true)
+    return (try? Self.json(["ok": false, "error": ["code": failure.code, "message": failure.message, "retryable": failure.retryable]]))!
+  }
+
+  private func finishService(_ identifier: String, response: String) {
+    guard serviceTasks.removeValue(forKey: identifier) != nil else { return }
+    context.objectForKeyedSubscript("HabitEngine").invokeMethod("settleService", withArguments: [identifier, response])
   }
 
   public func call(_ method: String, _ arguments: [Any] = []) async throws -> Any {
@@ -82,6 +145,8 @@ public final class EngineHost: @unchecked Sendable {
     case "query", "run": return try store.statement(request["sql"] as! String, parameters: request["params"] as? [Any] ?? [], rows: request["kind"] as? String == "query")
     case "uuid": return UUID().uuidString.lowercased()
     case "timeZone": return TimeZone.current.identifier
+    case "syncGeneration": return syncGeneration
+    case "isMemoryDatabase": return databasePath == ":memory:"
     case "hash":
       let bytes = Data((request["bytes"] as? [NSNumber] ?? []).map(\.uint8Value))
       if request["algorithm"] as? String == "sha1" { return Array(Insecure.SHA1.hash(data: bytes)) }

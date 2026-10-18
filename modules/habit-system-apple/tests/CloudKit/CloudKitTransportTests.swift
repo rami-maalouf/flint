@@ -131,6 +131,37 @@ private func renamed(_ record: CloudKitWireRecord, _ id: String) -> CloudKitWire
 }
 
 final class CloudKitTransportTests: XCTestCase {
+  func testMacFacadeUsesSharedWireValidationAndPublicFailureCodes() async throws {
+    let client = FakeCloudKitClient()
+    let facade = MacCloudKitFacade(transport: transport(client))
+    do { try await facade.upload("[{\"unknown\":true}]"); XCTFail("malformed wire must fail") }
+    catch let failure as MacCloudKitError { XCTAssertEqual(failure.code, "failure") }
+    let before = await client.savedNames
+    XCTAssertTrue(before.isEmpty)
+    let fixture = try schemaTwoFixtures()[0]
+    let json = String(decoding: try CloudKitWireCodec.encoder().encode([fixture]), as: UTF8.self)
+    try await facade.upload(json)
+    let saved = await client.savedNames
+    XCTAssertEqual(saved, [fixture.entityId])
+    await client.switchAccount()
+    do { try await facade.upload(json); XCTFail("account mismatch must fail") }
+    catch let failure as MacCloudKitError { XCTAssertEqual(failure.code, "unavailable") }
+    let after = await client.savedNames
+    XCTAssertEqual(after, saved)
+  }
+
+  func testCancelledMacFacadeDoesNotStartCloudMutations() async throws {
+    let client = FakeCloudKitClient()
+    let facade = MacCloudKitFacade(transport: transport(client))
+    let cancelled = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      do { try await facade.ensureZone(); XCTFail("cancelled task must fail") } catch { }
+    }
+    await cancelled.value
+    let zones = await client.zones
+    XCTAssertTrue(zones.isEmpty)
+  }
+
   func testReturnedCloudIdentityMustMatchTheRequestedRecordAndZoneBeforeAcknowledgement() async throws {
     let values = try schemaTwoFixtures()
     for value in [values[0], values.last!] {

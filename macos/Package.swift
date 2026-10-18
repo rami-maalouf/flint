@@ -5,8 +5,9 @@ let package = Package(
   name: "HabitSystemMac",
   platforms: [.macOS(.v14)],
   products: [.library(name: "HabitEngine", targets: ["HabitEngine"])],
+  dependencies: [.package(path: "../modules/habit-system-apple")],
   targets: [
-    .target(name: "HabitEngine", resources: [.process("Resources")], linkerSettings: [.linkedLibrary("sqlite3"), .linkedFramework("JavaScriptCore")], plugins: [.plugin(name: "BundleHabitEngine")]),
+    .target(name: "HabitEngine", dependencies: [.product(name: "HabitSystemCloudKit", package: "habit-system-apple")], resources: [.process("Resources")], linkerSettings: [.linkedLibrary("sqlite3"), .linkedFramework("JavaScriptCore")], plugins: [.plugin(name: "BundleHabitEngine")]),
     .testTarget(name: "HabitEngineTests", dependencies: ["HabitEngine"], plugins: [.plugin(name: "BundleHabitEngine")]),
     .plugin(name: "BundleHabitEngine", capability: .buildTool())
   ]

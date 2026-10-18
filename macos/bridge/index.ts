@@ -1,4 +1,7 @@
 import { bind, deps, install, type Operations } from './runtime';
+import { installSyncOperations } from './sync';
+import { installNotificationOperations } from './notifications';
+import { initializeSample } from './sample';
 import * as commands from '../../src/core/domain/commands';
 import * as checks from '../../src/core/domain/check-in-commands';
 import * as queries from '../../src/core/domain/queries';
@@ -35,4 +38,7 @@ bind(operations, stackQueries, ['getStackListSnapshot', 'getStackDetailSnapshot'
 bind(operations, coinQueries, ['getCoinTotals', 'getCoinHistoryPage']);
 bind(operations, rewardQueries, ['listRewards', 'getReward', 'getRewardClaimPreview']);
 bind(operations, rewardCommands, ['createReward', 'updateReward', 'reorderReward', 'archiveReward', 'restoreReward', 'deleteReward', 'claimReward']);
+installSyncOperations(operations);
+installNotificationOperations(operations);
+operations.initializeSample = initializeSample;
 install(operations);

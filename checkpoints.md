@@ -3890,3 +3890,10 @@ convergence remain open. T24 and Checkpoints C/D are not complete.
 - Non-author review identified field-error preservation and stale bundle risks; both were corrected. SwiftPM generates the engine as a build resource from tracked inputs, including normal Swift builds.
 - Baseline mobile validation passed 210 suites/3,090 tests and native checks. The shell lacked Node on PATH; adding the desktop bundled Node runtime corrected the initial Jest/node:test runner mismatch without changing product code.
 - Desktop UI and live CloudKit acceptance are subsequent units, not claimed by this foundation.
+
+### Native Mac U3/U4 - notifications, samples and shared iCloud transport (2026-10-18)
+
+- Added native notification permission/scheduling and the existing shared reminder/miss-alert reconciliation, isolated sample runtime, and a public macOS facade over the existing CloudKit transport. Async native calls are cancellable and remain serialized with engine operations.
+- All 24 Mac engine tests pass, including sample-store isolation, real shared sample generation, notification retirement/denial/deduplication, reversed-page two-store convergence, cancelled late responses and account mismatch. Shared native validation passes 197 Swift tests; mobile validation passes 210 suites/3,090 tests with all core files at 100 percent.
+- Signed Development iCloud connected and pulled 10 existing habits/50 check-ins into a fresh local store; the outbox was empty. No habit mutation was performed in that cloud-connected store. Production was not accessed. All mutation acceptance uses local QA fixtures.
+- Independent full code review completed with no remaining actionable findings. Receipt: `/tmp/compound-engineering-501/ce-code-review/20261018-015947-13b64907`, run `20261018-015947-13b64907`. This receipt covers code, not a claim of Production E2E validation.

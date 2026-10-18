@@ -15,6 +15,6 @@ struct BundleHabitEngine: BuildToolPlugin {
     let entry = isTest ? "bridge/parity.test-entry.ts" : "bridge/index.ts"
     return [.buildCommand(displayName: "Bundle shared habit engine", executable: Path("/usr/bin/env"),
       arguments: ["bun", "build", context.package.directory.appending(entry).string, "--target=browser", "--format=iife", "--outfile=" + output.string],
-      inputFiles: inputs + [root.appending("tsconfig.json")], outputFiles: [output])]
+      inputFiles: inputs + [root.appending("tsconfig.json"), root.appending("src/platform/notifications/miss-content.ts")], outputFiles: [output])]
   }
 }

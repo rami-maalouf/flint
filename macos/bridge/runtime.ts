@@ -7,9 +7,20 @@ export type Operations = Record<string, Operation>;
 type HostGlobals = typeof globalThis & {
   __habitNative(request: string): string;
   __habitComplete(identifier: string, response: string): void;
-  HabitEngine?: { dispatch(identifier: string, request: string): void };
+  __habitService(identifier: string, name: string, payload: string): void;
+  HabitEngine?: { dispatch(identifier: string, request: string): void; settleService(identifier: string, response: string): void };
 };
 export const host = globalThis as HostGlobals;
+const pendingServices = new Map<string, { resolve(value: unknown): void; reject(cause: unknown): void }>();
+let serviceSequence = 0;
+
+export function nativeAsync<Value>(name: string, payload: Record<string, unknown> = {}): Promise<Value> {
+  return new Promise((resolve, reject) => {
+    const identifier = String(++serviceSequence);
+    pendingServices.set(identifier, { resolve: value => resolve(value as Value), reject });
+    host.__habitService(identifier, name, JSON.stringify(payload));
+  });
+}
 
 // bare javascriptcore has no browser textencoder; preserve usvstring utf-8 semantics.
 class UTF8Encoder {
@@ -55,7 +66,7 @@ export const db: SqlDatabase = {
   async execAsync(sql) { native({ kind: 'exec', sql }); },
   withExclusiveTransactionAsync: work => transaction('EXCLUSIVE', work),
   withTransactionAsync: work => transaction('DEFERRED', work),
-  async closeAsync() { /* native host owns connection lifetime. */ },
+  async closeAsync() {},
 };
 export const deps: CommandDeps = {
   db,
@@ -78,6 +89,16 @@ export function bind(operations: Operations, module: Record<string, unknown>, na
 export function install(operations: Operations): void {
   let queue: Promise<unknown> = Promise.resolve();
   host.HabitEngine = {
+    settleService(identifier, response) {
+      const waiting = pendingServices.get(identifier);
+      if (!waiting) return;
+      pendingServices.delete(identifier);
+      try {
+        const result = JSON.parse(response);
+        if (result.ok) waiting.resolve(result.value);
+        else waiting.reject(Object.assign(new Error(result.error.message), result.error));
+      } catch (cause) { waiting.reject(cause); }
+    },
     dispatch(identifier, json) {
       const run = async () => {
         try {

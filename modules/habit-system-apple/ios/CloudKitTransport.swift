@@ -40,8 +40,11 @@ struct CloudKitTransport: Sendable {
   }
 
   @discardableResult private func requireAccount() async throws -> String {
+    try Task.checkCancellation()
     if let failure = CloudKitFailure.accountFailure(try await client.accountStatus()) { throw failure }
+    try Task.checkCancellation()
     let digest = try await client.accountDigest()
+    try Task.checkCancellation()
     try accountBinding.require(provider: containerIdentifier, accountDigest: digest)
     return digest
   }
