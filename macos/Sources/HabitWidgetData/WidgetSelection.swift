@@ -1,11 +1,11 @@
 import Foundation
+import Darwin
 
 public struct WidgetSelectionKey: Equatable, Sendable {
   public let environment: String
   public let kind: String
   public let family: String
   public let configuredHabitID: String?
-  public var pageSize: Int { family == "small" ? 3 : family == "medium" ? 4 : 7 }
 
   public init?(environment: String, kind: String, family: String, configuredHabitID: String?) {
     guard ["Development", "Production"].contains(environment),
@@ -27,13 +27,7 @@ public struct WidgetSelectionKey: Equatable, Sendable {
 
 public struct WidgetSelectionState: Codable, Equatable, Sendable {
   public var selectedID: String?
-  public var pickerPage: Int
-  public var isChoosing: Bool
-  public init(selectedID: String? = nil, pickerPage: Int = 0, isChoosing: Bool = false) {
-    self.selectedID = selectedID
-    self.pickerPage = pickerPage
-    self.isChoosing = isChoosing
-  }
+  public init(selectedID: String? = nil) { self.selectedID = selectedID }
 
   public func selectedHabit(in snapshot: WidgetSnapshot?, configuredHabitID: String?) -> WidgetHabit? {
     guard let snapshot else { return nil }
@@ -41,23 +35,9 @@ public struct WidgetSelectionState: Codable, Equatable, Sendable {
     return snapshot.habits.first
   }
 
-  public func boundedPage(in snapshot: WidgetSnapshot, pageSize: Int) -> Int {
-    let lastPage = max(0, snapshot.habits.count - 1) / max(1, pageSize)
-    return min(max(0, pickerPage), lastPage)
-  }
-
-  public func visibleHabits(in snapshot: WidgetSnapshot, pageSize: Int) -> [WidgetHabit] {
-    let size = max(1, pageSize)
-    return Array(snapshot.habits.dropFirst(boundedPage(in: snapshot, pageSize: size) * size).prefix(size))
-  }
-
   fileprivate var isValid: Bool {
-    pickerPage >= 0 && (selectedID == nil || UUID(uuidString: selectedID!) != nil)
+    selectedID == nil || UUID(uuidString: selectedID!) != nil
   }
-}
-
-public enum WidgetSelectionAction: Sendable {
-  case open, close, select(String), page(Int)
 }
 
 public enum WidgetSelectionError: Error {
@@ -90,27 +70,22 @@ public struct WidgetSelectionStore: Sendable {
     try data.write(to: url, options: .atomic)
   }
 
-  @discardableResult public func apply(_ action: WidgetSelectionAction, snapshot: WidgetSnapshot) throws -> WidgetSelectionState {
+  @discardableResult public func advance(snapshot: WidgetSnapshot) throws -> WidgetSelectionState {
     guard snapshot.environment == key.environment else { throw WidgetSelectionError.wrongEnvironment }
-    var state = read()
-    state.pickerPage = state.boundedPage(in: snapshot, pageSize: key.pageSize)
-    switch action {
-    case .open:
-      let selected = state.selectedHabit(in: snapshot, configuredHabitID: key.configuredHabitID)
-      state.pickerPage = snapshot.habits.firstIndex { $0.id == selected?.id }.map { $0 / key.pageSize } ?? 0
-      state.isChoosing = true
-    case .close:
-      state.isChoosing = false
-    case .select(let id):
-      guard let index = snapshot.habits.firstIndex(where: { $0.id == id }) else { throw WidgetSelectionError.unavailableHabit }
-      state.selectedID = id
-      state.pickerPage = index / key.pageSize
-      state.isChoosing = false
-    case .page(let page):
-      state.pickerPage = page
-      state.pickerPage = state.boundedPage(in: snapshot, pageSize: key.pageSize)
-      state.isChoosing = true
+    guard !snapshot.habits.isEmpty else { throw WidgetSelectionError.unavailableHabit }
+    guard let url else { throw WidgetSelectionError.unavailableContainer }
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    // keep the lock separate from the atomically replaced selection file.
+    let descriptor = open(url.appendingPathExtension("lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    defer { close(descriptor) }
+    while flock(descriptor, LOCK_EX) != 0 {
+      if errno != EINTR { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
+    defer { flock(descriptor, LOCK_UN) }
+    let current = read().selectedHabit(in: snapshot, configuredHabitID: key.configuredHabitID)
+    let nextIndex = snapshot.habits.firstIndex { $0.id == current?.id }.map { ($0 + 1) % snapshot.habits.count } ?? 0
+    let state = WidgetSelectionState(selectedID: snapshot.habits[nextIndex].id)
     try write(state)
     return state
   }

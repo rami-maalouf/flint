@@ -82,20 +82,11 @@ struct HabitWidgetEntryView: View {
   let entry: HabitEntry
   let style: HabitWidgetStyle
   @Environment(\.widgetFamily) private var family
-  private var showsChooser: Bool {
-    style != .today && entry.selectionKey != nil && entry.snapshot?.habits.isEmpty == false && entry.selectionState.isChoosing
-  }
   var body: some View {
-    Group {
-      if showsChooser, let key = entry.selectionKey, let snapshot = entry.snapshot {
-        HabitWidgetChooser(snapshot: snapshot, key: key, state: entry.selectionState)
-      } else {
-        HabitWidgetView(style: style, snapshot: entry.snapshot, selectedHabit: entry.selectedHabit, family: family, isStale: entry.isStale,
-          habitPicker: style == .today ? nil : entry.selectionKey.map { AnyView(HabitWidgetChooserButton(habit: entry.selectedHabit, key: $0)) })
-      }
-    }
+    HabitWidgetView(style: style, snapshot: entry.snapshot, selectedHabit: entry.selectedHabit, family: family, isStale: entry.isStale,
+      habitHeader: style == .today ? nil : entry.selectionKey.map { AnyView(HabitWidgetCycleButton(habit: entry.selectedHabit, key: $0)) })
       .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
-      .widgetURL(showsChooser ? nil : WidgetSnapshotStore.destination(habitID: style == .today ? nil : entry.selectedHabit?.id))
+      .widgetURL(WidgetSnapshotStore.destination(habitID: style == .today ? nil : entry.selectedHabit?.id))
   }
 }
 

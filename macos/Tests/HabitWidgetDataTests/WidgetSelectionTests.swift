@@ -22,40 +22,51 @@ final class WidgetSelectionTests: XCTestCase {
     XCTAssertNil(WidgetSelectionState().selectedHabit(in: snapshot([]), configuredHabitID: nil))
   }
 
-  func testChooserOpensCurrentPageClampsAndSelectsOnlyPresentHabits() throws {
+  func testClickAdvancesFromDisplayedHabitAndWrapsInSnapshotOrder() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = WidgetSelectionStore(key: key(configured: ids[7]), directory: directory)
-    let current = snapshot(ids)
-    XCTAssertEqual(store.read(), WidgetSelectionState())
-    let opened = try store.apply(.open, snapshot: current)
-    XCTAssertTrue(opened.isChoosing)
-    XCTAssertEqual(opened.pickerPage, 2)
-    XCTAssertEqual(opened.visibleHabits(in: current, pageSize: 3).map(\.id), Array(ids[6...8]))
-    XCTAssertEqual(try store.apply(.page(Int.max), snapshot: current).pickerPage, 3)
-    XCTAssertEqual(try store.apply(.page(-1), snapshot: current).pickerPage, 0)
-    XCTAssertThrowsError(try store.apply(.select(UUID().uuidString), snapshot: current))
-    let chosen = try store.apply(.select(ids[4]), snapshot: current)
-    XCTAssertEqual(chosen.selectedID, ids[4])
-    XCTAssertFalse(chosen.isChoosing)
-    XCTAssertEqual(store.read(), chosen)
-    XCTAssertEqual(try store.apply(.open, snapshot: snapshot(Array(ids.reversed()))).pickerPage, 1)
-    XCTAssertFalse(try store.apply(.close, snapshot: current).isChoosing)
+    XCTAssertEqual(try store.advance(snapshot: snapshot(ids)).selectedID, ids[8])
+    XCTAssertEqual(try store.advance(snapshot: snapshot(ids)).selectedID, ids[9])
+    XCTAssertEqual(try store.advance(snapshot: snapshot(ids)).selectedID, ids[0])
+    XCTAssertEqual(store.read().selectedID, ids[0])
+    XCTAssertEqual(try store.advance(snapshot: snapshot(Array(ids.reversed()))).selectedID, ids[9])
   }
 
-  func testDeletionAndEmptySnapshotsKeepSelectionButBoundPickerPages() throws {
+  func testClickHandlesDefaultMissingSingleAndEmptyHabits() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = WidgetSelectionStore(key: key(), directory: directory)
-    _ = try store.apply(.select(ids[9]), snapshot: snapshot(ids))
-    let lastPage = try store.apply(.open, snapshot: snapshot(ids))
-    XCTAssertEqual(lastPage.pickerPage, 3)
-    XCTAssertEqual(lastPage.boundedPage(in: snapshot(Array(ids.prefix(2))), pageSize: 3), 0)
-    let empty = try store.apply(.page(Int.max), snapshot: snapshot([]))
-    XCTAssertEqual(empty.pickerPage, 0)
-    XCTAssertEqual(empty.selectedID, ids[9])
-    XCTAssertNil(empty.selectedHabit(in: snapshot(Array(ids.prefix(2))), configuredHabitID: nil))
-    XCTAssertTrue(empty.visibleHabits(in: snapshot([]), pageSize: 3).isEmpty)
+    XCTAssertEqual(try store.advance(snapshot: snapshot(ids)).selectedID, ids[1])
+    XCTAssertEqual(try store.advance(snapshot: snapshot([ids[3], ids[4]])).selectedID, ids[3])
+    XCTAssertEqual(try store.advance(snapshot: snapshot([ids[3]])).selectedID, ids[3])
+    let original = try Data(contentsOf: XCTUnwrap(store.url))
+    XCTAssertThrowsError(try store.advance(snapshot: snapshot([])))
+    XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.url)), original)
+  }
+
+  func testOverlappingClicksEachAdvanceOnce() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = WidgetSelectionStore(key: key(), directory: directory)
+    let current = snapshot(ids)
+    try store.write(WidgetSelectionState(selectedID: ids[0]))
+    DispatchQueue.concurrentPerform(iterations: 128) { _ in
+      do { _ = try store.advance(snapshot: current) }
+      catch { XCTFail("cycle failed: \(error)") }
+    }
+    XCTAssertEqual(store.read().selectedID, ids[8])
+  }
+
+  func testPreviousChooserStateKeepsSelectionWhenUpgradingToCycling() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = WidgetSelectionStore(key: key(), directory: directory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let data = Data("{\"selectedID\":\"\(ids[4])\",\"pickerPage\":1,\"isChoosing\":true}".utf8)
+    try data.write(to: XCTUnwrap(store.url))
+    XCTAssertEqual(store.read().selectedID, ids[4])
+    XCTAssertEqual(try store.advance(snapshot: snapshot(ids)).selectedID, ids[5])
   }
 
   func testKeysIsolateEnvironmentKindFamilyAndConfigurationWithoutWritingSnapshots() throws {
@@ -65,17 +76,17 @@ final class WidgetSelectionTests: XCTestCase {
     let snapshotURL = directory.appendingPathComponent("widgets-Development.json")
     try WidgetSnapshotStore.write(snapshot(ids), to: snapshotURL)
     let original = try Data(contentsOf: snapshotURL)
-    _ = try store.apply(.select(ids[2]), snapshot: snapshot(ids))
+    _ = try store.advance(snapshot: snapshot(ids))
     XCTAssertEqual(try Data(contentsOf: snapshotURL), original)
     for scope in [key(environment: "Production"), key(kind: "HabitSystem.WeeklyFocus"), key(family: "medium"), key(configured: ids[0])] {
       let other = WidgetSelectionStore(key: scope, directory: directory)
       XCTAssertNotEqual(other.url, store.url)
       XCTAssertEqual(other.read(), WidgetSelectionState())
     }
-    XCTAssertThrowsError(try store.apply(.open, snapshot: snapshot(ids, environment: "Production")))
+    XCTAssertThrowsError(try store.advance(snapshot: snapshot(ids, environment: "Production")))
     let data = try Data(contentsOf: XCTUnwrap(store.url))
     let fields = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-    XCTAssertEqual(Set(fields.keys), ["selectedID", "pickerPage", "isChoosing"])
+    XCTAssertEqual(Set(fields.keys), ["selectedID"])
   }
 
   func testInvalidKeysAndCorruptOrOversizedFilesAreSafe() throws {
@@ -83,15 +94,12 @@ final class WidgetSelectionTests: XCTestCase {
     XCTAssertNil(WidgetSelectionKey(environment: "Development", kind: "Today", family: "small", configuredHabitID: nil))
     XCTAssertNil(WidgetSelectionKey(environment: "Development", kind: "HabitSystem.ActivityGrid", family: "../large", configuredHabitID: nil))
     XCTAssertNil(WidgetSelectionKey(environment: "Development", kind: "HabitSystem.ActivityGrid", family: "small", configuredHabitID: "../../snapshot"))
-    XCTAssertEqual(key().pageSize, 3)
-    XCTAssertEqual(key(family: "medium").pageSize, 4)
-    XCTAssertEqual(key(family: "large").pageSize, 7)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = WidgetSelectionStore(key: key(), directory: directory)
-    _ = try store.apply(.open, snapshot: snapshot(ids))
+    _ = try store.advance(snapshot: snapshot(ids))
     let url = try XCTUnwrap(store.url)
-    for data in [Data("{partial".utf8), Data(repeating: 32, count: 4_097), Data("{\"selectedID\":null,\"pickerPage\":-1,\"isChoosing\":true}".utf8)] {
+    for data in [Data("{partial".utf8), Data(repeating: 32, count: 4_097), Data("{\"selectedID\":\"invalid\"}".utf8)] {
       try data.write(to: url)
       XCTAssertEqual(store.read(), WidgetSelectionState())
     }
@@ -102,7 +110,7 @@ final class WidgetSelectionTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: directory) }
     let uppercase = WidgetSelectionStore(key: key(configured: ids[0]), directory: directory)
     let lowercase = WidgetSelectionStore(key: key(configured: ids[0].lowercased()), directory: directory)
-    _ = try uppercase.apply(.select(ids[2]), snapshot: snapshot(ids))
+    _ = try uppercase.advance(snapshot: snapshot(ids))
     XCTAssertEqual(lowercase.read(), WidgetSelectionState())
   }
 }

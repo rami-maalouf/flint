@@ -12,15 +12,15 @@ public struct HabitWidgetView: View {
   private let selectedHabit: WidgetHabit?
   private let family: WidgetFamily
   private let isStale: Bool
-  private let habitPicker: AnyView?
+  private let habitHeader: AnyView?
 
-  public init(style: HabitWidgetStyle, snapshot: WidgetSnapshot?, selectedHabit: WidgetHabit?, family: WidgetFamily, isStale: Bool, habitPicker: AnyView? = nil) {
+  public init(style: HabitWidgetStyle, snapshot: WidgetSnapshot?, selectedHabit: WidgetHabit?, family: WidgetFamily, isStale: Bool, habitHeader: AnyView? = nil) {
     self.style = style
     self.snapshot = snapshot
     self.selectedHabit = selectedHabit
     self.family = family
     self.isStale = isStale
-    self.habitPicker = habitPicker
+    self.habitHeader = habitHeader
   }
 
   public var body: some View {
@@ -32,12 +32,12 @@ public struct HabitWidgetView: View {
             TodayWidget(snapshot: snapshot, family: family, stale: isStale)
           case .activity, .week:
             if let habit = selectedHabit {
-              if style == .activity { ActivityWidget(habit: habit, family: family, stale: isStale, habitPicker: habitPicker) }
-              else { WeekWidget(habit: habit, family: family, stale: isStale, habitPicker: habitPicker) }
+              if style == .activity { ActivityWidget(habit: habit, family: family, stale: isStale, habitHeader: habitHeader) }
+              else { WeekWidget(habit: habit, family: family, stale: isStale, habitHeader: habitHeader) }
             } else {
               VStack(alignment: .leading, spacing: 10) {
-                habitPicker
-                WidgetUnavailableState(family: family, canChoose: habitPicker != nil)
+                habitHeader
+                WidgetUnavailableState(family: family, canCycle: habitHeader != nil)
               }
             }
           }
@@ -65,7 +65,7 @@ private struct ActivityWidget: View {
   let habit: WidgetHabit
   let family: WidgetFamily
   let stale: Bool
-  var habitPicker: AnyView?
+  var habitHeader: AnyView?
   @Environment(\.colorScheme) private var scheme
   @Environment(\.widgetRenderingMode) private var renderingMode
   private var small: Bool { family == .systemSmall }
@@ -75,7 +75,7 @@ private struct ActivityWidget: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: small ? 8 : 10) {
-      if let habitPicker { habitPicker }
+      if let habitHeader { habitHeader }
       else { HabitWidgetHeader(habit: habit, tint: tint, large: large) }
       if large {
         Text("A year, one day at a time.").font(.caption).foregroundStyle(.secondary)
@@ -120,7 +120,7 @@ private struct WeekWidget: View {
   let habit: WidgetHabit
   let family: WidgetFamily
   let stale: Bool
-  var habitPicker: AnyView?
+  var habitHeader: AnyView?
   @Environment(\.colorScheme) private var scheme
   @Environment(\.widgetRenderingMode) private var renderingMode
   private var small: Bool { family == .systemSmall }
@@ -129,7 +129,7 @@ private struct WeekWidget: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: small ? 8 : 12) {
-      if let habitPicker { habitPicker }
+      if let habitHeader { habitHeader }
       else { HabitWidgetHeader(habit: habit, tint: tint, large: large) }
       if small {
         HStack(alignment: .center, spacing: 9) {
@@ -392,12 +392,12 @@ private struct WidgetEmptyState: View {
 
 private struct WidgetUnavailableState: View {
   let family: WidgetFamily
-  var canChoose = false
+  var canCycle = false
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
       Image(systemName: "square.dashed").font(.system(size: family == .systemSmall ? 22 : 28, weight: .light)).foregroundStyle(.secondary)
       Text("Habit unavailable").font(.headline).fixedSize(horizontal: false, vertical: true)
-      Text(canChoose ? "Choose another habit above." : "Choose a habit in Edit Widget.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      Text(canCycle ? "Click Next habit above." : "Choose a habit in Edit Widget.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
   }
 }
