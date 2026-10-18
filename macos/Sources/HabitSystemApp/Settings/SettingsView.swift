@@ -65,9 +65,9 @@ struct SettingsView: View {
         }
       }
       Section("iCloud sync") {
-        if model.cloudEnvironment == "Development" {
-          Text("Development iCloud uses separate test data. Your production habits are not accessed.").font(.callout).foregroundStyle(.secondary)
-        }
+        LabeledContent("iCloud environment", value: model.cloudEnvironment)
+        Text("This must match your iPhone build. Development and Production iCloud keep separate data, even with the same Apple Account.")
+          .font(.callout).foregroundStyle(.secondary)
         Toggle("Sync with iCloud", isOn: Binding(get: { settings?.iCloudSyncEnabled ?? false }, set: { enabled in
           Task { await updateSync(enabled) }
         })).disabled(model.sampleMode || busy || settings == nil)

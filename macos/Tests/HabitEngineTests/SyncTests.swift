@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import HabitEngine
@@ -115,6 +116,39 @@ final class SyncTests: XCTestCase {
     await CloudKitAdapter.configureCloudKit(on: engine)
     let available = try await engine.call("cloudKitAvailable") as! Bool
     XCTAssertFalse(available)
+  }
+
+  @MainActor
+  func testThrownEngineFailureReplacesPreviouslySuccessfulStatus() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let path = directory.appendingPathComponent("habit-system.db").path
+    let engine = try EngineHost(databasePath: path)
+    _ = try await engine.call("initialize")
+    _ = try await engine.call("setICloudSyncEnabled", [["commandId": UUID().uuidString.lowercased(), "enabled": true]])
+    await install(SyncServer(), on: engine)
+    let coordinator = SyncCoordinator(engine: engine)
+    var displayedStatus = "idle"
+    let succeeded = expectation(description: "initial sync succeeds")
+    coordinator.onOutcome = { outcome in
+      displayedStatus = outcome.status
+      succeeded.fulfill()
+    }
+    coordinator.onStatusChange = { displayedStatus = $0 }
+    coordinator.request()
+    await fulfillment(of: [succeeded], timeout: 5)
+    XCTAssertEqual(displayedStatus, "up_to_date")
+    coordinator.onOutcome = nil
+
+    let database = try SQLiteStore(path: path)
+    try database.execute("DROP TABLE sync_state")
+    let failed = expectation(description: "engine exception reaches coordinator")
+    let observation = coordinator.$status.filter { $0 == "needs_attention" }.sink { _ in failed.fulfill() }
+    coordinator.request()
+    await fulfillment(of: [failed], timeout: 5)
+    XCTAssertEqual(displayedStatus, "needs_attention")
+    observation.cancel()
+    await coordinator.cancel()
   }
 
   @MainActor

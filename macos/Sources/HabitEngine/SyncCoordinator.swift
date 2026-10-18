@@ -12,9 +12,12 @@ public struct SyncOutcome: Decodable, Sendable {
 
 @MainActor
 public final class SyncCoordinator: ObservableObject {
-  @Published public private(set) var status = "idle"
+  @Published public private(set) var status = "idle" {
+    didSet { onStatusChange?(status) }
+  }
   @Published public private(set) var lastOutcome: SyncOutcome?
   public var onOutcome: ((SyncOutcome) -> Void)?
+  public var onStatusChange: ((String) -> Void)?
   private let engine: EngineHost
   private var running: Task<Void, Never>?
   private var retry: Task<Void, Never>?

@@ -22,6 +22,8 @@ The generated project is `macos/HabitSystem.xcodeproj`. Do not edit it directly;
 
 For a signed Release build with the Production entitlement, use `macos/scripts/build.sh --release -allowProvisioningUpdates`. Building does not access iCloud. A fresh Release store still starts with sync disabled.
 
+Match the phone's **CloudKit environment**, not its build configuration or icon. The current locally installed phone build uses Development iCloud, even though it is compiled as Release. For an optimized Mac build matching that phone, use `macos/scripts/build.sh --release HABIT_CLOUD_ENVIRONMENT=Development`. This sets both the signed CloudKit entitlement and the environment used for local storage and widgets. Settings always displays the active environment. Never copy records or databases between environments to repair a mismatch.
+
 ## Desktop widgets
 
 The app includes three WidgetKit variations: Activity Grid (small, medium and large), Weekly Focus (small and medium), and Today (small, medium and large). Activity Grid uses a GitHub-style calendar; its large layout shows a full year. Right-click the desktop, choose Edit Widgets, and select Habit System. Edit an Activity Grid or Weekly Focus widget to choose its habit. Clicking opens the corresponding habit or Today in the Mac app.

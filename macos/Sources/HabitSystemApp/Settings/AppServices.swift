@@ -18,9 +18,12 @@ extension AppModel {
     if cloudEffects && CloudKitAdapter.isSupportedBuild {
       await CloudKitAdapter.configureCloudKit(on: engine)
       let sync = SyncCoordinator(engine: engine)
+      sync.onStatusChange = { [weak self] status in
+        guard let self else { return }
+        self.syncStatus = self.syncLabel(status)
+      }
       sync.onOutcome = { [weak self] outcome in
         guard let self else { return }
-        self.syncStatus = self.syncLabel(outcome.status)
         if outcome.localChanged {
           Task { await self.refresh(); self.notifications?.requestReconciliation() }
         }
@@ -111,7 +114,7 @@ extension AppModel {
   private func syncLabel(_ value: String) -> String {
     switch value {
     case "up_to_date": return "Up to date."
-    case "idle": return "iCloud sync is off."
+    case "idle": return "Not syncing right now."
     case "signed_out": return "Sign in to your Apple Account in System Settings to sync."
     case "offline": return "Waiting for a connection. Your changes are saved on this Mac."
     case "needs_attention": return "Sync needs attention. Check your Apple Account and try again. Your local data is retained."

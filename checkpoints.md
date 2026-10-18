@@ -1,5 +1,32 @@
 # Checkpoints
 
+### Native Mac iCloud environment correction (2026-10-18)
+
+- Reproduced the installed Mac showing no habits with sync enabled and a
+  successful sync timestamp. Its signed entitlement and local store were
+  Production. Independent read-only CloudKit scans from a nil change token
+  found an empty Production habit zone and 10 board / 50 check-in records in
+  Development. This rules out a stale cursor or record-application failure.
+- The existing physical phone installation uses Development CloudKit despite
+  being compiled as Release. Installed an optimized Mac Release build with
+  `HABIT_CLOUD_ENVIRONMENT=Development` to match it. No environment migration,
+  database copy, import or cloud-record mutation was performed. A fresh Mac
+  store downloaded the existing records, and Today shows the habits and coins.
+  The outbox is empty. Before/after hashes of all cloud record IDs/change tags
+  match exactly, confirming the cloud records were unchanged.
+- Settings now identifies the environment in both build variants and explains
+  that it must match the phone. README records the matching build command so a
+  future optimized build does not silently reconnect this installation to the
+  empty Production environment.
+- Also reproduced a stale success label after a thrown engine error. The
+  coordinator now publishes every status transition to the app. Independent
+  review caught cancellation's idle state being mislabeled as disabled; idle
+  wording is now neutral. Eight sync regression tests pass, including the new
+  error case. All 19 app regression tests, Release build, strict bundle signing,
+  lint and typecheck pass.
+  The final installed app was relaunched and visually inspected with real
+  downloaded habits, sync on, Development displayed, and Up to date status.
+
 ### Native Mac acceptance follow-up (2026-10-18)
 
 1. Added a separately signed notification QA app with its own sandbox and
