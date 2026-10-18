@@ -1,0 +1,65 @@
+name: HabitSystem
+options:
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  HabitEngine:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: 3V2UU7RRK9
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      HABIT_CLOUD_ENVIRONMENT: Development
+    Release:
+      HABIT_CLOUD_ENVIRONMENT: Production
+targets:
+  HabitSystem:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/HabitSystemApp
+    dependencies:
+      - package: HabitEngine
+        product: HabitEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac
+        PRODUCT_NAME: Habit System
+        INFOPLIST_FILE: Info.plist
+        CODE_SIGN_ENTITLEMENTS: HabitSystem.entitlements
+        COMBINE_HIDPI_IMAGES: YES
+    preBuildScripts:
+      - name: Build application icon
+        script: '"$SRCROOT/scripts/build-icon.sh"'
+        basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Copy application icon
+        script: 'cp "$SRCROOT/build/HabitSystem.icns" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/HabitSystem.icns"'
+        basedOnDependencyAnalysis: false
+  HabitSystemTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/HabitSystemTests
+      - Sources/HabitSystemApp/DomainModels.swift
+    dependencies:
+      - package: HabitEngine
+        product: HabitEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.orbitlabs.habitsystem.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  HabitSystem:
+    build:
+      targets:
+        HabitSystem: all
+    test:
+      targets:
+        - HabitSystemTests
