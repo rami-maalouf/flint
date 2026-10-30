@@ -143,6 +143,12 @@
 - The real HTTP test failed first on the ten-tool catalog, then passed with thirteen tools. It verifies a lost HTTP response followed by a same-ID retry, refresh/reconnect and client lineage, changed-input conflicts, count/daily/amount/time, daily no-op undo refusal, note redaction and actual journal tuple evidence. A separate fresh pull-only SQLite replica receives check-in/undo tombstones and coin facts. Pending delivery survives grant revocation and needs an explicit owner-resume callback under the replacement connection.
 - Independent review accepted the behavior but required setup-safe fixture cleanup. Cleanup now registers before resource acquisition and independently attempts every close, reporting errors after cleanup; a fresh reviewer accepted the correction. Parent reran the complete HTTP proof successfully on Node 24.22.2; service lint/typecheck pass. Full M14-M16 closure still depends on the separately reviewed M13 custody and conservative delivery gates. No executable startup or production write activation is included.
 
+### M17a - durable operation-bound reward quotes
+
+- Added separate private quote metadata with account/client/operation/reward/version/cost/zone/expiry binding, stable restart tokens, authenticated human-approval evidence and pure admission before journal preparation. Preview uses the existing read-only core query and cannot reserve or spend coins. Current affordability remains in the existing core claim transaction; negative observed balances remain valid.
+- Eight real Node 24.22.2/SQLite cases pass. Behavioral reds caught premature approval consumption and indexed identity retargeting. Independent review then reproduced mixed-key issuance and two concurrent quotes in a one-slot store. Startup now verifies authenticated key/origin metadata, and lookup/capacity/insertion share an immediate transaction. Both new regressions pass, including two synchronized SQLite workers.
+- Fresh independent round-three review accepted the bounded storage/normalizer slice and reran all eight plus lint/typecheck. Browser approval, public claim registration and HTTP preview integration remain separate gates. No product schema, phone state or production configuration changed.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
