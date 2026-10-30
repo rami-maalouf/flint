@@ -67,6 +67,12 @@
 - The boundary regression failed before the production core entry existed and now passes. ARM64 frozen install/build/lint/typecheck and 25 foundation tests pass; local unit suites include the separately tested vault, journal/recovery suites pass 57, and the public-enabled SDK/provider protocol suite passes 12. Public metadata cases are explicitly skipped when not enabled.
 - `services/mcp/README.md` records runtime/setup/commands and the Linux proof boundary. Root validate remains 214 suites / 3,114 tests and 100 percent core coverage; backend gates pass. The existing SDK native patch, AJV 6 root requirement and generated API process remain intact. This is a service foundation, not a claim that a public endpoint is already active.
 
+### M06a - encrypted independent credential custody
+
+- Added a private, checksum/version-verified service vault using AES-256-GCM and external versioned keys. Authenticated binding covers backend, principal, account, grant, upstream scope and key version. Per-grant bearer reuse/retargeting is refused; replacement, expiry, cap expiry and encrypted revocation tombstones fail closed without affecting another grant.
+- Initial proof failed 27 cases; a subsequent behavioral red exposed unauthenticated revoke. All 28 final actual Node/SQLite cases pass, including fresh-process restart, ciphertext/nonce/tag/AAD tampering, swapping grants, key rotation/loss, private permissions, schema refusal and no plaintext token/key in database/WAL or logs. Passwords are not an API input to the vault.
+- Fresh independent review reran 28 cases plus eleven adversarial scenarios and approved without findings. Service lint/typecheck pass. `docs/mcp/credential-custody.md` records the typed API and caller responsibilities. Browser identity/provider/grant lifecycle remain pending, so M06 is not yet marked complete.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
