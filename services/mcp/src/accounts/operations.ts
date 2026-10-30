@@ -1,32 +1,35 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createClient, type Client } from 'snapback4/client';
 
 import type { SqlDatabase, SqlExecutor } from '../../../../src/core/persistence/database';
+import type { WireSyncRecord } from '../../../../src/core/sync/transport';
 import type { AuthContext } from '../auth/context';
-import { claimReward, createCheckIn, createCorePorts, undoCreatedCheckIn } from '../core';
+import { claimReward, createCheckIn, createCorePorts, createSnapbackTransport, runSync, undoCreatedCheckIn } from '../core';
 import { JournalError, OperationJournal, type CoreCommand, type Failpoint, type FrozenIntent, type JournalHead,
   type JournalOperation, type MutationRequest } from '../operations/journal';
 import { createSnapbackRecoveryRemote, RecoveryHeadAdapter, type RestoreLatch } from '../operations/recovery-head';
 import { contracts, hasToolScope } from '../tools/contracts';
 import type { RecoveryStatus } from './actor';
+import { DeliveryBarrier, DeliveryBarrierError, type DeliveryGrantBinding, type DeliveryPolicy } from './delivery';
 
 export class OperationRuntimeError extends Error {
   constructor(readonly code: 'FORBIDDEN' | 'OPERATION_PENDING' | 'RATE_LIMITED', message: string) { super(message); }
 }
-type Action = 'recover' | 'prepare' | 'execute' | 'read' | 'publish' | 'control';
+type Action = 'recover' | 'prepare' | 'execute' | 'read' | 'publish' | 'control' | 'deliver' | 'resume';
 export type OperationAuthorization = Readonly<{ context: AuthContext; action: Action;
   intent: FrozenIntent | null; originGrantId: string | null; request?: MutationRequest }>;
 export type NormalizeContext = Readonly<{ commandId: FrozenIntent['commandId']; nowUtcMs: number;
   context: AuthContext; read: Pick<SqlExecutor, 'getFirstAsync' | 'getAllAsync'>;
-  undoTarget: (operationId: string) => ReturnType<OperationJournal['undoTarget']> }>;
+  undoTarget: (operationId: string) => Promise<Awaited<ReturnType<OperationJournal['undoTarget']>> & { timeZone: string }> }>;
 export type OperationPolicy = {
   latch: RestoreLatch;
   authorize: (request: OperationAuthorization) => Promise<void>;
   normalize: (request: MutationRequest, context: NormalizeContext) => Promise<{ timeZone: string; command: CoreCommand }>;
   maxOperations?: number;
+  delivery?: DeliveryPolicy;
   // test-only injection, never request input. actual core execution cannot be replaced.
   failpoint?: (point: Failpoint) => void;
 };
@@ -34,10 +37,13 @@ export type OperationEnvironment = Readonly<{ db: SqlDatabase; directory: string
   signal: AbortSignal; nowUtcMs: number; assertActive: () => Promise<void>; fetch?: typeof fetch;
   checkDisk: () => void; maxFetches: number }>;
 
-const sidecarSchema = `CREATE TABLE runtime_meta (id INTEGER PRIMARY KEY CHECK (id = 1), account_id TEXT NOT NULL,
+const legacySidecarSchema = `CREATE TABLE runtime_meta (id INTEGER PRIMARY KEY CHECK (id = 1), account_id TEXT NOT NULL,
   backend_url TEXT NOT NULL, principal TEXT NOT NULL, generation TEXT NOT NULL, journal_ready INTEGER NOT NULL);
 CREATE TABLE operation_grants (client_id TEXT NOT NULL, operation_id TEXT NOT NULL, grant_id TEXT NOT NULL,
   tool TEXT NOT NULL, PRIMARY KEY (client_id, operation_id));`;
+const sidecarSchema = `${legacySidecarSchema}
+CREATE TABLE delivery_anchor (id INTEGER PRIMARY KEY CHECK (id = 1), generation TEXT NOT NULL,
+  initialized INTEGER NOT NULL CHECK (initialized IN (0, 1)));`;
 function fence(message: string): never { throw new OperationRuntimeError('OPERATION_PENDING', message); }
 function active(env: OperationEnvironment): void { if (env.signal.aborted) throw env.signal.reason; }
 export function hasOperationAuthority(ctx: AuthContext): boolean {
@@ -54,6 +60,31 @@ function secureFile(path: string, create = false): void {
     fence('Operation history is missing or unsafe. Preserve the replica for reconciliation.');
   }
 }
+function schemaRows(schema: string): string[] { return schema.trim().split(';').map(sql => sql.trim()).filter(Boolean).sort(); }
+
+// a provider cutoff can precede the first operation, but still needs an independent durable barrier marker.
+export async function ensureDeliveryHistory(directory: string, binding: DeliveryGrantBinding, product: SqlDatabase): Promise<void> {
+  const statePath = join(directory, 'operations.sqlite');
+  if (existsSync(statePath)) { secureFile(statePath); return; }
+  if (existsSync(join(directory, 'journal.sqlite')) ||
+    await product.getFirstAsync("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'command_receipts'") &&
+    await product.getFirstAsync('SELECT command_id FROM command_receipts LIMIT 1')) {
+    fence('Operation provenance is missing before delivery cutoff.');
+  }
+  secureFile(statePath, true);
+  const state = new DatabaseSync(statePath);
+  try {
+    state.exec(`PRAGMA busy_timeout = 0; PRAGMA synchronous = FULL; BEGIN IMMEDIATE; ${sidecarSchema} PRAGMA user_version = 1;`);
+    const generation = randomUUID();
+    state.prepare('INSERT INTO runtime_meta VALUES (1, ?, ?, ?, ?, 0)')
+      .run(binding.accountId, binding.backendUrl, binding.principal, generation);
+    state.prepare('INSERT INTO delivery_anchor VALUES (1, ?, 0)').run(generation);
+    state.exec('COMMIT');
+    const fd = openSync(directory, constants.O_RDONLY);
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  } catch (cause) { try { state.exec('ROLLBACK'); } catch { /* no active transaction remains after commit. */ } throw cause; }
+  finally { state.close(); }
+}
 async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) { void work.catch(() => undefined); throw signal.reason; }
   return new Promise<T>((resolve, reject) => {
@@ -66,7 +97,8 @@ async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export function validateOperationPolicy(policy: OperationPolicy): void {
   if (!policy?.latch || typeof policy.latch.assertReady !== 'function' || typeof policy.authorize !== 'function' ||
     typeof policy.normalize !== 'function' || (policy.maxOperations !== undefined &&
-      (!Number.isSafeInteger(policy.maxOperations) || policy.maxOperations < 1))) {
+      (!Number.isSafeInteger(policy.maxOperations) || policy.maxOperations < 1)) ||
+    (policy.delivery !== undefined && typeof policy.delivery?.grantStatus !== 'function')) {
     throw new Error('Operation policy requires a restore latch, current-grant authorization and normalization.');
   }
 }
@@ -81,6 +113,8 @@ export async function authorizeAccountControl(policy: OperationPolicy, env: Oper
 export class AccountOperations {
   private adapter!: RecoveryHeadAdapter;
   private journal!: OperationJournal;
+  private barrier?: DeliveryBarrier;
+  lastDeliveryStatus: 'up_to_date' | 'offline' | 'signed_out' | 'needs_attention' | 'idle' | 'syncing' | null = null;
   private constructor(private readonly env: OperationEnvironment, private readonly policy: OperationPolicy,
     private readonly state: DatabaseSync, private readonly client: Client, private readonly journalPath: string) {}
 
@@ -122,6 +156,7 @@ export class AccountOperations {
         state.exec(`BEGIN IMMEDIATE; ${sidecarSchema} PRAGMA user_version = 1;`);
         state.prepare('INSERT INTO runtime_meta VALUES (1, ?, ?, ?, ?, 0)')
           .run(env.context.accountId, env.context.backendUrl, env.context.principal, randomUUID());
+        state.prepare('INSERT INTO delivery_anchor VALUES (1, (SELECT generation FROM runtime_meta WHERE id = 1), 0)').run();
         state.exec('COMMIT');
         const fd = openSync(env.directory, constants.O_RDONLY);
         try { fsyncSync(fd); } finally { closeSync(fd); }
@@ -133,8 +168,10 @@ export class AccountOperations {
         fence('Operation runtime schema or identity binding is unknown.');
       }
       const actual = state.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name").all().map(row => row.sql);
-      const expected = sidecarSchema.trim().split(';').map(sql => sql.trim()).filter(Boolean).sort();
-      if (JSON.stringify(actual.map(sql => String(sql).trim()).sort()) !== JSON.stringify(expected)) fence('Operation runtime schema does not match its release.');
+      const actualSchema = JSON.stringify(actual.map(sql => String(sql).trim()).sort());
+      const expected = JSON.stringify(schemaRows(sidecarSchema));
+      const legacy = JSON.stringify(schemaRows(legacySidecarSchema));
+      if (actualSchema !== expected && !(actualSchema === legacy && !policy.delivery)) fence('Operation runtime schema does not match its release.');
       if (!journalExists && (meta.journal_ready === 1 || !hasOperationAuthority(env.context))) fence('Retained operation journal is missing.');
       if (!journalExists && await remote.read() !== null) fence('Remote operation history cannot reconstruct a missing local journal.');
       if (journalExists) secureFile(journalPath); else secureFile(journalPath, true);
@@ -148,6 +185,7 @@ export class AccountOperations {
       } catch { fence('Operation journal schema, generation or ancestry requires reconciliation.'); }
       runtime.adapter = new RecoveryHeadAdapter({ owner: env.context.principal, journal: runtime.journal, remote,
         latch: policy.latch, authorize: () => runtime!.authorizePublication() });
+      if (policy.delivery) runtime.barrier = new DeliveryBarrier(env.directory, env.context, policy.delivery);
       if (meta.journal_ready === 0) {
         if (!hasOperationAuthority(env.context)) fence('Operation initialization is incomplete.');
         state.exec('UPDATE runtime_meta SET journal_ready = 1 WHERE id = 1');
@@ -155,7 +193,7 @@ export class AccountOperations {
       runtime.inspect();
       return runtime;
     } catch (cause) {
-      runtime?.journal?.close(); state?.close(); await client.close();
+      runtime?.barrier?.close(); runtime?.journal?.close(); state?.close(); await client.close();
       if (typeof cause === 'object' && cause !== null && 'code' in cause && String(cause.code).startsWith('ERR_SQLITE')) {
         fence('Operation runtime storage or schema requires reconciliation.');
       }
@@ -207,7 +245,7 @@ export class AccountOperations {
     }
     this.inspect(); active(this.env);
     return Object.freeze({ writeFenced: !hasOperationAuthority(this.env.context), deliveryPaused: true,
-      reconnectRequired: false, recoveryReason: 'delivery_pending_m13' });
+      reconnectRequired: false, recoveryReason: this.barrier ? 'delivery_barrier' : 'delivery_pending_m13' });
   }
 
   private async authorizeIntent(intent: FrozenIntent, action: 'execute' | 'read' | 'deliver'): Promise<void> {
@@ -219,7 +257,8 @@ export class AccountOperations {
     if (!hasToolScope(contracts[intent.tool], this.env.context.scopes)) {
       throw new OperationRuntimeError('FORBIDDEN', 'Original operation permissions are required.');
     }
-    if (action === 'deliver') fence('Operation delivery is parked until M13.');
+    if (action === 'deliver' && !this.barrier) fence('Operation delivery is parked until M13.');
+    if (action === 'execute') this.barrier?.assertMutationAllowed();
     if (action === 'execute' && (!hasOperationAuthority(this.env.context) || intent.clientId !== this.env.context.clientId ||
       origin.grant_id !== this.env.context.grantId)) {
       throw new OperationRuntimeError('FORBIDDEN', 'Prepared execution requires its original active client and grant.');
@@ -242,7 +281,14 @@ export class AccountOperations {
         getAllAsync: <T>(sql: string, params?: Parameters<SqlExecutor['getAllAsync']>[1]) => { guard(sql); return this.env.db.getAllAsync<T>(sql, params); },
       });
       return await this.policy.normalize(request, Object.freeze({ ...frozen, context: this.env.context, read,
-        undoTarget: (operationId: string) => { guard('SELECT'); return this.journal.undoTarget(this.env.context.clientId, operationId); } }));
+        undoTarget: async (operationId: string) => {
+          guard('SELECT');
+          const original = await this.journal.get(this.env.context.clientId, operationId);
+          const target = await this.journal.undoTarget(this.env.context.clientId, operationId);
+          guard('SELECT');
+          if (!original) fence('Original create intent disappeared during undo normalization.');
+          return { ...target, timeZone: original.intent.timeZone };
+        } }));
     } finally { activeRead = false; await this.env.db.execAsync('PRAGMA query_only = OFF'); }
   }
 
@@ -272,6 +318,11 @@ export class AccountOperations {
 
   async run(request: MutationRequest): Promise<JournalOperation> {
     active(this.env); await this.env.assertActive();
+    if (this.barrier) {
+      await this.barrier.assertCurrent(this.env.context);
+      await this.barrier.refreshRevokedOrigins(this.env.context, this.env.db);
+      this.barrier.assertMutationAllowed();
+    }
     if (!hasOperationAuthority(this.env.context) || request.clientId !== this.env.context.clientId) {
       throw new OperationRuntimeError('FORBIDDEN', 'A matching current full write grant is required.');
     }
@@ -292,7 +343,115 @@ export class AccountOperations {
   }
 
   lookup(operationId: string): Promise<JournalOperation | null> { return this.journal.get(this.env.context.clientId, operationId); }
+
+  private async authorizeDelivery(): Promise<void> {
+    if (!this.barrier) fence('Operation delivery is not configured.');
+    active(this.env); await this.env.assertActive(); await this.policy.latch.assertReady();
+    await this.barrier.assertCurrent(this.env.context);
+    await this.policy.authorize({ context: this.env.context, action: 'deliver', intent: null, originGrantId: null });
+    active(this.env); await this.env.assertActive(); await this.policy.latch.assertReady();
+  }
+
+  async deliveryPaused(): Promise<boolean> {
+    if (!this.barrier || !hasOperationAuthority(this.env.context)) return true;
+    try {
+      await this.authorizeDelivery();
+      await this.barrier.authorizeQueue(this.env.context, this.env.db);
+      await this.journal.beforeDelivery();
+      return this.barrier.exceedsWindow(this.env.db);
+    } catch (cause) {
+      if (cause instanceof DeliveryBarrierError || cause instanceof OperationRuntimeError || cause instanceof JournalError) return true;
+      throw cause;
+    }
+  }
+
+  async resumeDelivery(confirmOwnerDecision: () => Promise<void>): Promise<number> {
+    if (!this.barrier) fence('Operation delivery is not configured.');
+    await this.authorizeDelivery();
+    await this.policy.authorize({ context: this.env.context, action: 'resume', intent: null, originGrantId: null });
+    await confirmOwnerDecision();
+    await this.authorizeDelivery();
+    await this.barrier.refreshRevokedOrigins(this.env.context, this.env.db, true);
+    if (this.inspect()) fence('Prepared operation must be reconciled by its original grant before owner resume.');
+    await this.adapter.publish(this.journal.head());
+    await this.authorizeDelivery();
+    return this.barrier.resume(this.env.context, this.env.db);
+  }
+
+  async deliver(): Promise<void> {
+    if (!this.barrier || !hasOperationAuthority(this.env.context)) return;
+    try {
+      await this.authorizeDelivery();
+      await this.barrier.authorizeQueue(this.env.context, this.env.db);
+      await this.journal.beforeDelivery();
+      await this.authorizeDelivery();
+    } catch (cause) {
+      if (cause instanceof DeliveryBarrierError || cause instanceof OperationRuntimeError || cause instanceof JournalError) {
+        this.lastDeliveryStatus = 'needs_attention'; return;
+      }
+      throw cause;
+    }
+    let fetches = 0, bytes = 0;
+    const client = createClient({ url: this.env.context.backendUrl, token: this.env.context.session.token,
+      fetch: async (input, init) => {
+        await this.authorizeDelivery(); this.env.checkDisk();
+        if (++fetches > this.env.maxFetches) fence('Delivery network request budget exceeded.');
+        const request = new Request(input, init), path = new URL(request.url).pathname;
+        if (request.method !== 'POST' || !(/^\/q\//.test(path) ||
+          ['/m/ensureAccount', '/m/beginUpload', '/m/uploadPart', '/m/finishUpload', '/m/uploadRecord'].includes(path))) {
+          throw new OperationRuntimeError('FORBIDDEN', 'Delivery transport route is not authorized.');
+        }
+        bytes += (await request.clone().arrayBuffer()).byteLength;
+        if (bytes > 16 * 1024 * 1024) fence('Delivery byte budget exceeded.');
+        const response = await bounded((this.env.fetch ?? fetch)(request, {
+          signal: AbortSignal.any([this.env.signal, request.signal]) }), this.env.signal);
+        const declared = Number(response.headers.get('content-length'));
+        if (Number.isFinite(declared) && declared > 16 * 1024 * 1024 - bytes) fence('Delivery byte budget exceeded.');
+        bytes += (await response.clone().arrayBuffer()).byteLength;
+        if (bytes > 16 * 1024 * 1024) fence('Delivery byte budget exceeded.');
+        // upload-record acceptance is recorded by onUpload before checking a changed grant.
+        if (path !== '/m/uploadRecord') await this.authorizeDelivery();
+        return response;
+      } });
+    try {
+      const source = createSnapbackTransport({ connection: async () => ({ client, session: this.env.context.session,
+        isCurrent: () => !this.env.signal.aborted && this.env.context.session.expiresAt > Date.now() }),
+        bind: async () => { await this.authorizeDelivery(); },
+        hash: async text => createHash('sha256').update(text).digest('hex'),
+        onUpload: async evidence => {
+          await this.journal.recordUploadAcceptance(evidence);
+          await this.authorizeDelivery();
+        } });
+      const transport = { ensureZone: source.ensureZone,
+        upload: (records: WireSyncRecord[]) => source.upload(records, () => !this.env.signal.aborted),
+        fetchChanges: (token: string | null) => source.fetchChanges(token, () => !this.env.signal.aborted) };
+      for (let pass = 0; pass < 3; pass++) {
+        const passMaxId = await this.barrier.authorizeQueue(this.env.context, this.env.db);
+        const outcome = await runSync({ db: this.env.db, ...createCorePorts('UTC', this.env.nowUtcMs), transport, random: () => 0.5,
+          delivery: { authorize: async () => {
+            await this.authorizeDelivery();
+            await this.barrier!.authorizeQueue(this.env.context, this.env.db, passMaxId);
+            await this.journal.beforeDelivery();
+          }, beforeQueueClear: async ids => {
+            await this.authorizeDelivery();
+            if (ids.some(id => id > passMaxId)) fence('Delivery batch exceeded its frozen queue boundary.');
+            await this.barrier!.authorizeQueue(this.env.context, this.env.db, passMaxId);
+            await this.journal.beforeQueueClear(ids);
+            await this.authorizeDelivery();
+          } }, shouldContinue: () => !this.env.signal.aborted });
+        this.journal.afterQueueClear();
+        const pending = await this.env.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM mutation_outbox');
+        this.lastDeliveryStatus = outcome.ok ? outcome.value.status : 'needs_attention';
+        if (this.lastDeliveryStatus !== 'up_to_date' || pending?.count === 0) break;
+        if (pass === 2) this.lastDeliveryStatus = 'needs_attention';
+      }
+    } finally { await client.close(); }
+  }
+
+  async operationAfterDelivery(operationId: string): Promise<JournalOperation | null> {
+    return this.journal.get(this.env.context.clientId, operationId);
+  }
   async close(): Promise<void> {
-    try { this.journal.close(); } finally { try { this.state.close(); } finally { await this.client.close(); } }
+    try { this.barrier?.close(); this.journal.close(); } finally { try { this.state.close(); } finally { await this.client.close(); } }
   }
 }

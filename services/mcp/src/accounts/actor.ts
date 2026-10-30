@@ -10,7 +10,8 @@ import { createCorePorts, createSnapbackTransport, getSyncSummary, initializePro
 import { contracts, hasToolScope, timeZone, type Metadata } from '../tools/contracts';
 import type { JournalOperation, MutationRequest } from '../operations/journal';
 import { AccountReplica, privateDirectory, type ReplicaLimits } from './replica';
-import { AccountOperations, authorizeAccountControl, hasOperationAuthority, validateOperationPolicy,
+import { DeliveryBarrier, type DeliveryGrantBinding } from './delivery';
+import { AccountOperations, authorizeAccountControl, ensureDeliveryHistory, hasOperationAuthority, validateOperationPolicy,
   type OperationEnvironment, type OperationPolicy } from './operations';
 
 export class AccountError extends Error {
@@ -136,7 +137,7 @@ export class AccountActors {
 
   evictIdle(): Promise<void> { return this.serialize(() => this.removeIdle()); }
 
-  private async acquire(ctx: AuthContext, signal: AbortSignal): Promise<Entry> {
+  private async acquire(ctx: Pick<AuthContext, 'accountId'>, signal: AbortSignal): Promise<Entry> {
     return this.serialize(async () => {
       stopped(signal);
       if (this.closing) throw new AccountError('UNAVAILABLE', 'Account service is closing.');
@@ -178,7 +179,64 @@ export class AccountActors {
     const captured = Object.freeze(JSON.parse(JSON.stringify({ clientId: request.clientId, tool: request.tool, input: parsed.data })) as MutationRequest);
     return this.serve(context, {}, true, async (_lane, _meta, _recovery, operations) => {
       if (!operations) throw new AccountError('OPERATION_PENDING', 'Operation runtime is unavailable.');
-      return operations.run(captured);
+      const result = await operations.run(captured);
+      await operations.deliver();
+      return await operations.operationAfterDelivery(result.intent.operationId) ?? result;
+    });
+  }
+
+  // provider-only lifecycle hook. the verified binding is not model or tool input.
+  revokeDeliveryGrant(binding: DeliveryGrantBinding, commitRevocation: () => Promise<void>): Promise<void> {
+    if (!this.options.operationPolicy?.delivery || typeof commitRevocation !== 'function' ||
+      binding.backendUrl !== this.options.backendUrl || !binding.accountId || !binding.principal ||
+      !binding.clientId || !binding.grantId) {
+      return Promise.reject(new AccountError('FORBIDDEN', 'A trusted delivery grant binding is required.', false));
+    }
+    if (this.closing || this.outstanding >= this.limits.maxOutstanding) {
+      return Promise.reject(new AccountError('RATE_LIMITED', 'Account control is unavailable.'));
+    }
+    this.outstanding++;
+    const controller = new AbortController();
+    let admitted = false;
+    const timer = setTimeout(() => { if (!admitted) controller.abort(new AccountError('UNAVAILABLE', 'Account control deadline exceeded.')); },
+      this.limits.requestTimeoutMs);
+    const operation = (async () => {
+      const entry = await this.acquire(binding, controller.signal);
+      const result = entry.lane.then(async () => {
+        stopped(controller.signal);
+        entry.replica ??= new AccountReplica(this.root, this.options.backendUrl, binding, this.limits);
+        stopped(controller.signal);
+        entry.replica.assertBinding(binding, this.options.backendUrl);
+        await ensureDeliveryHistory(entry.replica.directory, binding, entry.replica.db);
+        stopped(controller.signal);
+        const barrier = new DeliveryBarrier(entry.replica.directory, binding, this.options.operationPolicy!.delivery!);
+        try {
+          await barrier.revoke(binding, entry.replica.db, controller.signal);
+          admitted = true;
+          clearTimeout(timer);
+          await commitRevocation();
+        } finally { barrier.close(); }
+      });
+      entry.lane = result.catch(() => undefined).finally(() => { entry.pending--; entry.idleAt = Date.now(); });
+      return result;
+    })();
+    this.operations.add(operation);
+    void operation.finally(() => { clearTimeout(timer); this.outstanding--; this.operations.delete(operation); }).catch(() => undefined);
+    return bounded(operation, controller.signal);
+  }
+
+  resumeDelivery(context: AuthContext, confirmOwnerDecision: () => Promise<void>): Promise<void> {
+    if (!this.options.operationPolicy?.delivery || !hasOperationAuthority(context) || typeof confirmOwnerDecision !== 'function') {
+      return Promise.reject(new AccountError('FORBIDDEN', 'A current full delivery grant is required.', false));
+    }
+    return this.inLane(context, 'UTC', async lane => {
+      const operations = await AccountOperations.open(this.operationEnvironment(lane), this.options.operationPolicy!, true);
+      if (!operations) throw new AccountError('OPERATION_PENDING', 'Operation runtime is unavailable.');
+      try {
+        const queued = await operations.resumeDelivery(confirmOwnerDecision);
+        if (queued > 0) await operations.deliver();
+      }
+      finally { await operations.close(); }
     });
   }
 
@@ -229,11 +287,17 @@ export class AccountActors {
         const status = await this.pull(replica, ctx, ports, signal, authorize);
         await authorize(); replica.checkDisk();
         const meta = await this.observe(replica, ports, status, options);
-        const recovery = Object.freeze({ ...recovered, deliveryPaused: true,
+        const deliveryPaused = operations ? await operations.deliveryPaused() : true;
+        const recovery = Object.freeze({ ...recovered, deliveryPaused,
+          recoveryReason: deliveryPaused ? recovered.recoveryReason : null,
           reconnectRequired: recovered.reconnectRequired || meta.syncStatus === 'reconnect_required' });
         const data = await work(lane, meta, recovery, operations);
         await authorize();
-        const finalMeta = createOperations ? await this.observe(replica, ports, status, { freshness: 'allow_cached' }, false) : meta;
+        const observed = createOperations ? await this.observe(replica, ports, status, { freshness: 'allow_cached' }, false) : meta;
+        const deliveryStatus = operations?.lastDeliveryStatus;
+        const finalMeta: Metadata = deliveryStatus && deliveryStatus !== 'up_to_date'
+          ? Object.freeze({ ...observed, syncStatus: deliveryStatus === 'signed_out' ? 'reconnect_required'
+            : deliveryStatus === 'offline' ? 'offline' : 'sync_attention' }) : observed;
         return { data, meta: finalMeta };
       } finally { await operations?.close(); }
     });
