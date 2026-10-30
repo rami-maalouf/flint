@@ -14,7 +14,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const parsed = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }, 'invalid logical date');
-export const timeZone = z.string().min(1).max(100).regex(/^[A-Za-z_]+(?:\/[A-Za-z0-9_+.\-]+)*$/).refine(value => {
+export const timeZone = z.string().min(1).max(100).regex(/^[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)*$/).refine(value => {
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; }
 }, 'invalid IANA time zone');
 const freshness = { freshness: z.enum(['require_sync', 'allow_cached']).optional() };

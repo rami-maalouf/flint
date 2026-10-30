@@ -55,6 +55,12 @@
 - Nineteen actual SDK/server/durable-deployment/Node SQLite cases pass, covering count/claim retry after older-local restore, independent backend rollback, both databases restored to matching old snapshots, two stale owners, missing/corrupt ancestry and unavailable/uncertain head publication. The first stale-local proof failed with a missing rejection; the final implementation refuses a duplicate effect. Parent's combined journal/recovery run passes 57 cases.
 - Fresh independent review accepted bounded gate D and reran all 19 recovery cases. `docs/mcp/recovery.md` requires independently retained restore control and complete history proof before writes can return. Matching old heads or owner delivery consent are insufficient. Unreported whole-VPS rollback that also rolls back the controller cannot be detected by this mechanism; production restore-controller/off-host integration remains required in M24. No production activation is claimed.
 
+### M05a - isolated install and shared-core build
+
+- Established strict service TypeScript/ESLint configuration, pinned independent tooling/Snapback dependencies and the Node-target shared-core entry. Root mobile dependencies and lock remain unchanged; the isolated linter normalized a redundant regex escape without changing contract behavior.
+- The production boundary bundles 94 modules and its recorded graph contains no Expo/React runtime imports. Frozen service install, build, lint and strict typecheck pass locally and in a private fresh Linux ARM64 source/install directory on Oracle with checksum-verified Node 24.22.2 and Bun 1.4.3. The remote proof installs no mobile dependency graph and changes no production service or route.
+- Independent foundation review approved this boundary; the parent's clean ARM64 verification subsequently passed all 25 foundation tests. The service test runner and reproducible command documentation follow in M05b so configuration/build changes stay bounded.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
