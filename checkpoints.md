@@ -73,6 +73,12 @@
 - Initial proof failed 27 cases; a subsequent behavioral red exposed unauthenticated revoke. All 28 final actual Node/SQLite cases pass, including fresh-process restart, ciphertext/nonce/tag/AAD tampering, swapping grants, key rotation/loss, private permissions, schema refusal and no plaintext token/key in database/WAL or logs. Passwords are not an API input to the vault.
 - Fresh independent review reran 28 cases plus eleven adversarial scenarios and approved without findings. Service lint/typecheck pass. `docs/mcp/credential-custody.md` records the typed API and caller responsibilities. Browser identity/provider/grant lifecycle remain pending, so M06 is not yet marked complete.
 
+### M06b - verified read-only browser identity boundary
+
+- Added the supported Snapback read-login bridge and shared admitted context. Fixed backend authority and authenticated principal determine the opaque account binding; email cannot target a replica. Empty accounts verify through healthy authenticated reads without account creation or uploads. Returned identity and upstream session are frozen, bounded and safe to pass into encrypted custody.
+- Fourteen focused actual SDK/server/Node 24.22.2 checks pass. Independent review reproduced an empty-account mismatch between a claimed login principal and the authenticated bearer. The new regression failed first, and the bridge now compares the supported client viewer after verification for both empty and populated accounts. A fresh reviewer accepted the fix; parent independently reran all fourteen cases. Service lint and strict typecheck pass.
+- `docs/mcp/identity.md` records the bridge API and limits. The context's active-grant callback is a caller barrier contract, not a claim of provider lifecycle enforcement. Durable browser/provider consent remains M07 work, so M06 is still open.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
