@@ -1,0 +1,11 @@
+[Unit]
+Description=Habit System private Traefik bridge socket
+After=docker.service
+Requires=docker.service
+
+[Socket]
+ListenStream=172.26.0.1:4411
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target

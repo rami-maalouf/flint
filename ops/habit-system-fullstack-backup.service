@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up the complete Habit System deployment
+
+[Service]
+Type=oneshot
+ExecStart=/opt/habit-system-fullstack/backup.sh /var/backups/habit-system-fullstack
+UMask=0077
