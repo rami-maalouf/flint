@@ -19,6 +19,7 @@ import { CredentialVault } from './vault';
 import { AuthorizationDenied, authorizationScopes, binding, GrantStore, readScopes, requestsWrite, writeScopes, type PrivateGrant } from './grants';
 import type { Scope } from '../tools/contracts';
 import { renderAuthPage } from '../web/auth-pages';
+import { renderOwnerSignIn } from '../web/owner-sign-in';
 
 export { AuthorizationDenied } from './grants';
 export type AuthorizationConfig = {
@@ -32,6 +33,20 @@ export type BrowserSession = Readonly<{ accountId: string; principal: string; ba
 const basePath = '/mcp/auth';
 const grantClaim = 'https://habits.ramimaalouf.com/mcp/grant';
 const csrfCookie = 'mcp-form';
+const ownerCsrfCookie = 'mcp-owner-form';
+const ownerSignInPath = '/mcp/account/sign-in';
+function ownerReturnTo(value: string): string | undefined {
+  if (value === '/mcp/connections') return value;
+  if (value.length > 4200 || !value.startsWith('/mcp/reward-confirmation?')) return undefined;
+  try {
+    const url = new URL(value, 'https://owner.invalid');
+    if (url.origin !== 'https://owner.invalid' || url.pathname !== '/mcp/reward-confirmation' ||
+      url.hash || url.searchParams.size !== 1 || url.searchParams.getAll('token').length !== 1) return undefined;
+    const token = url.searchParams.get('token') ?? '';
+    if (!/^[A-Za-z0-9._~-]{32,4096}$/.test(token) || value !== `${url.pathname}?token=${token}`) return undefined;
+    return value;
+  } catch { return undefined; }
+}
 function canonicalOrigin(value: string, test: boolean): string {
   const url = new URL(value);
   if (value !== url.origin || url.username || url.password || (url.protocol !== 'https:' &&
@@ -247,6 +262,30 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         await setSessionCookie(ctx, { session, user: fullUser });
         return ctx.json({ ok: true });
       }),
+      privateOwnerSignIn: createAuthEndpoint('/private/owner-sign-in', {
+        method: 'POST', use: [originCheck(() => origin)],
+        body: z.strictObject({ email: z.string().min(1).max(320), password: z.string().min(1).max(4096) }),
+      }, async ctx => {
+        let verified;
+        try { verified = await identity.login({ email: ctx.body.email, password: ctx.body.password }); }
+        catch { throw new APIError('UNAUTHORIZED', { message: 'Sign-in was refused. Check your email and password.' }); }
+        type BoundUser = { id: string; snapbackBackend: string; snapbackPrincipal: string };
+        let user = await ctx.context.adapter.findOne<BoundUser>({
+          model: 'user', where: [{ field: 'id', value: verified.accountId }],
+        });
+        if (!user) user = await ctx.context.internalAdapter.createUser({ id: verified.accountId,
+          email: `${verified.accountId}@identity.invalid`, name: 'Habit System account', emailVerified: false,
+          snapbackBackend: verified.backendUrl, snapbackPrincipal: verified.principal }, { method: 'snapback' }) as BoundUser;
+        if (!user || user.snapbackBackend !== verified.backendUrl || user.snapbackPrincipal !== verified.principal) {
+          throw new APIError('UNAUTHORIZED', { message: 'Account verification was refused.' });
+        }
+        const session = await ctx.context.internalAdapter.createSession(user.id);
+        if (!session) throw new APIError('UNAUTHORIZED');
+        const fullUser = await ctx.context.internalAdapter.findUserById(user.id);
+        if (!fullUser) { await ctx.context.internalAdapter.deleteSession(session.token); throw new APIError('UNAUTHORIZED'); }
+        await setSessionCookie(ctx, { session, user: fullUser });
+        return ctx.json({ ok: true });
+      }),
       privateVerifyAccessToken: createAuthEndpoint('/private/verify', {
         method: 'POST', metadata: { SERVER_ONLY: true }, body: z.object({ token: z.string() }),
       }, async ctx => getOAuthProviderApi(ctx, options).requireActiveAccessToken(ctx.body.token)),
@@ -294,8 +333,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       return Object.freeze({ accountId: user.id, principal: user.snapbackPrincipal,
         backendUrl: user.snapbackBackend, providerSessionId: current.session.id });
     };
-    const cookieValue = (request: Request) => request.headers.get('cookie')?.split(';').map(part => part.trim())
-      .find(part => part.startsWith(csrfCookie + '='))?.slice(csrfCookie.length + 1) ?? '';
+    const cookieValue = (request: Request, name = csrfCookie) => request.headers.get('cookie')?.split(';').map(part => part.trim())
+      .find(part => part.startsWith(name + '='))?.slice(name.length + 1) ?? '';
     const signCsrf = (cookie: string, query: string, expires: string) => createHmac('sha256', config.secret)
       .update(JSON.stringify(['mcp/browser-csrf/v1', cookie, query, expires])).digest('hex');
     const page = (request: Request, kind: 'sign-in' | 'consent', clientName: string, scopes: string[], query: string, error?: string) => {
@@ -307,6 +346,53 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       response.headers.append('set-cookie', `${csrfCookie}=${cookie}; Path=/mcp; HttpOnly; SameSite=Lax; Max-Age=600${origin.startsWith('https:') ? '; Secure' : ''}`);
       return response;
     };
+    const signOwnerCsrf = (cookie: string, returnTo: string, expires: string) => createHmac('sha256', config.secret)
+      .update(JSON.stringify(['mcp/owner-sign-in-csrf/v1', cookie, returnTo, expires])).digest('hex');
+    const ownerPage = (request: Request, returnTo: string, error?: string) => {
+      const existing = cookieValue(request, ownerCsrfCookie);
+      const cookie = /^[a-f0-9]{64}$/.test(existing) ? existing : randomBytes(32).toString('hex');
+      const expires = String(Date.now() + 600_000);
+      const response = html(renderOwnerSignIn({ returnTo,
+        csrf: expires + ':' + signOwnerCsrf(cookie, returnTo, expires), error }), error ? 401 : 200);
+      response.headers.append('set-cookie', `${ownerCsrfCookie}=${cookie}; Path=/mcp; HttpOnly; SameSite=Lax; Max-Age=600${origin.startsWith('https:') ? '; Secure' : ''}`);
+      return response;
+    };
+    async function ownerBrowser(request: Request): Promise<Response> {
+      const url = new URL(request.url);
+      if (request.method === 'GET') {
+        if ([...url.searchParams.keys()].some(key => key !== 'return_to') || url.searchParams.getAll('return_to').length > 1) {
+          return denied(400);
+        }
+        const returnTo = ownerReturnTo(url.searchParams.get('return_to') ?? '/mcp/connections');
+        return returnTo ? ownerPage(request, returnTo) : denied(400);
+      }
+      if (request.method !== 'POST') return denied(405);
+      if (url.search || request.headers.get('origin') !== origin || request.headers.get('sec-fetch-site') === 'cross-site' ||
+        request.headers.get('content-type')?.split(';')[0] !== 'application/x-www-form-urlencoded') return denied(403);
+      const form = new URLSearchParams(await boundedBody(request));
+      const allowed = ['csrf', 'return_to', 'email', 'password'];
+      if ([...form.keys()].some(key => !allowed.includes(key) || form.getAll(key).length !== 1) ||
+        allowed.some(key => !form.has(key))) return denied(400);
+      const returnTo = ownerReturnTo(form.get('return_to') ?? '');
+      if (!returnTo || (form.get('email')?.length ?? 0) > 320 || (form.get('password')?.length ?? 0) > 4096) return denied(400);
+      const csrf = (form.get('csrf') ?? '').split(':');
+      const expires = csrf[0] ?? '', signature = csrf[1] ?? '';
+      const expiresAt = Number(expires);
+      const cookie = cookieValue(request, ownerCsrfCookie);
+      const expected = signOwnerCsrf(cookie, returnTo, expires);
+      if (csrf.length !== 2 || !/^[a-f0-9]{64}$/.test(cookie) || !/^[a-f0-9]{64}$/.test(signature) ||
+        !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 600_000 ||
+        !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return denied(403);
+      const headers = new Headers(request.headers);
+      headers.set('content-type', 'application/json'); headers.set('accept', 'application/json');
+      headers.delete('content-length');
+      const response = await auth.handler(new Request(issuer + '/private/owner-sign-in', { method: 'POST', headers,
+        body: JSON.stringify({ email: form.get('email'), password: form.get('password') }) }));
+      if (!response.ok) return ownerPage(request, returnTo, 'Sign-in was refused. Check your email and password.');
+      const redirect = new Response(null, { status: 303, headers: { location: returnTo } });
+      for (const cookieHeader of response.headers.getSetCookie()) redirect.headers.append('set-cookie', cookieHeader);
+      return security(redirect);
+    }
     async function browser(request: Request, kind: 'sign-in' | 'consent'): Promise<Response> {
       const url = new URL(request.url);
       let form: URLSearchParams | undefined;
@@ -414,6 +500,77 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         scopes: Object.freeze(([...readScopes, ...writeScopes] as Scope[]).filter(scope => admitted.scopes.includes(scope))),
         session: Object.freeze({ ...admitted.session }), assertActive: async () => { await check(); } });
     };
+    const requireOwner = async (request: Request): Promise<BrowserSession> => {
+      const url = new URL(request.url);
+      if (closed || url.origin !== origin || (request.headers.has('host') && request.headers.get('host') !== url.host)) {
+        throw new AuthorizationDenied();
+      }
+      const owner = await browserSession(request);
+      if (!owner) throw new AuthorizationDenied();
+      return owner;
+    };
+    const grantProviderSessionActive = async (grant: PrivateGrant): Promise<boolean> => {
+      const session = await context.adapter.findOne<{ userId: string; expiresAt: Date }>({
+        model: 'session', where: [{ field: 'id', value: grant.sessionId }],
+      });
+      return session?.userId === grant.userId && session.expiresAt instanceof Date &&
+        session.expiresAt.getTime() > Date.now();
+    };
+    const ownerConnections = async (request: Request): Promise<readonly Readonly<{ grantId: string; clientId: string;
+      scopes: readonly string[]; active: boolean; credentialScope: 'read' | 'full'; expiresAt: number }>[]> => {
+      const owner = await requireOwner(request);
+      const listed = [];
+      for (const grant of grants.forAccount(owner.accountId)) {
+        let active = false;
+        try {
+          active = grant.accountId === owner.accountId && grant.userId === owner.accountId &&
+            grant.backendUrl === owner.backendUrl &&
+            grant.principal === owner.principal && (grant.credentialScope === 'read' || !!config.writeConnections);
+          if (active) { grants.active(grant.grantId); active = await grantProviderSessionActive(grant); }
+        } catch { active = false; }
+        listed.push(Object.freeze({ grantId: grant.grantId, clientId: grant.clientId, scopes: grant.scopes,
+          active, credentialScope: grant.credentialScope, expiresAt: grant.expiresAt }));
+      }
+      const stillOwner = await requireOwner(request);
+      if (stillOwner.accountId !== owner.accountId || stillOwner.providerSessionId !== owner.providerSessionId) {
+        throw new AuthorizationDenied();
+      }
+      return Object.freeze(listed);
+    };
+    const ownerResumeContext = async (request: Request, grantId: string): Promise<AuthContext> => {
+      if (request.method !== 'POST' || request.headers.get('origin') !== origin ||
+        request.headers.get('sec-fetch-site') === 'cross-site' || typeof grantId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(grantId)) {
+        throw new AuthorizationDenied();
+      }
+      const owner = await requireOwner(request);
+      const check = async (expected?: PrivateGrant) => {
+        try {
+          const currentOwner = await requireOwner(request);
+          if (currentOwner.accountId !== owner.accountId || currentOwner.providerSessionId !== owner.providerSessionId ||
+            currentOwner.backendUrl !== owner.backendUrl || currentOwner.principal !== owner.principal) throw new AuthorizationDenied();
+          const grant = grants.active(grantId);
+          if (!config.writeConnections || grant.credentialScope !== 'full' || grant.accountId !== owner.accountId ||
+            grant.userId !== owner.accountId ||
+            grant.backendUrl !== owner.backendUrl || grant.principal !== owner.principal ||
+            !await grantProviderSessionActive(grant)) throw new AuthorizationDenied();
+          if (expected && (grant.clientId !== expected.clientId || grant.sessionId !== expected.sessionId ||
+            grant.userId !== expected.userId ||
+            grant.accountId !== expected.accountId || grant.expiresAt !== expected.expiresAt ||
+            grant.credentialScope !== expected.credentialScope ||
+            grant.scopes.length !== expected.scopes.length || grant.scopes.some((scope, index) => scope !== expected.scopes[index]))) {
+            throw new AuthorizationDenied();
+          }
+          return { grant, session: config.vault.get(binding(grant)) };
+        } catch { throw new AuthorizationDenied(); }
+      };
+      const selected = await check();
+      return Object.freeze({ accountId: selected.grant.accountId, principal: selected.grant.principal,
+        backendUrl: selected.grant.backendUrl, clientId: selected.grant.clientId, grantId: selected.grant.grantId,
+        scopes: Object.freeze(([...readScopes, ...writeScopes] as Scope[])
+          .filter(scope => selected.grant.scopes.includes(scope))), session: Object.freeze({ ...selected.session }),
+        assertActive: async () => { await check(selected.grant); } });
+    };
     const revokeGrant = async (input: { accountId: string; grantId: string }): Promise<void> => {
       if (closed) throw new AuthorizationDenied();
       const grant = grants.lookup(input.grantId);
@@ -428,6 +585,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const url = new URL(request.url);
       if (url.origin !== origin || (request.headers.has('host') && request.headers.get('host') !== url.host)) return denied(400);
       try {
+        if (url.pathname === ownerSignInPath) return await ownerBrowser(request);
         if (url.pathname === '/mcp/sign-in' || url.pathname === '/mcp/consent') {
           return await browser(request, url.pathname === '/mcp/sign-in' ? 'sign-in' : 'consent');
         }
@@ -488,7 +646,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         return security(response);
       } catch { return denied(400); }
     }
-    return Object.freeze({ handler, authenticate, browserSession, issuer, resource, resourceMetadataUrl,
+    return Object.freeze({ handler, authenticate, browserSession, ownerConnections, ownerResumeContext,
+      issuer, resource, resourceMetadataUrl,
       async verifyAccessToken(token: string) {
         const admitted = await authenticate(new Request(resource, { headers: { authorization: `Bearer ${token}` } }));
         const claims = await auth.api.privateVerifyAccessToken({ body: { token } });
@@ -505,14 +664,10 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         if (closed) throw new AuthorizationDenied();
         const grant = grants.lookup(grantId);
         if (!grant) return null;
-        const session = await context.adapter.findOne<{ userId: string; expiresAt: Date }>({
-          model: 'session', where: [{ field: 'id', value: grant.sessionId }],
-        });
         return Object.freeze({ accountId: grant.accountId, clientId: grant.clientId,
           active: grant.active && grants.permissionsMatch(grant) &&
             (grant.credentialScope !== 'full' || !!config.writeConnections) &&
-            grant.expiresAt > Date.now() && session?.userId === grant.userId &&
-            session.expiresAt instanceof Date && session.expiresAt.getTime() > Date.now(), scopes: grant.scopes });
+            grant.expiresAt > Date.now() && await grantProviderSessionActive(grant), scopes: grant.scopes });
       },
       revokeGrant,
       async close(): Promise<void> { if (!closed) { closed = true; db.close(); } },

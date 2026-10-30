@@ -167,6 +167,12 @@
 - The actual HTTP proof failed first on the missing preview catalog entry, then passed for modern and legacy protocols, two-account isolation, stable retries and foreign reward refusal. All observed bootstrap/preview traffic stays read-only. Test cleanup is registered before acquisition and attempts each resource independently.
 - Fresh independent HTTP review accepted the registration, error/schema boundary and cleanup, and reran both HTTP cases. The parent's full public protocol suite passes 45/45 with no skips, including the internal quote gate already accepted separately. M18-M19 still own browser confirmation and executable claims.
 
+### M18a/M20a - standalone owner identity and private grant controls
+
+- Added standalone read-identity browser sign-in with canonical internal `return_to`, Origin/CSRF checks and supported provider session creation. It creates no MCP grant, pending vault credential or full custody. Account-bound metadata listing has an explicit 100-connection limit; private owner resume returns only an exact active full context inside the server after same-account browser/provider/custody verification.
+- Four real HTTP/SQLite owner tests pass. Independent review found a malformed grant could reference another provider user's live session while retaining the first account's custody. The row-mutation regression failed first; listing, resume and `assertActive` now require the provider user ID to equal the browser account. Fresh round-two review accepted the correction. Parent's full public protocol run passes 51/51 with no skips; lint/typecheck pass.
+- Sign-in has phone/desktop light/dark renderer evidence; the author's live-tab snapshots timed out. Parent separately verified the confirmation redirect reaches this actual sign-in GET. Visible connection management and a complete interactive owner continuation remain later work.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

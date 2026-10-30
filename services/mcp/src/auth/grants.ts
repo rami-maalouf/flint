@@ -22,6 +22,10 @@ type Pending = { session_id: string; account_id: string; backend: string; princi
 export class AuthorizationDenied extends Error {
   constructor() { super('Authorization is unavailable. Connect this account again.'); this.name = 'AuthorizationDenied'; }
 }
+export class OwnerConnectionLimitError extends Error {
+  constructor() { super('This account has more than 100 connections. The connection list cannot be shown safely.');
+    this.name = 'OwnerConnectionLimitError'; }
+}
 export function binding(grant: Pick<PrivateGrant, 'grantId' | 'accountId' | 'backendUrl' | 'principal' | 'credentialScope'>): VaultBinding {
   return { backend: grant.backendUrl, principal: grant.principal, accountId: grant.accountId, grantId: grant.grantId,
     scope: grant.credentialScope };
@@ -163,6 +167,12 @@ export class GrantStore {
   lookupSession(sessionId: string): PrivateGrant | undefined {
     const row = this.db.prepare('SELECT * FROM mcp_grants WHERE session_id = ?').get(sessionId) as GrantRow | undefined;
     return row ? unpack(row) : undefined;
+  }
+  forAccount(accountId: string): readonly PrivateGrant[] {
+    const rows = this.db.prepare('SELECT * FROM mcp_grants WHERE account_id = ? ORDER BY expires_at DESC, id DESC LIMIT 101')
+      .all(accountId) as GrantRow[];
+    if (rows.length > 100) throw new OwnerConnectionLimitError();
+    return Object.freeze(rows.map(unpack));
   }
   discardPending(sessionId: string): void {
     const row = this.db.prepare('SELECT * FROM mcp_pending WHERE session_id = ?').get(sessionId) as Pending | undefined;
