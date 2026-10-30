@@ -185,6 +185,12 @@
 - Actual SDK/OAuth/HTTP/browser-POST/Snapback/SQLite proof failed first at fourteen tools, then passed with confirmed claims. It covers lost HTTP response and stable retry, wrong account/client/operation, changed reward requiring reconfirmation, affordable intervening balance movement, and receipt replay after reward edit/deletion. Exact tuple acceptance remains durable before clearing the queue.
 - A native-like replica claims offline against the same initial funds as the MCP claim. Upload and reconciliation retain both immutable claims and converge to the required negative balance, with matching ledger identities and payloads. Fresh independent review accepted the production dispatch, proof assertions and fixture cleanup; the existing default HTTP mutation proof also passes. Parent's full public protocol run passes 51/51 without skips; lint/typecheck pass. This closes checkpoint C without asserting real ChatGPT/Claude or production activation.
 
+### M21a - bounded admission and redacted diagnostic primitives
+
+- Added explicit process/global and per-verified-grant sliding-window rates, sixteen active admissions, bounded retained windows and idempotent release. Admission never trusts forwarded identity or parses credentials/content. Diagnostic events contain only validated opaque IDs, known tool/error/delivery enums and bounded duration.
+- Ten real Node tests pass, including actual HTTP 429, cancellation/release and capacity. Independent reviews reproduced accessor-based diagnostic leakage, UUID v7 refusal and a constructor getter that replaced a validated cap. Own-data snapshots/accessor refusal now cover diagnostics, options and overrides; UUID versions 1-8 share normalized buckets. Every regression failed before its correction, and fresh round-three review accepted the foundation.
+- Service lint/typecheck and the focused suite pass. Production HTTP admission, diagnostics and resource-load verification remain M21 integration work; this foundation alone does not close M21.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
