@@ -15,12 +15,12 @@ For every task: write the meaningful failing proof/test first, implement the bou
 ## Read-only service
 
 - [x] M05: establish isolated service install/build/test boundary; preserve mobile dependency graph.
-- [ ] M06: persist verified browser identity and encrypted independent Snapback session custody.
-- [ ] M07: complete discovery, PKCE, consent, token validation and registration protections.
+- [x] M06: persist verified browser identity and encrypted independent Snapback session custody.
+- [x] M07: complete discovery, PKCE, consent, token validation and registration protections.
 - [x] M08: implement durable isolated account replicas with one owner and serialized work.
-- [ ] M09: deliver habits/today/status over real authenticated HTTP MCP (checkpoint R).
-- [ ] M10: deliver bounded history continuation and current stack projections.
-- [ ] M11: deliver coin/reward reads using read-only upstream authority (checkpoint S).
+- [x] M09: deliver habits/today/status over real authenticated HTTP MCP (checkpoint R).
+- [x] M10: deliver bounded history continuation and current stack projections.
+- [x] M11: deliver coin/reward reads using read-only upstream authority (checkpoint S).
 
 ## Durable mutations
 

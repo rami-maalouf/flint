@@ -1,4 +1,84 @@
-# Authorization feasibility proof
+# Authorization
+
+## Read-only service integration (M06c and M07)
+
+`services/mcp/src/auth/provider.ts` exports the listener-free asynchronous factory:
+
+```ts
+const authorization = await createAuthorizationService({
+  publicOrigin: 'https://habits.example.com',
+  backendUrl: 'https://habits.ramimaalouf.com',
+  databasePath: '/private/service/provider.sqlite',
+  secret: providerSecret,
+  vault,
+});
+```
+
+Run with real Node **24.22.2** and install with Bun **1.4.3**. `databasePath` must be absolute, with an owner-only directory and file. The provider creates a missing final directory with mode 0700 and a missing database with mode 0600; it refuses unsafe existing storage. Provider users, browser sessions, DCR/CIMD clients, consent, refresh state, signing keys and application grant metadata persist in this database. The encrypted upstream read credentials live exclusively in the separately supplied `CredentialVault`. Supply the provider secret and vault key ring externally, preserve both across restart, and back up their databases together. `close()` closes the provider database; the caller owns the vault and listener lifetimes.
+
+`publicOrigin` is a fixed canonical HTTPS origin. Request Host and forwarded headers never choose the issuer, backend or redirects. Loopback HTTP requires both `allowTestLoopback: true` and a Node test context. `identityOptions` forwards only trusted startup transport/timeout options to `createIdentityBridge`; it never comes from browser input. Tests map a synthetic canonical HTTPS backend to a disposable real loopback Snapback server without changing vault binding rules. `accessTokenExpiresIn` defaults to 300 seconds and accepts integer values from 1 through 900.
+
+### Public API for the HTTP server
+
+| Member | Contract |
+| --- | --- |
+| `handler(request)` | Fetch HTTP handler for discovery, provider endpoints and the two browser pages. Owns no listener. Its `/mcp` response is an anonymous bearer challenge; mount the real MCP handler there. |
+| `authenticate(request)` | Verifies the MCP bearer and returns the agreed `AuthContext`; throws the bounded `AuthorizationDenied` error on refusal. |
+| `verifyAccessToken(token)` | Official SDK verifier result: `token`, `clientId`, domain `scopes`, `expiresAt` in seconds, canonical `resource: URL`, and private `extra.authContext`. Translate refusal to the SDK's `invalid_token` error. Never serialize or log `extra.authContext`. |
+| `browserSession(request)` | Current durable provider browser identity or null: `accountId`, `principal`, `backendUrl`, `providerSessionId`. Contains no credentials. |
+| `lookupGrant({ accountId, grantId })` | Private metadata lookup, account constrained, with `operationLineageId`, client, scopes, upstream expiry and active flag. Returns undefined on an account mismatch. |
+| `revokeGrant({ accountId, grantId })` | Trusted server hook: durably fences the exact grant, tombstones its credential and deletes its provider session through the supported internal adapter. Caller obtains the account from admitted browser identity, never a model argument. |
+| `issuer`, `resource`, `resourceMetadataUrl`, `close()` | Canonical discovery values and idempotent provider shutdown. |
+
+Use `requireBearerAuth({ expectedResource: new URL(authorization.resource), resourceMetadataUrl: authorization.resourceMetadataUrl, verifier: { verifyAccessToken } })` around the real SDK MCP handler. The verifier adapter must translate `AuthorizationDenied` to `new OAuthError(OAuthErrorCode.InvalidToken, 'Connection refused')`. Read workers receive `authInfo.extra.authContext` and must await `assertActive()` before protected work and again before returning data. Tool-specific scope checks remain mandatory. Stable operation lookup uses the actual OAuth client id within the verified account, matching `AuthContext.clientId`. The private grant's `operationLineageId` is additional stable account/client metadata.
+
+### Routes, browser identity and consent
+
+- MCP resource: `/mcp`.
+- Provider base: `/mcp/auth`; browser pages: `/mcp/sign-in` and `/mcp/consent`. These paths do not claim Snapback's `/auth` routes.
+- Protected resource metadata: `/.well-known/oauth-protected-resource/mcp`. Authorization-server metadata: `/.well-known/oauth-authorization-server/mcp/auth`. JWKs: `/mcp/auth/jwks`. The maintained provider serves discovery, and the actual SDK discovers it in HTTP tests.
+- Better Auth's supported endpoint plugin and internal adapter create a provider user from the verified backend/principal account id, then a fresh browser session. The entered email is never ownership evidence. No Better Auth password account or public signup endpoint exists.
+- Passwords are transient sign-in inputs. The identity bridge supplies a verified read-only Snapback session, staged in encrypted custody for at most ten minutes of pending connection admission. Successful consent consumes it exactly once. Each connection receives a new grant and independent upstream bearer; another client or reconnect must privately authenticate again after consumption.
+- Application grants bind the actual provider user, client, provider session and session-specific consent reference. Each account/client pair keeps a stable operation lineage across reconnects. Account switching creates a separate lineage and cannot retarget an earlier grant.
+- Consent consumption happens synchronously before awaiting provider consent, so concurrent forms cannot share one credential or revoke the winning connection. Any failed provider consent fences that attempted grant. Cross-database crash windows fail closed and require reauthentication.
+
+Forms are server rendered, escape all client/permission text, use fixed canonical actions, reject extra/duplicate fields, bound input size, and require a signed provider continuation plus a short-lived HMAC CSRF token bound to an HttpOnly, SameSite browser cookie. POST requires the exact canonical Origin and refuses cross-site Fetch Metadata. Successful login creates a fresh provider session instead of adopting an existing browser session. There are no GET sign-in, consent approval or revocation mutations. Cookies are Secure in HTTPS deployments, scoped to `/mcp`, and are not cached as browser identity JWTs.
+
+The response policy uses `Referrer-Policy: strict-origin`. An actual Chromium walkthrough reproduced `Origin: null` on navigational form POSTs with `no-referrer`; accepting null origins would weaken CSRF admission. `strict-origin` preserves Origin evidence while keeping signed query strings out of referrers. CSP disallows scripts, external resources, framing and foreign form actions. DevTools' automatic local workspace probe is intentionally blocked by that policy.
+
+### Scope, registration and revocation boundaries
+
+The admitted scopes are `habits:read`, `habits:notes:read`, `coins:read`, `openid` and `offline_access`. Notes require their own permission. Write scopes, client-credentials grants and full Snapback sessions are outside this phase and are rejected rather than silently downgraded or given full authority.
+
+DCR explicitly admits public clients with `token_endpoint_auth_method: none`, S256 PKCE, authorization-code/refresh grants, and bounded HTTPS or port-qualified loopback callbacks. Confidential, unsafe callback, skip-consent, pairwise and write-capable DCR profiles are refused. CIMD uses the unmodified maintained `@better-auth/cimd/node` SSRF-safe transport and pinned `mcp-2026-07-28` metadata profile, including the maintained authenticated client profile. The public client-registration capability is not a user authorization grant.
+
+The maintained claim extension receives the actual client, provider session and consent reference, and adds only the application claim `https://habits.ramimaalouf.com/mcp/grant`. It never overwrites reserved OAuth claims. Resource admission uses `OAuthProviderApi.requireActiveAccessToken` for JWT signature, issuer, expiry and provider-session liveness, then checks the exact resource audience, optional configured UserInfo audience, current durable grant, user, client, session, scopes and upstream expiry. A Snapback bearer is never an MCP token. `assertActive()` repeats these checks without an authorization cache.
+
+Both the trusted revocation hook and successful standard token-revocation requests fence the whole owning connection, including future refresh. Refresh binding uses the supported provider token-hash capability and documented adapter model; no raw refresh token is added to application storage. Ended or replayed refresh authority is rejected before provider rotation, keeping another provider session's connection intact.
+
+Standard revocation of known tokens runs inside the supported `createAuthMiddleware` request hook at the actual `/oauth2/revoke` endpoint. `OAuthProviderApi.authenticateClient` authenticates the client exactly once, retaining the real endpoint's assertion audience and replay checks. The provider's token normalizer/hash resolves a refresh record, or `requireActiveAccessToken` verifies an active JWT before the hook checks issuer, resource audience, expiry and its application grant binding. Only a matching authenticated client can fence that exact grant and delete its provider session through the supported adapter. Before fencing an access JWT, the hook stores a keyed digest of its exact bytes, grant id and verified expiry in private SQLite. It stores no raw JWT. A later exact-token match can identify the ended grant after session deletion; the expiry check and authenticated client binding still apply, while arbitrary or tampered JWTs cannot create or match this evidence. Expired evidence is ignored and pruned on startup or a subsequent verified access revocation. Known ended tokens return an idempotent JSON-null success after client authentication; wrong registered clients receive the same harmless success. Unknown tokens retain the provider's native authentication and unknown-token responses. No request forwards an already-ended refresh record into the provider's client/user-wide refresh replay invalidation. Concurrent and repeated revocation therefore preserve a newer connection for the same client and account. Provider-session deletion also fences the associated local grant. The provider still owns codes, PKCE, registration, signatures, client authentication, token issuance, refresh rotation and protocol errors. This follows the documented provider capability and request-hook contracts; the provider's own JWT revocation response is `unsupported_token_type` for a still-valid self-contained token, so the session and application grant are the actual cutoff.
+
+### Verification and evidence limits
+
+The actual owned test path is **`services/mcp/tests/http-auth.test.ts`**, so the existing launcher includes it in the protocol group. No package, lock, identity, context, vault, actor, journal, core or git-index change is part of this slice.
+
+From `services/mcp`:
+
+```sh
+MCP_NODE=/tmp/node-v24.22.2-darwin-arm64/bin/node MCP_PROOF_PUBLIC_CIMD=1 bun run test:protocol
+bun run typecheck
+bun run lint
+```
+
+The first red run failed to resolve the not-yet-created provider. Behavioral reds reproduced refresh revocation leaving an access token usable and the real-browser null-Origin failure. Independent-review regression tests then reproduced a revoked connection A, a healthy same-client/account reconnect B, and repeated or concurrent old-A refresh revocations returning 400 and making B refresh return 400. They also caught an ended-token fast path skipping client authentication. The authenticated request hook makes these cases pass, including a provider-rotated refresh record, unknown-client/native-response equivalence, wrong registered clients, SDK refresh and a subsequent real read. A further real-HTTP red reproduced a second old-A access-JWT revocation returning 400 after reconnect B. Its green regression verifies an authenticated repeated 200 across provider restart, B refresh and read, wrong-client no-op, unknown-client authentication enforcement, and tampered-token refusal. The public factory API is unchanged.
+
+The integrated tests exercise the real provider, SDK v2, SQLite and disposable real Snapback accounts, including healthy empty identity, initialized identity, independent concurrent clients, private reauthentication, account switching, consent denial, origin/host/CSRF/redirect refusal, S256, code replay, wrong verifier/resource, separate notes permission, both token-revocation forms, expiry, unchanged read-only upstream authority, stable reconnect lineage, and a fresh Node process reopening the encrypted credential and signing keys. Fixtures are short lived and removed; no production accounts or writes are used.
+
+Actual Chromium sign-in/error/consent forms were inspected through the native browser fallback after T3 Preview snapshot timed out twice. Consent was visually checked at 390 by 844 in dark appearance and 1024 by 768 in light appearance, with readable wrapping, aligned controls and visible primary/secondary actions. The corrected browser form POSTs retained canonical Origin, sign-in reached consent, and approval returned a 303 callback. Parent verification owns final exported screenshots and broader browser/device coverage.
+
+Real ChatGPT and Claude application connections remain **unverified**. Published ChatGPT CIMD discovery and the synthetic SDK profiles do not prove a connector login or private-key exchange in either application. Connection-management UI, production deployment/rate budgets and write/full-session authority remain later tasks.
+
+## Historical M01 feasibility proof
 
 M01, checked 2026-10-30. Gate A selects Better Auth 1.7.14 with the official MCP SDK v2 on Node 24.22.2 and `node:sqlite`. This is a disposable proof, not a deployed service or production authorization implementation.
 
