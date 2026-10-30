@@ -51,7 +51,7 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
     // previously stored timelines may predate the explicit completion field.
     const checked = row.checkedToday ?? row.strip[row.strip.length - 1] > 0;
     const actionLabel = daily
-      ? props.stale ? `Review ${row.title} in Habit System` : `${checked ? 'Uncheck' : 'Check'} ${row.title}`
+      ? props.stale ? `Review ${row.title} in Flint` : `${checked ? 'Uncheck' : 'Check'} ${row.title}`
       : `Check in to ${row.title}`;
     const actionSymbol = daily
       ? props.stale ? 'arrow.clockwise' : checked ? 'checkmark.circle.fill' : 'circle'
@@ -60,7 +60,7 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
     // control keeps its own label, so the row never collapses into one
     // ambiguous element
     const titleLabel = props.stale
-      ? `${row.title}. Open Habit System to refresh.`
+      ? `${row.title}. Open Flint to refresh.`
       : row.title;
     const days = row.strip.reduce((total, count) => (count > 0 ? total + 1 : total), 0);
     return (
@@ -103,7 +103,7 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
   if (rows.length === 0) {
     return (
       <VStack modifiers={[widgetURL('habitsystemfullstack://boards/new'), padding({ all: 12 }), widgetBackground]}>
-        <Text>Open Habit System to create your first board</Text>
+        <Text>Open Flint to create your first board</Text>
       </VStack>
     );
   }

@@ -104,11 +104,11 @@ export function parseOwnExport(json: string): DomainResult<ImportDraft> {
     return err('validation', 'This file is not valid JSON.');
   }
   if (typeof raw !== 'object' || raw === null) {
-    return err('validation', 'This file is not a Ripples export.');
+    return err('validation', 'This file is not a valid app backup.');
   }
   const data = raw as Record<string, unknown>;
   if (data.format !== 'ripples.export') {
-    return err('validation', 'This file is not a Ripples export.');
+    return err('validation', 'This file is not a valid app backup.');
   }
   if (data.exportVersion === 2) return parseOwnV2(data, json);
   if (data.exportVersion !== 1) {

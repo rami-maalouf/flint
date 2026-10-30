@@ -1,14 +1,14 @@
 Pod::Spec.new do |s|
   s.name           = 'RipplesApple'
   s.version        = '1.0.0'
-  s.summary        = 'Native Apple capabilities for Ripples'
-  s.description    = 'The local Apple module for Ripples platform adapters.'
+  s.summary        = 'Native Apple capabilities for Flint'
+  s.description    = 'The local Apple module for Flint platform adapters.'
   s.author         = 'Rami Maalouf'
-  s.homepage       = 'https://github.com/rami-maalouf/habit-system-fullstack'
+  s.homepage       = 'https://github.com/rami-maalouf/flint'
   s.platforms      = {
     :ios => '18.6'
   }
-  s.source         = { git: 'https://github.com/rami-maalouf/habit-system-fullstack.git' }
+  s.source         = { git: 'https://github.com/rami-maalouf/flint.git' }
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'

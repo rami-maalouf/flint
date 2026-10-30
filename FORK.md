@@ -1,13 +1,17 @@
 # fork origin
 
+## current branding (2026-10-30)
+
+The app is **Flint**, and this repository is [flint](https://github.com/rami-maalouf/flint). This is a display-name and repository rename. Installed identities, App Groups, sync accounts, SQLite data, widget kinds, URL schemes, and EAS project IDs remain unchanged so existing installations update in place. The Expo slug remains `habit-system-fullstack` to retain the existing EAS project link. Historical names below describe the original forks.
+
 ## current full stack fork (2026-10-30)
 
-this repository preserves every branch, tag and commit from [habit-system](https://github.com/rami-maalouf/habit-system) through main `492592d`. its independent private remote is [habit-system-fullstack](https://github.com/rami-maalouf/habit-system-fullstack). the historical ripples fork record below remains intact.
+this repository preserves every branch, tag and commit from [habit-system](https://github.com/rami-maalouf/habit-system) through main `492592d`. its independent private remote is [flint](https://github.com/rami-maalouf/flint). the historical ripples fork record below remains intact.
 
 | identity | current value |
 | --- | --- |
-| expo name and slug | `habit-system-fullstack` |
-| display name | `Habit System FS` |
+| expo name / retained slug | `Flint` / `habit-system-fullstack` |
+| display name | `Flint` |
 | bundle | `studio.orbitlabs.habitsystem.fullstack` (development suffix `.dev`) |
 | app group | `group.studio.orbitlabs.habitsystem.fullstack` |
 | scheme | `habitsystemfullstack` |

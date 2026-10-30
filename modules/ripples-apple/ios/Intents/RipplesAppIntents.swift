@@ -34,7 +34,7 @@ public struct RipplesBoardQuery: EntityStringQuery {
 
 public struct RipplesCheckInIntent: AppIntent {
   public static var title: LocalizedStringResource = "Check In"
-  public static var description = IntentDescription("Record a check-in on an active Habit System board.")
+  public static var description = IntentDescription("Record a check-in on an active Flint board.")
 
   @Parameter(title: "Board") public var board: RipplesBoardEntity
   @Parameter(title: "Date", kind: .date) public var date: DateComponents?

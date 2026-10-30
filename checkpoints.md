@@ -1,5 +1,13 @@
 # Checkpoints
 
+## Flint branding (2026-10-30)
+
+1. Renamed the GitHub repository to `rami-maalouf/flint`, retaining its private visibility and full history. Expo/iOS/widget display names are Flint; package metadata, Settings, widgets, Shortcuts, exports, README and current contributor guidance use the new brand. The local edition is [Flint Local](https://github.com/rami-maalouf/flint-local).
+2. Preserved production/development/extension bundle IDs, App Groups, CloudKit reference, widget kinds, URL schemes, EAS slug/project ID/update URL, SQLite schema/data, backup format marker, Keychain service and Snapback account binding. Oracle host and service configuration are unchanged. Exports use `flint-export-`; stale-export cleanup recognizes Flint, Flint Local, Habit System and Ripples filenames without deleting unrelated cache files.
+3. Recorded the requested black-and-white, monochrome Liquid Glass design direction in README and AGENTS. Rejected colorful icon concepts were not installed; existing icon assets remain.
+4. `bun run validate` passed 214 suites / 3,112 tests; all 105 core files retain 100 percent coverage. `bun run test:native` passed 16 plugin checks and 195 Swift tests. Expo config introspection verifies the new display name and original persistent identities. The first lint run needed the normal generated Snapback API and removal of its stale missing-module cache; no lint rule was relaxed.
+5. Independent read-only review round 2 found no actionable issues after replacing the old Ripples wording for invalid own-backup imports. Native installation of the renamed build is pending and is not established by these source/configuration checks. Changes were made in an isolated worktree; active performance work was left intact.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

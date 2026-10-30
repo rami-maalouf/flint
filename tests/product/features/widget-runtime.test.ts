@@ -136,7 +136,7 @@ describe('serialized widget layout', () => {
 
   it('makes expired Daily state a neutral review action rather than an authoritative toggle', () => {
     const nodes = render([row], true);
-    expect(nodes.find((node) => label(node) === 'Review Reading in Habit System')?.props.destination).toBe('habitsystemfullstack://boards/a/quick-action');
+    expect(nodes.find((node) => label(node) === 'Review Reading in Flint')?.props.destination).toBe('habitsystemfullstack://boards/a/quick-action');
     expect(nodes.some((node) => node.props.systemName === 'arrow.clockwise')).toBe(true);
     expect(nodes.some((node) => node.props.systemName === 'checkmark.circle.fill')).toBe(false);
     expect(nodes.some((node) => label(node)?.startsWith('Saved history:'))).toBe(true);

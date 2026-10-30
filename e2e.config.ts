@@ -53,7 +53,7 @@ function modelFrom(spec: string) {
 // agent.assert included, so it must be true for any tester of this app. how an agent
 // should work goes in `system` below instead.
 const context = [
-  'Habit System is an iOS habit tracker built around boards.',
+  'Flint is an iOS habit tracker built around boards.',
   'The home screen is the boards list. Its header has a Layout button (testID open-board-layout), a Settings gear (open-settings), and a Create board button (create-board).',
   'The Layout button opens a chooser with four options, each an accessibility-labelled pressable: "Full-width cards", "Two-column grid", "Compact rows", "14-day summary". Done (done-board-layout) closes it.',
   'Creating a board asks for a title (board-title-input) and saves with board-form-save. A board opens to its detail screen with check-ins, a heatmap, and an Add check-in button (add-check-in).',
