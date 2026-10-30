@@ -48,6 +48,11 @@ export type SyncDeps = {
   random: () => number;
   // pull-only retains reconciliation and queued facts without provider mutations.
   mode?: 'bidirectional' | 'pull_only';
+  // optional coordinator gates; exact acceptance must persist before queue deletion.
+  delivery?: {
+    authorize: () => Promise<void>;
+    beforeQueueClear: (outboxIds: readonly number[]) => Promise<void>;
+  };
   // a coordinator generation guard; false cancels without retry metadata
   shouldContinue?: () => boolean;
 };
@@ -176,6 +181,10 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
     let applied = 0;
 
     try {
+      if (deps.mode !== 'pull_only') {
+        await deps.delivery?.authorize();
+        checkpoint(deps);
+      }
       if (deps.mode !== 'pull_only' && !preflight.state.zoneCreated) {
         checkpoint(deps);
         await deps.transport.ensureZone();
@@ -195,12 +204,16 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
         if (batch.outboxIds.length === 0) {
           break;
         }
+        await deps.delivery?.authorize();
+        checkpoint(deps);
         if (batch.records.length > 0) {
           checkpoint(deps);
           await deps.transport.upload(batch.records);
           checkpoint(deps);
           uploaded += batch.records.length;
         }
+        await deps.delivery?.beforeQueueClear(batch.outboxIds);
+        checkpoint(deps);
         await deps.db.withExclusiveTransactionAsync(async (tx) => {
           checkpoint(deps);
           await deleteOutboxRows(tx, batch.outboxIds);

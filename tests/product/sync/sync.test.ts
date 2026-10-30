@@ -65,6 +65,51 @@ function remoteBoard(overrides: Partial<SyncRecord> & { id: string; stamp: strin
 }
 
 describe('sync engine', () => {
+  it('awaits delivery authority before provider creation and keeps a refused queue intact', async () => {
+    const { harness, transport, deps } = await setup();
+    try {
+      await createBoardForTest(harness);
+      const queued = await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id');
+      const result = await runSync({ ...deps, delivery: {
+        authorize: async () => { throw new SyncTransportError('signed_out', 'connection ended'); },
+        beforeQueueClear: async () => { throw new Error('must not clear'); },
+      } });
+      expect(result).toMatchObject({ ok: true, value: { status: 'signed_out', uploaded: 0 } });
+      expect(transport.ensureZoneCalls).toBe(0);
+      expect(transport.uploads).toEqual([]);
+      expect(await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id')).toEqual(queued);
+    } finally { await harness.db.closeAsync(); }
+  });
+
+  it('awaits exact queue-clear evidence after upload and retains accepted work when the gate refuses', async () => {
+    const { harness, transport, deps } = await setup();
+    try {
+      await createBoardForTest(harness);
+      const queued = await harness.db.getAllAsync<{ id: number }>('SELECT * FROM mutation_outbox ORDER BY id');
+      const events: string[] = [];
+      const result = await runSync({ ...deps, delivery: {
+        authorize: async () => { await Promise.resolve(); events.push('authorized'); },
+        beforeQueueClear: async (ids: readonly number[]) => {
+          await Promise.resolve();
+          expect(transport.uploads.flat().length).toBeGreaterThan(0);
+          expect(ids).toEqual(queued.map(row => row.id));
+          events.push('evidence');
+          throw new SyncTransportError('unavailable', 'acceptance publication unavailable');
+        },
+      } });
+      expect(events).toEqual(['authorized', 'authorized', 'evidence']);
+      expect(result).toMatchObject({ ok: true, value: { status: 'needs_attention' } });
+      expect(await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id')).toEqual(queued);
+      const resumed = await runSync({ ...deps, delivery: {
+        authorize: async () => {}, beforeQueueClear: async (ids: readonly number[]) => {
+          expect(ids).toEqual(queued.map(row => row.id));
+        },
+      } });
+      expect(resumed).toMatchObject({ ok: true, value: { status: 'up_to_date' } });
+      expect(await harness.db.getAllAsync('SELECT * FROM mutation_outbox')).toEqual([]);
+    } finally { await harness.db.closeAsync(); }
+  });
+
   it('pulls without creating a provider zone or delivering queued local work', async () => {
     const { harness, transport, deps } = await setup();
     try {
@@ -73,7 +118,10 @@ describe('sync engine', () => {
       expect(queued.length).toBeGreaterThan(0);
       const remoteId = '00000000-0000-4000-8000-0000000000b1';
       transport.seedRemote(remoteBoard({ id: remoteId, stamp: '00000000000900-00001-remote' }));
-      const result = await runSync({ ...deps, mode: 'pull_only' });
+      const result = await runSync({ ...deps, mode: 'pull_only', delivery: {
+        authorize: async () => { throw new Error('read must not request delivery'); },
+        beforeQueueClear: async () => { throw new Error('read must not request queue clearing'); },
+      } });
       expect(result).toMatchObject({ ok: true, value: { status: 'up_to_date', uploaded: 0, applied: 1 } });
       expect(transport.ensureZoneCalls).toBe(0);
       expect(transport.uploads).toEqual([]);

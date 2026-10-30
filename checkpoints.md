@@ -108,6 +108,11 @@
 - Eleven real Node 24.22.2 startup tests pass, including actual built child processes across SIGKILL/restart and SIGTERM/SIGINT, encrypted custody persistence, fixed HTTPS metadata, anonymous auth challenges, traffic/header/deadline limits and drain behavior. Initial review reproduced a chunked GET bypass of the body limit. The regression failed first; GET/HEAD now reject body framing before SDK dispatch and close the connection. A fresh reviewer accepted the fix and independently verified immediate raw-HTTP refusal, normal GET/HEAD/zero-length and POST behavior.
 - Service build, lint and strict typecheck pass. `docs/mcp/runtime.md` records configuration, exact limits and lifecycle. Registration/login rate controls, write-policy composition, production deployment and remote client certification remain later gates; readiness is local service readiness rather than a claim about a particular upstream grant.
 
+### M13a - awaited delivery and exact queue-clear gates
+
+- Added optional coordinator callbacks to the shared sync engine before provider creation, each upload batch and exact outbox deletion. Accepted uploads remain queued if evidence publication or current authorization refuses clearing. Existing mobile defaults are unchanged; pull-only never calls either callback.
+- Initial regressions demonstrated a refused connection still uploading two records and an ignored evidence gate clearing the queue. All 52 focused sync tests now pass. Independent review accepted the bounded seam without findings. Root validate passes 214 suites / 3,116 tests with every core file at 100 percent, including all engine branches. M13's grant/barrier implementation follows separately; the seam itself enables no public mutation or delivery.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
