@@ -49,6 +49,12 @@
 - Added separate online-only Snapback recovery metadata with immutable owner/generation, monotonic sequence and conditional hash advancement. Existing phone wire entities, records, schema 12 and all generated-client consumers remain compatible. Generated API was regenerated through pinned tooling.
 - The real backend test failed before the operations existed, then passed for owner isolation, generation binding, stale/conflicting CAS, one winner under competing advancement, lost-response lookup and actual read-session write refusal. All 18 backend Node cases plus two convergence/read-only cases pass. Independent recovery review accepted the metadata boundary. No deployed schema changed in this step.
 
+### M04Rb - stale restore detection and external latch
+
+- Added validated local ancestry/remote CAS coordination, exact-successor reconciliation of lost publication responses and a durable restore latch outside the restored database pair. Every outbound advancement checks current authorization. Startup/read-only comparisons never initialize or advance metadata. No runtime API clears the latch.
+- Nineteen actual SDK/server/durable-deployment/Node SQLite cases pass, covering count/claim retry after older-local restore, independent backend rollback, both databases restored to matching old snapshots, two stale owners, missing/corrupt ancestry and unavailable/uncertain head publication. The first stale-local proof failed with a missing rejection; the final implementation refuses a duplicate effect. Parent's combined journal/recovery run passes 57 cases.
+- Fresh independent review accepted bounded gate D and reran all 19 recovery cases. `docs/mcp/recovery.md` requires independently retained restore control and complete history proof before writes can return. Matching old heads or owner delivery consent are insufficient. Unreported whole-VPS rollback that also rolls back the controller cannot be detected by this mechanism; production restore-controller/off-host integration remains required in M24. No production activation is claimed.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
