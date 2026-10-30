@@ -15,6 +15,12 @@
 - Parent independently reran `MCP_PROOF_NODE=/tmp/node-v24.22.2-darwin-arm64/bin/node MCP_PROOF_PUBLIC_CIMD=1 bun run proof:auth`; all 12 passed. Service lint/typecheck/frozen install passed. Fresh independent gate review accepted provider/runtime selection without blockers. Root validate rerun passes 214 suites / 3,114 tests and 100 percent core coverage after task-owned cache cleanup resolved host ENOSPC.
 - Upstream was rechecked once at `dd38373d2f99631225f5114eacaf54884c295675`; no supported v4 MCP route/command was found. Snapback remains 0.4.49 with its native patch. Real ChatGPT/Claude client connections and ChatGPT CIMD private-key exchange remain unverified. Production custody/pages/empty-account verification are later tasks.
 
+### M02 - executable public contracts
+
+- Froze all fifteen tool input/result schemas, invocation-time scope policies, note omission, byte/page limits, cursor semantics, date rules, durable operation namespace and browser cost confirmation in `services/mcp/src/tools/contracts.ts` and `docs/mcp/contracts.md`. No tool accepts owner/backend/SQL or a boolean reward approval. Responses preserve negative coin balances.
+- Six focused contract tests pass on both Bun and real Node. Initial red was missing contracts; behavioral reds reproduced numeric-offset time zones being accepted and valid fractional historical timing being rejected. The final schema rejects fixed offset strings and preserves core-compatible fractional instants and historical offsets.
+- Independent review identified the historical timing mismatch. A fresh second reviewer accepted the regression and fix without further blocking findings. Root validate remains green with mobile and service checks isolated. Runtime handlers and real-client completion remain later work, rather than claims made by the schemas.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
