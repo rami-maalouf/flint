@@ -97,6 +97,11 @@
 - Two actual HTTP/provider/Snapback/SQLite tests pass with two accounts, both protocol families, 105-row history continuation, note omission, denied scopes, foreign IDs and honest cached/offline results. Every upstream read uses a read session and the observed read flow makes no backend mutation or authentication call.
 - Independent review found SDK argument validation bypassed the promised structured error envelope. A regression failed first; supported low-level SDK handlers now validate the same strict contracts inside the bounded application error boundary. A fresh reviewer accepted the fix under both protocol families. Service lint/typecheck pass. Provider revocation and executable startup findings remain separate gates before checkpoint R is closed.
 
+### M21b - isolated and inherited CI gates
+
+- Added pinned-action Linux service and macOS inherited workflows for frozen installs, generated API, service lint/types/build/coverage/audit and root validate/backend/native gates. The service job installs only its independent graph; the mobile graph and patched SDK remain isolated. Updated the existing EAS repository target to the actual renamed `rami-maalouf/flint` origin.
+- Official action revision lookups and checksum-verified actionlint 1.7.12 workflow validation pass. A fresh independent review accepted workflow semantics without findings. Shellcheck was disabled because the host's unrelated shim is not configured; actual GitHub execution remains pending the PR. No deployment or secret access is added. Remaining runtime rate controls and redacted diagnostics keep M21 open.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

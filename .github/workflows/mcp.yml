@@ -1,0 +1,100 @@
+name: MCP and inherited gates
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - services/mcp/**
+      - src/core/**
+      - src/platform/backend/**
+      - snapback/**
+      - tests/backend/**
+      - modules/**
+      - patches/**
+      - package.json
+      - bun.lock
+      - .node-version
+      - tsconfig.json
+      - jest.config.js
+      - eslint.config.js
+      - .github/workflows/mcp.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  service:
+    name: Isolated Node MCP
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      MCP_PROOF_PUBLIC_CIMD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.3
+      - name: Install only the service dependency graph
+        working-directory: services/mcp
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Generate the pinned backend API
+        run: |
+          ln -s services/mcp/node_modules node_modules
+          bun services/mcp/node_modules/snapback4/bin/snapback4.js types
+      - name: Lint
+        working-directory: services/mcp
+        run: bun run lint
+      - name: Typecheck
+        working-directory: services/mcp
+        run: bun run typecheck
+      - name: Build the production Node entry
+        working-directory: services/mcp
+        run: bun run build
+      - name: Real SQLite, SDK, HTTP, crash and recovery suites
+        working-directory: services/mcp
+        run: bun run test:coverage
+      - name: Audit the isolated dependency graph
+        working-directory: services/mcp
+        run: bun audit
+
+  inherited:
+    name: Inherited core, backend and native
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CI: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.3
+      - name: Install the inherited graph without dependency scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Generate the pinned backend API
+        run: bun run postinstall
+      - name: Lint, types and complete core coverage
+        run: bun run validate
+      - name: Backend and native SDK patch regression
+        run: bun run test:backend
+      - name: Native configuration, schema checksums and Swift
+        run: bun run test:native
