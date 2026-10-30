@@ -5,14 +5,16 @@ import type { AuthContext } from './auth/context';
 import { contracts } from './tools/contracts';
 import { publicError, ToolError } from './tools/errors';
 import { ReadTools, readToolNames, type ReadToolName } from './tools/reads';
+import { MutationTools, mutationToolNames, type MutationToolName } from './tools/mutations';
 
 type AuthorizationService = Awaited<ReturnType<typeof createAuthorizationService>>;
-type HttpOptions = { authorization: AuthorizationService; reads: ReadTools };
+type HttpOptions = { authorization: AuthorizationService; reads: ReadTools; mutations?: MutationTools };
 
 // one SDK factory per exchange: no principal, scope, or upstream bearer lives in a shared MCP session.
-export function createHttpService({ authorization, reads }: HttpOptions) {
+export function createHttpService({ authorization, reads, mutations }: HttpOptions) {
   const origin = new URL(authorization.resource).origin;
-  const catalog = readToolNames.map((name): Tool => ({ name, description: contracts[name].description,
+  const names = [...readToolNames, ...(mutations ? mutationToolNames : [])];
+  const catalog = names.map((name): Tool => ({ name, description: contracts[name].description,
     inputSchema: z.toJSONSchema(contracts[name].input) as Tool['inputSchema'],
     outputSchema: z.toJSONSchema(contracts[name].output), annotations: contracts[name].annotations }));
   const gate = requireBearerAuth({ expectedResource: new URL(authorization.resource),
@@ -34,8 +36,11 @@ export function createHttpService({ authorization, reads }: HttpOptions) {
     server.setRequestHandler('tools/call', async request => {
       const name = request.params.name;
       try {
-        if (!readToolNames.includes(name as ReadToolName)) throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
-        const structuredContent = await reads.invoke(name as ReadToolName, request.params.arguments ?? {}, context);
+        const args = request.params.arguments ?? {};
+        let structuredContent;
+        if (readToolNames.includes(name as ReadToolName)) structuredContent = await reads.invoke(name as ReadToolName, args, context);
+        else if (mutations && mutationToolNames.includes(name as MutationToolName)) structuredContent = await mutations.invoke(name as MutationToolName, args, context);
+        else throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
         return server.projectCallToolResult({ structuredContent, content: [{ type: 'text',
           text: `${name} returned the account observation and structured result.` }] }, catalog.find(tool => tool.name === name)?.outputSchema);
       } catch (cause) {

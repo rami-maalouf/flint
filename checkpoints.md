@@ -137,6 +137,12 @@
 - Public operation mapping selects only contracted result/state/error fields, omitting notes, internal intent, tuples, credentials and private IDs. Stable retries preserve original results across midnight and quick-amount edits; changed input reports an idempotency conflict. Daily no-op creation confers no undo entitlement.
 - Four production Node SQLite/core-command/journal tests pass, including DST gaps/folds and fractional historical instants/offsets. Fresh independent review accepted the internal slice with no blockers and verified scoped lint plus package typecheck. Publication/authorization callbacks intentionally isolate these tests; authenticated HTTP, exact live delivery and second-replica convergence remain required before M14-M16 close.
 
+### M14b/M15b/M16b - real HTTP mutation and convergence proof
+
+- Added optional protected mutation registration to the existing SDK transport; ordinary startup remains read-only until trusted composition supplies it. Actual browser write consent, JWT scope validation, recovery-head CAS and exact transport acceptance now connect the internal create/undo/lookup handlers to HTTP.
+- The real HTTP test failed first on the ten-tool catalog, then passed with thirteen tools. It verifies a lost HTTP response followed by a same-ID retry, refresh/reconnect and client lineage, changed-input conflicts, count/daily/amount/time, daily no-op undo refusal, note redaction and actual journal tuple evidence. A separate fresh pull-only SQLite replica receives check-in/undo tombstones and coin facts. Pending delivery survives grant revocation and needs an explicit owner-resume callback under the replacement connection.
+- Independent review accepted the behavior but required setup-safe fixture cleanup. Cleanup now registers before resource acquisition and independently attempts every close, reporting errors after cleanup; a fresh reviewer accepted the correction. Parent reran the complete HTTP proof successfully on Node 24.22.2; service lint/typecheck pass. Full M14-M16 closure still depends on the separately reviewed M13 custody and conservative delivery gates. No executable startup or production write activation is included.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

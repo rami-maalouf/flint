@@ -34,3 +34,16 @@ bun build services/mcp/tests/mutations.test.ts --target=node --packages=external
 ```
 
 Four focused cases pass: default freezing/replay and bounded results; daily/no-op/targeted undo; DST gaps/folds and fractional historical offsets; and future/inconsistent/unsupported/unapproved inputs. Initial red was the missing handlers. The accepted M04/M04R/M12 proofs supply receipt, crash, lineage and restore boundaries. M14-M16 remain open until actual authenticated HTTP, delivery and a second replica verify the completed vertical slice.
+
+## HTTP vertical acceptance (M14-M16)
+
+`services/mcp/tests/http-mutations.test.ts` exercises a local, persistent Snapback server and real Node 24.22.2 SQLite. It provisions a fresh `FileRestoreLatch` outside both paired restore directories, uses the real recovery-head CAS path through the account actor and checks the server head through the SDK. It completes browser OAuth write consent with a fresh password proof, then calls all three mutation tools through MCP SDK clients over HTTP. A deliberately lost HTTP response precedes an idempotent retry. The test checks journal tuple acceptance, provider upload traffic, bounded public results and note redaction, count/daily/amount/time check-ins, daily no-op and targeted undo, original-tool scope, client lineage, provider token refresh and a new SDK connection. It then pulls the backend into a separate native-like SQLite replica with `mode: 'pull_only'` and disabled upload routes to verify check-in, tombstone and coin facts. An interrupted upload leaves a pending operation; provider revocation pauses delivery, and a new same-client full grant requires an explicit trusted owner-resume callback before the retry is acknowledged.
+
+Run it from the repository root:
+
+```sh
+bun build services/mcp/tests/http-mutations.test.ts --target=node --packages=external --outfile=services/mcp/.artifacts/http-mutations.test.mjs
+/tmp/node-v24.22.2-darwin-arm64/bin/node --test services/mcp/.artifacts/http-mutations.test.mjs
+```
+
+The initial red run completed OAuth and stopped at the catalog assertion: the HTTP service exposed 10 reads without the three mutation tools. After optional HTTP registration, the same test passed in 6.2 seconds on Node 24.22.2. The fixture uses local synthetic accounts and a deployed local backend. It does not prove production deployment, a physical device, account recovery after a real restore, or the later reward-claim confirmation flow. M14-M16 closure still requires the parent's fresh review and project gates.
