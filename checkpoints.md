@@ -79,6 +79,12 @@
 - Fourteen focused actual SDK/server/Node 24.22.2 checks pass. Independent review reproduced an empty-account mismatch between a claimed login principal and the authenticated bearer. The new regression failed first, and the bridge now compares the supported client viewer after verification for both empty and populated accounts. A fresh reviewer accepted the fix; parent independently reran all fourteen cases. Service lint and strict typecheck pass.
 - `docs/mcp/identity.md` records the bridge API and limits. The context's active-grant callback is a caller barrier contract, not a claim of provider lifecycle enforcement. Durable browser/provider consent remains M07 work, so M06 is still open.
 
+### M09a/M10a/M11a - bounded scoped read handlers
+
+- Implemented the ten non-confirmation read handlers using the existing habit/today/stack/coin/reward core and the account actor's read capability. History adds effective-row keyset continuation with inclusive date filters and SQL-level note omission. External-key encrypted cursors bind account, stable client, tool and filters; pages shorten to the complete response byte budget without losing continuation. No product migration or alternate sync importer was added.
+- Nine real Node/SQLite tests pass for lifecycle and duplicate titles, immutable request dates and stack root boundaries, effective/suppressed history, deleted reward title snapshots, negative balances, scope isolation, tampering/expiry/restart, concurrent deletion and oversized notes. Independent review found valid imported order keys over 255 characters could produce unusable cursors. The regression failed first; a fresh reviewer accepted the corrected encode/decode bounds and independently tested 276 round trips and 1360 explicit oversized refusals.
+- Parent focused tests, service lint and strict typecheck pass. `docs/mcp/reads.md` documents observation/continuation semantics and explicit projection limits. Actual OAuth/HTTP integration is implemented separately and pending its complete actor/provider review, so M09-M11 remain open until those gates pass.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
