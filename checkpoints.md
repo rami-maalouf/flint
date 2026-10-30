@@ -21,6 +21,12 @@
 - Six focused contract tests pass on both Bun and real Node. Initial red was missing contracts; behavioral reds reproduced numeric-offset time zones being accepted and valid fractional historical timing being rejected. The final schema rejects fixed offset strings and preserves core-compatible fractional instants and historical offsets.
 - Independent review identified the historical timing mismatch. A fresh second reviewer accepted the regression and fix without further blocking findings. Root validate remains green with mobile and service checks isolated. Runtime handlers and real-client completion remain later work, rather than claims made by the schemas.
 
+### M03a - production SQLite transaction ownership
+
+- Added the production Node adapter with FIFO ownership for every direct operation and awaited exclusive/deferred transaction callbacks. Bound parameters, foreign keys, WAL, full synchronous durability, draining close and checksum/version refusal preserve the shared product schema and its transaction semantics.
+- Eighteen real-Node tests pass. The initial adapter baseline reproduced external queries escaping an awaited transaction, premature close and invalid-schema acceptance. Final tests exercise all twelve unchanged migrations, rollback before/after awaits and at failed commit, consistent snapshots, actual core commands, persistent device/HLC/receipts/outbox, embedded NUL and six refused schema states.
+- Parent rebuilt and reran the test artifact with official Node 24.22.2; 18 passed. Independent foundation review found no concrete M03 defect. `docs/mcp/storage.md` records exact commands and caller/account ownership boundaries. Linux runtime and process/account ownership are later gates.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
