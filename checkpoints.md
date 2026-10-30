@@ -131,6 +131,12 @@
 - Added a separate trusted `createWriteIdentityBridge` API while preserving the ordinary bridge's read-only login. Write authentication requires the already verified browser account, obtains an independent full Snapback session and checks its exact authenticated probe scope/principal plus complete profile and SDK viewer. Forged full metadata around a read bearer and account switching are refused; a verified mismatched new credential is retired best-effort without affecting existing sessions.
 - Fifteen real Node/SDK/server identity tests pass, including a synthetic full-authority mutation and retained read-session refusal. Independent review accepted the API with no security findings and reran all fifteen plus scoped lint/types. The public provider has not yet enabled this helper: authenticated write-consent POST, full custody and account lifecycle integration remain M13c work.
 
+### M14a/M15a/M16a - frozen mutation normalization and public operation mapping
+
+- Added internal check-in/targeted-undo/operation handlers over the account actor's protected API. Existing calendar and validation rules resolve amounts, occurrences, logical days and source `app` before durable intent. Explicit future/inconsistent/unsupported inputs are refused. Undo requires the original actual-created check-in, command and frozen zone. Claims remain confirmation-gated.
+- Public operation mapping selects only contracted result/state/error fields, omitting notes, internal intent, tuples, credentials and private IDs. Stable retries preserve original results across midnight and quick-amount edits; changed input reports an idempotency conflict. Daily no-op creation confers no undo entitlement.
+- Four production Node SQLite/core-command/journal tests pass, including DST gaps/folds and fractional historical instants/offsets. Fresh independent review accepted the internal slice with no blockers and verified scoped lint plus package typecheck. Publication/authorization callbacks intentionally isolate these tests; authenticated HTTP, exact live delivery and second-replica convergence remain required before M14-M16 close.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
