@@ -9,7 +9,7 @@ import { createClient, type Client } from 'snapback4/client';
 import { deploy, startServe, type ServeHost } from 'snapback4/proof';
 import { api } from '../../../snapback/generated/api.ts';
 import type { AuthContext } from '../src/auth/context';
-import { createIdentityBridge, IdentityError, type IdentityConfig } from '../src/auth/identity';
+import { createIdentityBridge, createWriteIdentityBridge, IdentityError, type IdentityConfig } from '../src/auth/identity';
 
 test('only trusted canonical HTTPS configuration selects the backend', () => {
   for (const backendUrl of ['http://example.test', 'http://127.0.0.1:45000', 'https://u:p@example.test',
@@ -23,6 +23,47 @@ test('only trusted canonical HTTPS configuration selects the backend', () => {
   for (const timeoutMs of [0, -1, NaN, 1.5, 60_001]) {
     assert.throws(() => createIdentityBridge({ backendUrl: 'https://example.test', timeoutMs }), { code: 'INVALID_CONFIG' });
   }
+});
+
+test('fresh write authentication verifies full upstream scope and the existing browser account without upgrading reads', { timeout: 30_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'habit-mcp-write-identity-'));
+  const deployed = await deploy(join(directory, 'backend'), resolve('snapback/schema.q'), { logsDir: directory });
+  assert.equal(deployed.code, 0);
+  const host = await startServe(join(directory, 'backend'), { logsDir: directory });
+  const clients: Client[] = [];
+  t.after(async () => { await Promise.all(clients.map(client => client.close())); await host.stop(); await rm(directory, { recursive: true, force: true }); });
+  const credentials = [0, 1].map(() => ({ email: `${randomUUID()}@example.test`, password: randomUUID() }));
+  for (const input of credentials) assert.ok((await signup(host.url, input.email, input.password)).ok);
+  const config = { backendUrl: host.url, allowTestLoopback: true };
+  const observed = await createIdentityBridge(config).login(credentials[0]);
+  const expected = { accountId: observed.accountId, principal: observed.principal, backendUrl: observed.backendUrl };
+  const traffic: string[] = [];
+  const writes = createWriteIdentityBridge({ ...config, fetch: async (input, init) => {
+    traffic.push(new URL(String(input)).pathname); return fetch(input, init);
+  } });
+  const full = await writes.login(credentials[0], expected);
+  assert.equal(full.session.scope, 'full');
+  assert.equal(full.accountId, observed.accountId);
+  assert.notEqual(full.session.token, observed.session.token);
+  assert.ok(Object.isFrozen(full) && Object.isFrozen(full.session));
+  assert.ok(traffic.includes('/probe') && traffic.includes('/q/profile'));
+  assert.ok(traffic.every(path => !path.startsWith('/m/')));
+  const client = createClient({ url: host.url, token: full.session.token }); clients.push(client);
+  assert.equal((await client.mutate(api.saveProfile, { name: 'synthetic consented writer' })).state, 'sent');
+  const read = createClient({ url: host.url, token: observed.session.token, readOnly: true }); clients.push(read);
+  assert.equal((await read.mutate(api.saveProfile, { name: 'forbidden' })).state, 'failed');
+  await assert.rejects(writes.login(credentials[1], expected), { code: 'IDENTITY_INVALID' });
+  assert.ok(traffic.includes('/auth/logout'));
+  traffic.length = 0;
+  await assert.rejects(writes.login(credentials[0], { ...expected, backendUrl: 'https://wrong.test' }), { code: 'IDENTITY_INVALID' });
+  assert.equal(traffic.length, 0);
+  const forged = createWriteIdentityBridge({ ...config, fetch: async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === '/auth/login') return Response.json({ ok: true, session: { ...observed.session, scope: 'full' } });
+    return fetch(input, init);
+  } });
+  await assert.rejects(forged.login(credentials[0], expected), { code: 'IDENTITY_INVALID' });
+  assert.ok(!('denied' in await read.query(api.profile, {})));
 });
 
 test('real Snapback login binds empty and initialized accounts to independent read credentials', { timeout: 90_000 }, async t => {

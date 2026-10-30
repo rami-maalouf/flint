@@ -126,6 +126,11 @@
 - Parent public-enabled protocol run passes 32 tests with zero skips on real Node 24.22.2. Fresh independent review accepted the final correction and reran all eighteen HTTP auth cases. The access-revocation evidence test reopens SQLite in the same process; separate existing fresh-process tests prove provider/key/vault persistence. Service lint/typecheck pass. Actual sign-in/consent/error forms were checked at phone/desktop and light/dark; saved synthetic screenshots are under `.artifacts/fullstack/mcp-auth/`.
 - Checkpoints R and S are met: all ten non-confirmation read tools run over actual authenticated SDK HTTP with read-scoped Snapback authority, history continuation and account/scope isolation. Real ChatGPT/Claude connections, write consent, connection management and production activation remain explicitly unverified or later tasks.
 
+### M13b - account-bound fresh write identity
+
+- Added a separate trusted `createWriteIdentityBridge` API while preserving the ordinary bridge's read-only login. Write authentication requires the already verified browser account, obtains an independent full Snapback session and checks its exact authenticated probe scope/principal plus complete profile and SDK viewer. Forged full metadata around a read bearer and account switching are refused; a verified mismatched new credential is retired best-effort without affecting existing sessions.
+- Fifteen real Node/SDK/server identity tests pass, including a synthetic full-authority mutation and retained read-session refusal. Independent review accepted the API with no security findings and reran all fifteen plus scoped lint/types. The public provider has not yet enabled this helper: authenticated write-consent POST, full custody and account lifecycle integration remain M13c work.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

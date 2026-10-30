@@ -46,6 +46,14 @@ account ids are lowercase sha256 hex of `JSON.stringify([canonicalBackendUrl, im
 
 ## shared auth context
 
+### private write-consent authentication (m13b)
+
+`createWriteIdentityBridge(config).login(credentials, expectedAccount)` is a separate trusted service API. Invoke it only after an authenticated, CSRF-checked consent POST explicitly accepts write scopes. `expectedAccount` is the existing browser's verified `{ accountId, backendUrl, principal }`; it is never supplied by a tool or selected from an email. The read bridge continues to request only read sessions and has no scope argument.
+
+The write path obtains a fresh independent full session through supported Snapback login, then verifies that exact bearer with the documented authenticated `/probe?scope=1` response. It requires full scope, the matching principal and a bounded healthy store response before the same complete profile/viewer verification. A read bearer with forged full login metadata is refused. A different authenticated account cannot replace the browser account; its newly verified independent full credential is logged out best-effort and never returned or stored. Existing read credentials remain valid and read-only. Logout failure cannot establish authority or release a rejected credential to custody.
+
+The caller must encrypt the returned full session under the exact consented grant and preserve its independent lifecycle. This helper does not implement consent, grant issuance, delivery authorization, scope escalation through refresh or session rotation. Fifteen actual Node/SDK/server tests pass, including a full synthetic mutation under the returned session, read refusal, account mismatch, forged scope and all prior read-identity cases. Public write activation still requires the remaining M13 integration and review gates.
+
 `services/mcp/src/auth/context.ts` exports this exact worker contract. `Session` comes from `snapback4/auth`; `Scope` comes from `tools/contracts`.
 
 ```ts
