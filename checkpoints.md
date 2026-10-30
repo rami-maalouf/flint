@@ -1,5 +1,10 @@
 # Checkpoints
 
+## Public repository visibility (2026-10-30)
+
+1. Rami authorized making `rami-maalouf/flint` public. Changed GitHub visibility and verified anonymous GitHub API access returns HTTP 200 with `private: false`.
+2. A bounded independent check found no concrete new exposure in fullstack-only history: inherited design blobs also exist in Flint Local history, private migration artifacts and databases are untracked, and a targeted credential-pattern scan found no recognized secrets. This was not an exhaustive secret scan. No app, backend, account, or device data changed.
+
 ## Flint branding (2026-10-30)
 
 1. Renamed the GitHub repository to `rami-maalouf/flint`, retaining its private visibility and full history. Expo/iOS/widget display names are Flint; package metadata, Settings, widgets, Shortcuts, exports, README and current contributor guidance use the new brand. The local edition is [Flint Local](https://github.com/rami-maalouf/flint-local).
