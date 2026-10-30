@@ -1,0 +1,26 @@
+[Unit]
+Description=Habit System Snapback 4 backend
+After=network.target
+
+[Service]
+Type=simple
+User=habitsystem
+Group=habitsystem
+WorkingDirectory=/var/lib/habit-system-fullstack
+ExecStart=/opt/habit-system-fullstack/snapback4 serve /var/lib/habit-system-fullstack/deployment --bind 127.0.0.1 --port 4410
+Restart=on-failure
+SuccessExitStatus=143
+RestartSec=5
+TimeoutStopSec=45
+MemoryMax=512M
+CPUQuota=100%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/habit-system-fullstack
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

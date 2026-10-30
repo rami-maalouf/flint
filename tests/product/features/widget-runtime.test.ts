@@ -123,7 +123,7 @@ describe('serialized widget layout', () => {
     const circles = nodes.filter((node) => node.type === 'CircleView');
     expect(circles).toHaveLength(7);
     expect(circles.map((node) => node.props.modifiers?.find((item) => item.$type === 'opacity')?.value)).toEqual([0.25, 1, 1, 0.25, 0.25, 0.25, 1]);
-    expect(nodes.find((node) => label(node) === 'Uncheck Reading')?.props.destination).toBe('habitsystem://boards/a/quick-action');
+    expect(nodes.find((node) => label(node) === 'Uncheck Reading')?.props.destination).toBe('habitsystemfullstack://boards/a/quick-action');
     expect(nodes.some((node) => node.props.systemName === 'checkmark.circle.fill')).toBe(true);
   });
 
@@ -136,7 +136,7 @@ describe('serialized widget layout', () => {
 
   it('makes expired Daily state a neutral review action rather than an authoritative toggle', () => {
     const nodes = render([row], true);
-    expect(nodes.find((node) => label(node) === 'Review Reading in Habit System')?.props.destination).toBe('habitsystem://boards/a/quick-action');
+    expect(nodes.find((node) => label(node) === 'Review Reading in Habit System')?.props.destination).toBe('habitsystemfullstack://boards/a/quick-action');
     expect(nodes.some((node) => node.props.systemName === 'arrow.clockwise')).toBe(true);
     expect(nodes.some((node) => node.props.systemName === 'checkmark.circle.fill')).toBe(false);
     expect(nodes.some((node) => label(node)?.startsWith('Saved history:'))).toBe(true);
@@ -147,12 +147,12 @@ describe('serialized widget layout', () => {
     const opacities = nodes.filter((node) => node.type === 'CircleView').map((node) => node.props.modifiers?.find((item) => item.$type === 'opacity')?.value);
     expect(opacities[1]).toBeCloseTo(0.6);
     expect(opacities[2]).toBe(1);
-    expect(nodes.find((node) => label(node) === 'Check in to Reading')?.props.destination).toBe('habitsystem://boards/a/check-ins/new?source=widget');
+    expect(nodes.find((node) => label(node) === 'Check in to Reading')?.props.destination).toBe('habitsystemfullstack://boards/a/check-ins/new?source=widget');
   });
 
   it.each([['systemSmall', 1], ['systemMedium', 3], ['systemLarge', 7], ['systemExtraLarge', 12]] as const)('keeps ordered row budget for %s', (family, limit) => {
     const nodes = render(Array.from({ length: 15 }, (_, index) => ({ ...row, boardId: String(index) })), false, family);
     const destinations = nodes.filter((node) => node.type === 'LinkView' && label(node) === 'Reading').map((node) => node.props.destination);
-    expect(destinations).toEqual(Array.from({ length: limit }, (_, index) => `habitsystem://boards/${index}`));
+    expect(destinations).toEqual(Array.from({ length: limit }, (_, index) => `habitsystemfullstack://boards/${index}`));
   });
 });

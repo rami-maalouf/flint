@@ -1,5 +1,5 @@
-const developmentBundleIdentifier = 'studio.orbitlabs.habitsystem.dev';
-const sharedIdentifier = 'studio.orbitlabs.habitsystem';
+const developmentBundleIdentifier = 'studio.orbitlabs.habitsystem.fullstack.dev';
+const sharedIdentifier = 'studio.orbitlabs.habitsystem.fullstack';
 
 module.exports = ({ config }) => {
   if (process.env.APP_VARIANT !== 'development') return config;

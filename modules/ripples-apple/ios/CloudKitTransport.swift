@@ -18,7 +18,7 @@ protocol CloudKitClient: Sendable {
 }
 
 struct CloudKitTransport: Sendable {
-  static let zoneName = "habit-system"
+  static let zoneName = "habit-system-fullstack"
   static let batchLimit = 200
   static let conflictAttempts = 5
   let client: any CloudKitClient

@@ -36,7 +36,7 @@ describe('native widget publisher adapter', () => {
     const handler = jest.fn();
     const dispose = addWidgetQuickActionListener(handler);
     const receive = jest.mocked(addUserInteractionListener).mock.calls[0][0];
-    const event = { source: 'HabitSystemBoards', target: 'quick:board-id' };
+    const event = { source: 'HabitSystemFullStackBoards', target: 'quick:board-id' };
     receive(event as Parameters<typeof receive>[0]);
     receive({ ...event, target: 'open:board-id' } as Parameters<typeof receive>[0]);
     expect(handler).toHaveBeenCalledTimes(1);

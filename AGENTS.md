@@ -1,5 +1,15 @@
 This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
 
+## Current full stack fork
+
+This checkout is `habit-system-fullstack`, preserving all history from habit-system main `492592d`. Read the current full stack section of `FORK.md`, `tasks/fullstack-plan.md`, `tasks/fullstack-todo.md`, and `ops/README.md` before backend work. The full stack plan governs new backend tasks; the original product specs and ledger remain inherited context.
+
+Snapback 4 is the sole active sync provider. Retain CloudKit code for reference, with its own test router, and never activate both providers against the shared queue. SQLite schema 12 and native checksum gates are unchanged.
+
+Current identity supersedes historical values below: bundle `studio.orbitlabs.habitsystem.fullstack`, group `group.studio.orbitlabs.habitsystem.fullstack`, scheme `habitsystemfullstack`, widget `HabitSystemFullStackBoards`, EAS `985b07f0-3ecb-49ba-a11c-43a47629246f`. Use owned Metro port 8090 and `.artifacts/fullstack/` for evidence. Never stop the original Metro on 8081. The default backend is `https://habits.ramimaalouf.com`. Run `bun run test:backend` alongside inherited quality gates. Simulator evidence uses iPhone 17 Pro / iOS 26.5, `B47A3DF3-056A-4531-B9FA-8327C7C8A485`.
+
+Snapback 0.4.49 needs the pinned Bun patch under `patches/`: Expo defines `window.location` on native, which the SDK otherwise mistakes for browser admission. The regression test proves native writes and retained browser refusal. Remove the patch only after an upstream release passes that test and the native walkthrough.
+
 ## Product context (read before touching product code)
 
 This repository is the habit-system fork of Ripples. Read in this order:

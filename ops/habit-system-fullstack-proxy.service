@@ -1,0 +1,15 @@
+[Unit]
+Description=Habit System private bridge to loopback backend
+After=habit-system-fullstack.service
+Requires=habit-system-fullstack-proxy.socket
+
+[Service]
+Type=notify
+ExecStart=/lib/systemd/systemd-socket-proxyd --connections-max=256 127.0.0.1:4410
+DynamicUser=true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=32M
+CPUQuota=10%

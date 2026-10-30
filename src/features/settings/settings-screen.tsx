@@ -105,7 +105,7 @@ export function SettingsScreen() {
 
         <SettingsGroup title="Data">
           <SettingsRow
-            title="iCloud Sync"
+            title="Account & Sync"
             onPress={() => router.push('/settings/sync')}
             testID="settings-icloud"
           />

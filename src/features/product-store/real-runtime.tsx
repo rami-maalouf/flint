@@ -6,7 +6,7 @@ import { AppText } from '@/components/foundation/app-text';
 import { createCheckIn } from '@/core/domain/commands';
 import type { CommandId } from '@/core/domain/ids';
 import { parseBoardId } from '@/core/domain/ids';
-import { getBoard } from '@/core/domain/queries';
+import { getBoard, getSyncSummary } from '@/core/domain/queries';
 import { refreshWidgetProjection } from '@/core/domain/widget-projection';
 import type { DomainError } from '@/core/domain/result';
 import type { ProductCore } from '@/platform/database/product-core';
@@ -22,7 +22,8 @@ import {
 import { addWidgetQuickActionListener, refreshWidgets } from '@/platform/widgets';
 import { addSignificantTimeChangeListener } from '@/platform/time-change';
 import { spacing } from '@/theme';
-import { cloudKitAvailable, cloudKitTransport } from '@/platform/sync';
+import { cloudKitAvailable } from '@/platform/sync';
+import { backendSession, backendTransport, observeBackendChanges } from '@/platform/backend';
 import { cleanupStaleExports, pickImportFile, saveAndShareExport } from '@/platform/data-transfer';
 import { supportsAlternateIcons, setAlternateIcon } from '@/platform/alternate-icons';
 
@@ -100,6 +101,9 @@ export function RealProductProvider({ children, coreOverride, syncTransportOverr
   const missScheduler = missAlertSchedulerOverride ?? missAlertScheduler;
   const notificationsRef = useRef<NotificationCoordinator | null>(null);
   const active = useRef(AppState.currentState === 'active');
+  const [foreground, setForeground] = useState(AppState.currentState === 'active');
+  const [backendEnabled, setBackendEnabled] = useState(false);
+  const backendAccount = useSyncExternalStore(backendSession.subscribe, backendSession.getSnapshot, backendSession.getSnapshot);
   const projectionGeneration = useRef(0);
   const refreshQueries = useCallback(() => {
     projectionGeneration.current += 1;
@@ -109,7 +113,7 @@ export function RealProductProvider({ children, coreOverride, syncTransportOverr
 
   useEffect(() => {
     if (state.status !== 'ready' || !host.isCurrent(revision)) return;
-    const coordinator = new SyncCoordinator(state.core, syncTransportOverride ?? cloudKitTransport, setSync, refreshQueries);
+    const coordinator = new SyncCoordinator(state.core, syncTransportOverride ?? backendTransport, setSync, refreshQueries);
     coordinatorRef.current = coordinator;
     void coordinator.request();
     return host.retain(() => {
@@ -117,6 +121,31 @@ export function RealProductProvider({ children, coreOverride, syncTransportOverr
       return coordinator.dispose();
     });
   }, [state, host, revision, refreshQueries, syncTransportOverride]);
+
+  useEffect(() => {
+    if (state.status !== 'ready' || !host.isCurrent(revision) || syncTransportOverride) return;
+    let cancelled = false;
+    void host.track(async () => {
+      const summary = await getSyncSummary(state.core);
+      if (!cancelled && host.isCurrent(revision) && summary.ok) setBackendEnabled(summary.value.enabled);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [state, host, revision, version, syncTransportOverride]);
+
+  useEffect(() => {
+    if (state.status !== 'ready' || !host.isCurrent(revision) || syncTransportOverride ||
+      !foreground || !backendEnabled || !backendAccount.session) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void host.track(async () => {
+      const cleanup = await observeBackendChanges(() => {
+        if (!cancelled && host.isCurrent(revision)) void coordinatorRef.current?.request();
+      });
+      if (cancelled || !host.isCurrent(revision)) cleanup();
+      else stop = cleanup;
+    }).catch(() => {});
+    return host.retain(() => { cancelled = true; stop?.(); });
+  }, [state, host, revision, foreground, backendEnabled, backendAccount.session, syncTransportOverride]);
 
   const syncNow = useCallback(() => { if (scope?.isCurrent()) void coordinatorRef.current?.request(); }, [scope]);
   const pauseSync = useCallback(() => { if (scope?.isCurrent()) coordinatorRef.current?.pause(); }, [scope]);
@@ -213,6 +242,7 @@ export function RealProductProvider({ children, coreOverride, syncTransportOverr
     const subscription = AppState.addEventListener('change', (appState) => {
       if (!host.isCurrent(revision)) return;
       active.current = appState === 'active';
+      setForeground(active.current);
       notificationsRef.current?.setActive(active.current);
       if (appState === 'active') {
         invalidate();

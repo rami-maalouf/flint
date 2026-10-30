@@ -19,7 +19,7 @@ const onEas = process.env.E2E_EAS_SIMULATOR === '1';
 // the eas sim profile uses the base id; local development builds use the .dev id.
 // override when testing a build with a different identity.
 const appId = process.env.E2E_APP_ID ||
-  (onEas ? 'studio.orbitlabs.habitsystem' : 'studio.orbitlabs.habitsystem.dev');
+  (onEas ? 'studio.orbitlabs.habitsystem.fullstack' : 'studio.orbitlabs.habitsystem.fullstack.dev');
 
 const iphone = mobile({
   platform: 'ios',
@@ -58,7 +58,7 @@ const context = [
   'The Layout button opens a chooser with four options, each an accessibility-labelled pressable: "Full-width cards", "Two-column grid", "Compact rows", "14-day summary". Done (done-board-layout) closes it.',
   'Creating a board asks for a title (board-title-input) and saves with board-form-save. A board opens to its detail screen with check-ins, a heatmap, and an Add check-in button (add-check-in).',
   'Stacks group boards; Coins are earned by check-ins and spent on Rewards.',
-  'Settings is a list: Notifications, Anchors, App icon, iCloud sync, Timeline, Export, Import, Archived boards, and a Version row (settings-version) at the very bottom.',
+  'Settings is a list: Notifications, Anchors, App icon, Account & Sync, Timeline, Export, Import, Archived boards, and a Version row (settings-version) at the very bottom.',
   'Text the app shows changes with the device date; do not treat a different date or count as a bug.',
 ].join(' ');
 

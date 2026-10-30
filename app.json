@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "habit-system",
-    "slug": "habit-system",
+    "name": "habit-system-fullstack",
+    "slug": "habit-system-fullstack",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "habitsystem",
+    "scheme": "habitsystemfullstack",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "deploymentTarget": "18.6",
-      "bundleIdentifier": "studio.orbitlabs.habitsystem",
+      "bundleIdentifier": "studio.orbitlabs.habitsystem.fullstack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleDisplayName": "Habit System"
+        "CFBundleDisplayName": "Habit System FS"
       },
       "appleTeamId": "3V2UU7RRK9"
     },
@@ -48,11 +48,11 @@
       [
         "expo-widgets",
         {
-          "groupIdentifier": "group.studio.orbitlabs.habitsystem",
+          "groupIdentifier": "group.studio.orbitlabs.habitsystem.fullstack",
           "widgets": [
             {
-              "name": "HabitSystemBoards",
-              "displayName": "Habit System",
+              "name": "HabitSystemFullStackBoards",
+              "displayName": "Habit System FS",
               "description": "Your boards with seven-day strips and quick check-in.",
               "supportedFamilies": [
                 "systemSmall",
@@ -65,7 +65,8 @@
         }
       ],
       "expo-web-browser",
-      "./modules/ripples-apple/plugin"
+      "./modules/ripples-apple/plugin",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
@@ -79,10 +80,10 @@
               "appExtensions": [
                 {
                   "targetName": "ExpoWidgetsTarget",
-                  "bundleIdentifier": "studio.orbitlabs.habitsystem.ExpoWidgetsTarget",
+                  "bundleIdentifier": "studio.orbitlabs.habitsystem.fullstack.ExpoWidgetsTarget",
                   "entitlements": {
                     "com.apple.security.application-groups": [
-                      "group.studio.orbitlabs.habitsystem"
+                      "group.studio.orbitlabs.habitsystem.fullstack"
                     ]
                   }
                 }
@@ -90,7 +91,7 @@
             }
           }
         },
-        "projectId": "07481ea0-9f44-4f24-ad3c-fd889569cade"
+        "projectId": "985b07f0-3ecb-49ba-a11c-43a47629246f"
       }
     },
     "runtimeVersion": {
@@ -98,7 +99,7 @@
     },
     "owner": "ramimaalouf",
     "updates": {
-      "url": "https://u.expo.dev/07481ea0-9f44-4f24-ad3c-fd889569cade"
+      "url": "https://u.expo.dev/985b07f0-3ecb-49ba-a11c-43a47629246f"
     }
   }
 }

@@ -3916,3 +3916,37 @@ convergence remain open. T24 and Checkpoints C/D are not complete.
     development variant also uses its own opaque square icon: the familiar
     droplet wears an orange hard hat in a purple-and-blue palette, while preview
     and production retain the original green icon.
+
+## Full stack fork - 2026-10-30
+
+### F1 - history and backend foundation
+
+Created the independent private `rami-maalouf/habit-system-fullstack` repository from latest habit-system main `492592d`, preserving 17 branches, all 286 main-history commits and `ripples-v1-fork-point`. Work lives in a separate checkout; the original checkout's existing `tests/e2e/layouts.e2e.ts` edit was untouched.
+
+Pinned Snapback 4 npm `0.4.49` and matching runtime source `2a58bf4b1c60efada322ec3fbc1530d6bd4d8e20`. The schema provides owner-isolated profiles, versioned wire records, canonical hash-verified multipart bodies, mutable HLC ordering, immutable fact variants and atomic revision pagination. Real-server tests cover isolation, replay, clock rejection, conflicting facts, large Unicode bodies, profile revision preservation and concurrent pagination. Independent reviews identified and then closed unverified digest, malformed stamp and noncanonical representation defects.
+
+### F2 - native identity and sessions
+
+The new app uses bundle `studio.orbitlabs.habitsystem.fullstack`, group `group.studio.orbitlabs.habitsystem.fullstack`, scheme `habitsystemfullstack`, widget `HabitSystemFullStackBoards`, and EAS project `985b07f0-3ecb-49ba-a11c-43a47629246f`. SecureStore holds sessions; the existing provider binding table prevents switching a local database to a different account/server. Sign-out retains product data. SQLite schema 12 and the Swift migration checksum map are unchanged.
+
+The isolated iOS simulator build succeeded after an initial ENOSPC failure and cleanup of this task's temporary source checkout. Build output: `.artifacts/fullstack/ios-build/habitsystemfullstack.app`. It was installed without changing the original app. Native gates pass 16 configuration tests and 195 Swift tests. Physical signing and Android device acceptance were not performed for this fork.
+
+### F3 - local-first sync and native acceptance
+
+Snapback is the sole active provider by explicit user decision; CloudKit implementation and reference tests remain. The adapter feeds the existing transactional outbox and remote-fact admission engine, with cancellation guards between multipart requests. Account & Sync supplies consent, sign-in, sync control, queue status and incoming-data counts. A stable foreground observer reconciles its first snapshot; independent review closed the subscription-setup race. Lifecycle tests cover query refresh, backgrounding and delayed cleanup after unmount.
+
+Real native QA found SDK `E_ADMISSION`: Expo defines `window.location`, causing 0.4.49 to misclassify React Native as a browser. A pinned Bun patch excludes `navigator.product === 'ReactNative'`; the focused test fails before it and passes afterward while ordinary browser writes still require admission. Independent review approved the patch. The session manager uses the supported bearer-token connection so SDK rotation cannot replace an unsaved token; expiration requires sign-in again.
+
+On iPhone 17 Pro / iOS 26.5 `B47A3DF3-056A-4531-B9FA-8327C7C8A485`, the new native app signed in over public HTTPS and downloaded a remotely created habit. With only this backend stopped, a check-in and one earned coin committed locally with three queued mutations. After native process restart, the checked state and coin remained. Reconnecting delivered check-in, habit action and ledger entry to Oracle; the UI showed Up to date, zero queued changes and a successful timestamp. A separate two-SQLite real-server test also proves convergence and immutable replay without duplicates.
+
+Evidence: `.artifacts/fullstack/account-synced-dark.png`, `account-synced-light.png`, `account-large-text.png`, `offline-check.png`, backend test logs and private QA artifacts. Actual 402-point layouts were inspected in light/dark appearance and accessibility-medium Dynamic Type. Larger tablet layouts and Android visuals remain unverified. T3 agent-device and the Argent debugging/device skills supplied native interaction and runtime evidence.
+
+### F4 - Oracle, TLS and recovery
+
+Built native Linux ARM64 with Rust 1.97 in a resource-limited Docker build. The service runs unprivileged on loopback 4410 with 512 MB and one-CPU limits; observed memory was about 18-57 MB during setup, not a load benchmark. A private Docker-bridge socket proxy connects the existing Traefik to it, preserving existing services. The user selected `habits.ramimaalouf.com`; its Cloudflare A record points to Oracle, and Let's Encrypt HTTPS plus authenticated operations pass. Development persona headers are stripped. The deployed schema SHA-256 matches the checkout: `8aca359a2552b1ed4c78a62b734f0e66fa082e77964d6390f1e2e2225e6baa26`.
+
+Daily whole-deployment backups run at 04:00 UTC with up to five minutes of jitter. A stopped-store backup was copied off-host and restored into a separate empty directory/server. Restored authentication passed; all five wire record payloads/digests, including native offline facts, matched the live snapshot. The temporary restoration service was stopped and live service remained active. Normal SIGTERM exit 143 is explicitly treated as success. Ongoing off-host replication, retention and multipart garbage collection remain documented operational follow-ups. Snapback 4 MCP is unavailable in the pinned verified interface; older Snapback MCP code is not advertised as v4 support.
+
+### F5 - final gates and publication
+
+Independent backend, observer, operations and native-host patch reviews are complete. `bun run validate` exits 0 with 214 suites / 3,112 tests; all 105 core files retain 100 percent statements, branches, functions and lines. `bun run test:backend` passes 16 Node tests plus the real two-SQLite convergence test. Native checks pass 16 configuration and 195 Swift tests. A frozen install reproduces the SDK patch and generates the API. Earlier validation encountered ENOSPC and then a non-core branch coverage shortfall; neither was waived. Final lint and typecheck also pass after the explicit bearer-token session choice. Publication follows these gates.

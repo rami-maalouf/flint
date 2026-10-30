@@ -77,8 +77,8 @@ export class SyncCoordinator {
     };
     return {
       ensureZone: () => run(() => this.transport.ensureZone()),
-      upload: (records) => run(() => this.transport.upload(records)),
-      fetchChanges: (token) => run(() => this.transport.fetchChanges(token)),
+      upload: (records) => run(() => this.transport.upload(records, () => { guard(); return true; })),
+      fetchChanges: (token) => run(() => this.transport.fetchChanges(token, () => { guard(); return true; })),
     };
   }
 

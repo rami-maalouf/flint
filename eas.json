@@ -11,7 +11,8 @@
       "env": {
         "APP_VARIANT": "development",
         "RIPPLES_CLOUDKIT_ENVIRONMENT": "Development"
-      }
+      },
+      "node": "24.13.0"
     },
     "development-simulator": {
       "extends": "development",
@@ -24,21 +25,24 @@
       "channel": "preview",
       "env": {
         "RIPPLES_CLOUDKIT_ENVIRONMENT": "Development"
-      }
+      },
+      "node": "24.13.0"
     },
     "sim": {
       "distribution": "internal",
       "channel": "preview",
       "ios": {
         "simulator": true
-      }
+      },
+      "node": "24.13.0"
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
         "RIPPLES_CLOUDKIT_ENVIRONMENT": "Production"
-      }
+      },
+      "node": "24.13.0"
     }
   },
   "submit": {

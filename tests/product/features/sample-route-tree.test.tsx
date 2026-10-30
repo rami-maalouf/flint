@@ -106,7 +106,7 @@ it('closes an actual opening route without mounting its late memory result', asy
 const unavailable = [
   ['settings/import', 'Import is disabled in sample mode.'],
   ['settings/export', 'Export is disabled in sample mode.'],
-  ['settings/sync', 'iCloud Sync is disabled in sample mode.'],
+  ['settings/sync', 'Account sync is disabled in sample mode.'],
   ['settings/icons', 'App icons are disabled in sample mode.'],
   ['settings/notifications', 'Notifications are disabled in sample mode.'],
   ['boards/:board/reminders/new', 'Reminders are unavailable in Sample mode.'],

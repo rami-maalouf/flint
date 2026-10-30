@@ -1,0 +1,22 @@
+# merge these entries into the existing provider file; preserve other routes.
+http:
+  middlewares:
+    habit-system-headers:
+      headers:
+        customRequestHeaders:
+          x-snapback-persona: ""
+  routers:
+    habit-system-fullstack:
+      rule: Host(`habits.ramimaalouf.com`)
+      entryPoints: [web-secure]
+      service: habit-system-fullstack
+      middlewares: [habit-system-headers]
+      tls:
+        certResolver: default
+  services:
+    habit-system-fullstack:
+      loadBalancer:
+        servers:
+          - url: http://172.26.0.1:4411
+        responseForwarding:
+          flushInterval: -1ms
