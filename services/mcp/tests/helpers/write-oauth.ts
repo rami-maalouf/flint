@@ -42,4 +42,5 @@ export async function authorizeSyntheticWrite(resource: string, provider: Return
   assert.equal(callback.searchParams.get('error'), null, callback.href);
   assert.equal(await auth(provider, { serverUrl: resource, authorizationCode: callback.searchParams.get('code')!,
     iss: callback.searchParams.get('iss') ?? undefined }), 'AUTHORIZED');
+  return { cookieHeader: () => [...cookies].map(([name, value]) => `${name}=${value}`).join('; ') };
 }

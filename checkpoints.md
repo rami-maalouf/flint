@@ -173,6 +173,12 @@
 - Four real HTTP/SQLite owner tests pass. Independent review found a malformed grant could reference another provider user's live session while retaining the first account's custody. The row-mutation regression failed first; listing, resume and `assertActive` now require the provider user ID to equal the browser account. Fresh round-two review accepted the correction. Parent's full public protocol run passes 51/51 with no skips; lint/typecheck pass.
 - Sign-in has phone/desktop light/dark renderer evidence; the author's live-tab snapshots timed out. Parent separately verified the confirmation redirect reaches this actual sign-in GET. Visible connection management and a complete interactive owner continuation remain later work.
 
+### M18 - authenticated exact-cost browser confirmation
+
+- Added escaped reward/cost/balance-after/client/zone/expiry display with same-account browser approval only through bounded strict POST. Origin, same-site metadata and a cookie/session/exact-token HMAC bind the form. GET cannot approve; cancellation, expiry, insufficient funds and already-approved states are explicit. Approval itself does not spend coins.
+- Real Node HTTP/provider/SDK/Snapback/SQLite coverage verifies two accounts, CSRF and quote swaps, wrong Origin/type, duplicates, POST replay and safe continuation to the real standalone sign-in page. Review caught an incompatible return parameter; the regression failed first, then passed with `return_to`. Fresh round-two review accepted the route and replay correction.
+- Inspected the actual production renderer in Chromium at phone 390 x 844 and desktop 1024 x 844 in both appearances, with 24 state captures. Measured no horizontal overflow; phone actions are 48 pixels tall and primary approval is visible at y=461. Evidence and honest browser-versus-HTTP boundaries are in `docs/mcp/confirmation.md`. Parent protocol passes 51/51; lint/typecheck pass. Full interactive owner continuation and deployment remain release checks.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
