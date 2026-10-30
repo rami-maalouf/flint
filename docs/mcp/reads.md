@@ -12,6 +12,8 @@ Pages default to 50 and accept 1-100 rows. Page builders shorten complete result
 
 The HTTP wrapper uses the [official SDK per-request factory](https://ts.sdk.modelcontextprotocol.io/v2/serving/http.html), its maintained stateless fallback for 2025 protocol traffic, and [resource-server bearer validation](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization). Every exchange gets its own admitted context. It exposes no mutation tool in this increment. Titles and notes remain untrusted stored data.
 
+The supported [low-level Server handlers](https://ts.sdk.modelcontextprotocol.io/v2/advanced/low-level-server.html) advertise JSON Schema generated from the same strict Zod contracts that validate calls and results. Validation runs inside the application's error boundary so invalid tool arguments return bounded `structuredContent.error` with `INVALID_INPUT`, including in legacy mode. SDK protocol parsing and transport behavior remain SDK-owned; malformed protocol envelopes are distinct from ordinary tool-input errors.
+
 ## Evidence
 
 Run the focused real-Node handler suite and the authenticated HTTP suite from the repository root:

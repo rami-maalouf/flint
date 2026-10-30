@@ -91,6 +91,12 @@
 - Nineteen real SDK/server/Node 24.22.2 tests pass in both author and parent runs. They include two-account/two-client isolation, simultaneous opens, a separate owner process through SIGKILL, restart/cache identity, failed first bootstrap, unknown/emptied schema preservation, deadlines, queue/handle/disk bounds, quarantine and revocation before result delivery. Independent review reran all nineteen and supplemental transaction/deadline/recovery/shutdown probes, accepting bounded M08 without blockers.
 - Focused lint and strict typecheck pass. `docs/mcp/replicas.md` records the trusted callback/lane contract, limits and honest cached metadata. Public reads remain write-fenced. M12/M13 must integrate protected mutation, journal/receipt recovery, restore control and mixed-grant delivery into this same lane. Darwin process-crash proof does not establish Linux power-loss durability.
 
+### M09b - authenticated HTTP read transport and bounded errors
+
+- Mounted the ten read tools through the official SDK's per-exchange server and resource-server verifier. Each request carries its own admitted context. Public authority is fixed behind the loopback TLS proxy; arbitrary Host, Origin and forwarded authority cannot retarget authentication or upstream access. SDK negotiation retains modern and legacy stateless HTTP compatibility.
+- Two actual HTTP/provider/Snapback/SQLite tests pass with two accounts, both protocol families, 105-row history continuation, note omission, denied scopes, foreign IDs and honest cached/offline results. Every upstream read uses a read session and the observed read flow makes no backend mutation or authentication call.
+- Independent review found SDK argument validation bypassed the promised structured error envelope. A regression failed first; supported low-level SDK handlers now validate the same strict contracts inside the bounded application error boundary. A fresh reviewer accepted the fix under both protocol families. Service lint/typecheck pass. Provider revocation and executable startup findings remain separate gates before checkpoint R is closed.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
