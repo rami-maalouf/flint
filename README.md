@@ -2,7 +2,7 @@
 
 A private, local-first habit tracker for iOS, built with Expo and React Native. Flint combines daily habits, same-day stacks, coins, and rewards you define. A fresh install starts empty.
 
-This is a full-history fork of [Flint Local](https://github.com/rami-maalouf/flint-local), originally Ripples. Snapback 4 adds private account sync while SQLite remains the local source of truth. [FORK.md](FORK.md) records the independent app and EAS identities. The backend runs at `https://habits.ramimaalouf.com` on Oracle.
+This is a full-history fork of [Flint Local](https://github.com/rami-maalouf/flint-local), originally Ripples. Snapback 4 adds private account sync while SQLite remains the local source of truth. [FORK.md](FORK.md) records the independent app and EAS identities. The backend runs at `https://habits.ramimaalouf.com`.
 
 The app's design direction is monochrome: black, white, and system Liquid Glass, with no fixed accent-color theme.
 
