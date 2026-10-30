@@ -1,5 +1,13 @@
 # Checkpoints
 
+## MCP service (2026-10-30)
+
+### M01a - supported runtime and tooling boundary
+
+- Reproduced the inherited embedded-NUL SQLite TEXT failure directly on installed Node 24.13.0: stored hex remained `61007A`, but the returned text was `a`. The unchanged regression passes on official Node 24.22.2, whose Darwin ARM64 archive matched the published SHA-256 checksum. `.node-version` pins that verified runtime without replacing the machine installation.
+- Server sources/tests have their own check boundary and are excluded from mobile TypeScript, Jest discovery and Expo ESLint. Root dependencies, lockfile, the native Snapback patch and product/native schema 12 remain unchanged. This prerequisite brings the root exclusion portion of M05 forward so intermediate service commits keep the mobile suite valid.
+- Root `bun run validate` on the selected Node passes 214 suites / 3,114 tests with every core metric at 100 percent; `bun run test:native` passes 16 plugin / 195 Swift tests. Backend checks and the synthetic read-only bootstrap pass. Independent foundation review found no concrete storage/pull-only defect; the separately reported historical timing contract issue was fixed and accepted in a fresh review.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
