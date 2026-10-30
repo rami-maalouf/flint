@@ -9,7 +9,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [x] M01: prove supported OAuth identity/runtime/client integration; record provider, runtime and pinned versions (gate A).
 - [x] M02: freeze scoped tool, result, date, confirmation and operation contracts.
 - [x] M03: prove awaited SQLite transactions and genuinely read-only bootstrap (gate B).
-- [ ] M04: prove receipt/journal linkage and exact delivery evidence through crash windows (gate C).
+- [x] M04: prove receipt/journal linkage and exact delivery evidence through crash windows (gate C).
 - [ ] M04R: prove independent recovery-head detection of incomplete restored journals (gate D).
 
 ## Read-only service

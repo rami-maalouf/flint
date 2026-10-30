@@ -38,6 +38,12 @@
 - The injectable Snapback transport can await a per-record delivery callback before the engine deletes acknowledged queue rows. It compares the actual returned stamp/digest/schema/tombstone to distinguish exact acceptance from a newer mutable record superseding the attempted version. Immutable facts cannot be labeled superseded.
 - The new real-backend regression failed first with no receipt evidence, then passed for exact acceptance, stale mutable delivery and connection revocation between records. Existing large Unicode/multipart transport behavior stays green. Callback failure leaves the engine's durable outbox available for retry. Independent journal review accepted this boundary with no blockers.
 
+### M04b - durable operation journal and receipt recovery
+
+- Added separate service SQLite intent/tuple/hash-chain storage, stable account/client/operation fingerprints, frozen core arguments/clock and receipt-first recovery. Prepared intent, capture and evidence updates advance the chain atomically. Publication and current authorization callbacks are mandatory; the core retains its own transaction.
+- Initial restart red produced two check-ins; an additional red caught mismatched-payload supersession. All 38 operation tests now pass on real Node, including SIGKILL restart, count/claim receipts, no-op/targeted undo, receipt insertion rollback, partial acceptance, lost response, unknown delivery and stale mutable versions. The parent combined run passes all 57 journal/recovery cases; independent M04 review reran 38 journal and two real transport cases and accepted gate C without blockers.
+- Root validate passes 214 suites / 3,114 tests with all core coverage at 100 percent. Backend checks pass 18 Node cases plus two convergence/read-only Bun cases. `docs/mcp/operations.md` records retention, exact tuple association and caller invariants. Public mutations remain disabled until the recovery and actor/authorization integration gates are satisfied.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
