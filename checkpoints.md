@@ -44,6 +44,11 @@
 - Initial restart red produced two check-ins; an additional red caught mismatched-payload supersession. All 38 operation tests now pass on real Node, including SIGKILL restart, count/claim receipts, no-op/targeted undo, receipt insertion rollback, partial acceptance, lost response, unknown delivery and stale mutable versions. The parent combined run passes all 57 journal/recovery cases; independent M04 review reran 38 journal and two real transport cases and accepted gate C without blockers.
 - Root validate passes 214 suites / 3,114 tests with all core coverage at 100 percent. Backend checks pass 18 Node cases plus two convergence/read-only Bun cases. `docs/mcp/operations.md` records retention, exact tuple association and caller invariants. Public mutations remain disabled until the recovery and actor/authorization integration gates are satisfied.
 
+### M04Ra - owner-scoped recovery head
+
+- Added separate online-only Snapback recovery metadata with immutable owner/generation, monotonic sequence and conditional hash advancement. Existing phone wire entities, records, schema 12 and all generated-client consumers remain compatible. Generated API was regenerated through pinned tooling.
+- The real backend test failed before the operations existed, then passed for owner isolation, generation binding, stale/conflicting CAS, one winner under competing advancement, lost-response lookup and actual read-session write refusal. All 18 backend Node cases plus two convergence/read-only cases pass. Independent recovery review accepted the metadata boundary. No deployed schema changed in this step.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
