@@ -1,5 +1,26 @@
 # fork origin
 
+## current full stack fork (2026-10-30)
+
+this repository preserves every branch, tag and commit from [habit-system](https://github.com/rami-maalouf/habit-system) through main `492592d`. its independent private remote is [habit-system-fullstack](https://github.com/rami-maalouf/habit-system-fullstack). the historical ripples fork record below remains intact.
+
+| identity | current value |
+| --- | --- |
+| expo name and slug | `habit-system-fullstack` |
+| display name | `Habit System FS` |
+| bundle | `studio.orbitlabs.habitsystem.fullstack` (development suffix `.dev`) |
+| app group | `group.studio.orbitlabs.habitsystem.fullstack` |
+| scheme | `habitsystemfullstack` |
+| widget kind | `HabitSystemFullStackBoards` |
+| eas project | `@ramimaalouf/habit-system-fullstack`, `985b07f0-3ecb-49ba-a11c-43a47629246f` |
+| update url | `https://u.expo.dev/985b07f0-3ecb-49ba-a11c-43a47629246f` |
+| backend | `https://habits.ramimaalouf.com`, snapback4 `0.4.49` |
+| retained cloudkit reference | `iCloud.studio.orbitlabs.habitsystem.fullstack`, zone `habit-system-fullstack` |
+
+snapback is the sole active sync provider. the cloudkit implementation and its tests remain for reference. existing local domain rules, sqlite schema 12, immutable economic facts and native outbox writers are inherited. `tasks/fullstack-plan.md` and `tasks/fullstack-todo.md` govern this fork's new work. full stack configuration tests prevent shared identities and duplicate extension declarations.
+
+## historical habit-system fork
+
 this repository is a full-history fork of ripples.
 
 - origin repo: https://github.com/rami-maalouf/habit-tracker (product name ripples)
