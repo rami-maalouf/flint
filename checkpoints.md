@@ -85,6 +85,12 @@
 - Nine real Node/SQLite tests pass for lifecycle and duplicate titles, immutable request dates and stack root boundaries, effective/suppressed history, deleted reward title snapshots, negative balances, scope isolation, tampering/expiry/restart, concurrent deletion and oversized notes. Independent review found valid imported order keys over 255 characters could produce unusable cursors. The regression failed first; a fresh reviewer accepted the corrected encode/decode bounds and independently tested 276 round trips and 1360 explicit oversized refusals.
 - Parent focused tests, service lint and strict typecheck pass. `docs/mcp/reads.md` documents observation/continuation semantics and explicit projection limits. Actual OAuth/HTTP integration is implemented separately and pending its complete actor/provider review, so M09-M11 remain open until those gates pass.
 
+### M08 - isolated durable account replicas
+
+- Added one FIFO lane and durable SQLite process ownership per opaque account directory, immutable backend/principal bindings, product device/HLC persistence, private file/schema refusal, bounded admission/pulls/storage and idle close without deletion. Read callbacks receive expiring query-only capabilities. Every pull uses its exact current grant and the shared pull-only engine; expected derived outbox work is retained without upload.
+- Nineteen real SDK/server/Node 24.22.2 tests pass in both author and parent runs. They include two-account/two-client isolation, simultaneous opens, a separate owner process through SIGKILL, restart/cache identity, failed first bootstrap, unknown/emptied schema preservation, deadlines, queue/handle/disk bounds, quarantine and revocation before result delivery. Independent review reran all nineteen and supplemental transaction/deadline/recovery/shutdown probes, accepting bounded M08 without blockers.
+- Focused lint and strict typecheck pass. `docs/mcp/replicas.md` records the trusted callback/lane contract, limits and honest cached metadata. Public reads remain write-fenced. M12/M13 must integrate protected mutation, journal/receipt recovery, restore control and mixed-grant delivery into this same lane. Darwin process-crash proof does not establish Linux power-loss durability.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
