@@ -6,14 +6,15 @@ import { contracts } from './tools/contracts';
 import { publicError, ToolError } from './tools/errors';
 import { ReadTools, readToolNames, type ReadToolName } from './tools/reads';
 import { MutationTools, mutationToolNames, type MutationToolName } from './tools/mutations';
+import { RewardPreviewTools } from './rewards/tools';
 
 type AuthorizationService = Awaited<ReturnType<typeof createAuthorizationService>>;
-type HttpOptions = { authorization: AuthorizationService; reads: ReadTools; mutations?: MutationTools };
+type HttpOptions = { authorization: AuthorizationService; reads: ReadTools; mutations?: MutationTools; rewardPreview?: RewardPreviewTools };
 
 // one SDK factory per exchange: no principal, scope, or upstream bearer lives in a shared MCP session.
-export function createHttpService({ authorization, reads, mutations }: HttpOptions) {
+export function createHttpService({ authorization, reads, mutations, rewardPreview }: HttpOptions) {
   const origin = new URL(authorization.resource).origin;
-  const names = [...readToolNames, ...(mutations ? mutationToolNames : [])];
+  const names = [...readToolNames, ...(mutations ? mutationToolNames : []), ...(rewardPreview ? ['get_reward_claim_preview' as const] : [])];
   const catalog = names.map((name): Tool => ({ name, description: contracts[name].description,
     inputSchema: z.toJSONSchema(contracts[name].input) as Tool['inputSchema'],
     outputSchema: z.toJSONSchema(contracts[name].output), annotations: contracts[name].annotations }));
@@ -40,6 +41,7 @@ export function createHttpService({ authorization, reads, mutations }: HttpOptio
         let structuredContent;
         if (readToolNames.includes(name as ReadToolName)) structuredContent = await reads.invoke(name as ReadToolName, args, context);
         else if (mutations && mutationToolNames.includes(name as MutationToolName)) structuredContent = await mutations.invoke(name as MutationToolName, args, context);
+        else if (rewardPreview && name === 'get_reward_claim_preview') structuredContent = await rewardPreview.invoke(args, context);
         else throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
         return server.projectCallToolResult({ structuredContent, content: [{ type: 'text',
           text: `${name} returned the account observation and structured result.` }] }, catalog.find(tool => tool.name === name)?.outputSchema);

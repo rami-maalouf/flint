@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -18,6 +18,8 @@ import { createAuthorizationService } from '../src/auth/provider';
 import { CredentialVault } from '../src/auth/vault';
 import { createCorePorts, initializeProductDatabase, NodeSqlDatabase, createSnapbackTransport, runSync } from '../src/core';
 import { createHttpService } from '../src/http';
+import { RewardQuoteStore } from '../src/rewards/quotes';
+import { RewardPreviewTools } from '../src/rewards/tools';
 import { CursorCodec } from '../src/tools/cursors';
 import { ReadTools, readToolNames } from '../src/tools/reads';
 import { authorizeSynthetic, syntheticOAuthClient } from './helpers/oauth';
@@ -38,10 +40,33 @@ test('the loopback reverse proxy uses a fixed public origin without trusting for
 });
 
 test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and retain read-only upstream authority', { timeout: 120_000 }, async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'habit-mcp-http-reads-'));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'habit-mcp-http-reads-')));
+  const clients: Client[] = [];
+  let stopHost = async () => {}, closeVault = async () => {}, closeAccounts = async () => {};
+  let closeAuthorization = async () => {}, closeHttp = async () => {}, stopServer = async () => {}, closeQuotes = () => {};
+  t.after(async () => {
+    const errors: unknown[] = [];
+    const closeClients = async () => {
+      for (const result of await Promise.allSettled(clients.map(client => client.close()))) {
+        if (result.status === 'rejected') errors.push(result.reason);
+      }
+    };
+    for (const close of [closeClients, () => stopServer(), () => closeHttp(), () => closeAccounts(),
+      () => closeAuthorization(), () => closeVault(), () => closeQuotes(), () => stopHost(),
+      () => rmSync(directory, { recursive: true, force: true })]) {
+      try { await close(); } catch (cause) { errors.push(cause); }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Synthetic read fixture cleanup failed.');
+  });
   const host = await startDev({ cwd: resolve('.'), logsDir: directory, args: ['--memory', '--no-watch', '--unsafe-dev-doors'] });
+  stopHost = () => host.stop();
   const vault = new CredentialVault({ location: join(directory, 'vault.sqlite'), activeKeyVersion: 'v1', keys: new Map([['v1', randomBytes(32)]]) });
+  closeVault = async () => { vault.close(); };
   const server = createServer((request, response) => dispatch(request, response));
+  stopServer = async () => {
+    server.closeAllConnections();
+    if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  };
   let dispatch: ReturnType<typeof toNodeHandler> = async (_request, response) => { response.writeHead(503); response.end(); };
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); assert.ok(address && typeof address !== 'string');
@@ -57,20 +82,19 @@ test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and ret
   };
   mkdirSync(join(directory, 'accounts'), { mode: 0o700 });
   const accounts = new AccountActors({ root: join(directory, 'accounts'), backendUrl, fetch: backendFetch });
+  closeAccounts = () => accounts.close();
   const authorization = await createAuthorizationService({ publicOrigin, backendUrl, databasePath: join(directory, 'provider.sqlite'),
     secret: randomBytes(48).toString('hex'), vault, identityOptions: { fetch: backendFetch }, allowTestLoopback: true });
+  closeAuthorization = () => authorization.close();
   const reads = new ReadTools({ accounts, cursors: new CursorCodec(randomBytes(32)) });
-  const http = createHttpService({ authorization, reads });
+  const quotes = new RewardQuoteStore({ location: join(directory, 'quotes.sqlite'), key: randomBytes(32), publicOrigin });
+  closeQuotes = () => quotes.close();
+  const http = createHttpService({ authorization, reads, rewardPreview: new RewardPreviewTools({ accounts, quotes }) });
+  closeHttp = () => http.close();
   dispatch = toNodeHandler(http);
-  const clients: Client[] = [];
-  t.after(async () => {
-    await Promise.all(clients.map(client => client.close()));
-    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
-    await http.close(); await accounts.close(); await authorization.close(); vault.close(); await host.stop();
-    rmSync(directory, { recursive: true, force: true });
-  });
   const credentials = [0, 1].map(() => ({ email: `${randomUUID()}@example.test`, password: randomUUID() }));
   let habitId = '';
+  const rewardIds: string[] = [];
   for (const [index, input] of credentials.entries()) {
     const result = await signup(host.url, input.email, input.password); assert.ok(result.ok);
     const seed = new NodeSqlDatabase(join(directory, `seed-${index}.sqlite`));
@@ -82,8 +106,9 @@ test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and ret
       amountUnit: null, quickAmount: 1, tracksTime: false, startOfDayMinute: 0, metricsEnabled: true,
       anchor: { kind: 'preset', relation: 'after', preset: 'wake' } });
     assert.ok(board.ok); if (index === 0) habitId = board.value.boardId;
-    assert.ok((await createReward(deps, { commandId: randomUUID() as CommandId, title: 'synthetic reward', costCoins: 1,
-      symbol: 'star.fill', accentHex: '#78D98B' })).ok);
+    const reward = await createReward(deps, { commandId: randomUUID() as CommandId, title: 'synthetic reward', costCoins: 1,
+      symbol: 'star.fill', accentHex: '#78D98B' });
+    assert.ok(reward.ok); rewardIds.push(reward.value.rewardId);
     if (index === 0) for (let count = 0; count < 105; count++) assert.ok((await createCheckIn(deps,
       { commandId: randomUUID() as CommandId, boardId: board.value.boardId, source: 'app', note: 'synthetic private note' })).ok);
     await seed.runAsync('UPDATE app_settings SET icloud_sync_enabled = 1 WHERE id = 1');
@@ -106,7 +131,20 @@ test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and ret
       await client.connect(new StreamableHTTPClientTransport(new URL(authorization.resource), {
         requestInit: { headers: { authorization: `Bearer ${provider.tokens()!.access_token}` } },
       }));
-      const tools = await client.listTools(); assert.deepEqual(tools.tools.map(tool => tool.name).sort(), [...readToolNames].sort());
+      const tools = await client.listTools();
+      assert.deepEqual(tools.tools.map(tool => tool.name).sort(), [...readToolNames, 'get_reward_claim_preview'].sort());
+      const previewInput = { rewardId: rewardIds[index], operationId: randomUUID(), timeZone: 'America/Toronto' };
+      const preview = await client.callTool({ name: 'get_reward_claim_preview', arguments: previewInput });
+      assert.equal(preview.isError, undefined, JSON.stringify(preview));
+      const quote = (preview.structuredContent as { data: { confirmationToken: string; confirmationUrl: string; balance: number; balanceAfterClaim: number | null } }).data;
+      assert.equal(quote.balance, index === 0 ? 1 : 0);
+      assert.equal(quote.balanceAfterClaim, index === 0 ? 0 : null);
+      assert.equal(new URL(quote.confirmationUrl).origin, publicOrigin);
+      const repeated = await client.callTool({ name: 'get_reward_claim_preview', arguments: previewInput });
+      assert.equal((repeated.structuredContent as { data: { confirmationToken: string } }).data.confirmationToken, quote.confirmationToken);
+      const foreignQuote = await client.callTool({ name: 'get_reward_claim_preview', arguments: { ...previewInput,
+        operationId: randomUUID(), rewardId: rewardIds[1 - index] } });
+      assert.equal((foreignQuote.structuredContent as { error: { code: string } }).error.code, 'NOT_FOUND');
       const schema = tools.tools.find(tool => tool.name === 'list_habits')!.inputSchema;
       assert.equal(schema.additionalProperties, false);
       for (const arguments_ of [{ limit: 101 }, { owner: 'another-account' }, { limit: 'private SQL token' }]) {

@@ -29,7 +29,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [x] M14: deliver deliberate check-ins with stable operation IDs and frozen dates.
 - [x] M15: deliver targeted undo of this service's actual created check-ins.
 - [x] M16: expose authorized durable operation lookup (checkpoint W).
-- [ ] M17: create operation-bound reward quotes without spending/reservation.
+- [x] M17: create operation-bound reward quotes without spending/reservation.
 - [ ] M18: render and verify authenticated cost confirmation with safe POST approval.
 - [ ] M19: deliver confirmed reward claims with existing offline-overspend semantics (checkpoint C).
 

@@ -161,6 +161,12 @@
 - Eight real Node 24.22.2/SQLite cases pass. Behavioral reds caught premature approval consumption and indexed identity retargeting. Independent review then reproduced mixed-key issuance and two concurrent quotes in a one-slot store. Startup now verifies authenticated key/origin metadata, and lookup/capacity/insertion share an immediate transaction. Both new regressions pass, including two synchronized SQLite workers.
 - Fresh independent round-three review accepted the bounded storage/normalizer slice and reran all eight plus lint/typecheck. Browser approval, public claim registration and HTTP preview integration remain separate gates. No product schema, phone state or production configuration changed.
 
+### M17 - authenticated read-only reward previews
+
+- Optional preview registration now exposes the strict quote contract through the existing authenticated SDK handler. Real read-only OAuth connections can request operation-bound quotes without any upstream mutation. Startup remains unchanged until release composition supplies the component.
+- The actual HTTP proof failed first on the missing preview catalog entry, then passed for modern and legacy protocols, two-account isolation, stable retries and foreign reward refusal. All observed bootstrap/preview traffic stays read-only. Test cleanup is registered before acquisition and attempts each resource independently.
+- Fresh independent HTTP review accepted the registration, error/schema boundary and cleanup, and reran both HTTP cases. The parent's full public protocol suite passes 45/45 with no skips, including the internal quote gate already accepted separately. M18-M19 still own browser confirmation and executable claims.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

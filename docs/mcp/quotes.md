@@ -27,6 +27,10 @@ These are private service methods. `approve` must be called only by an authentic
 
 `approvedClaimNormalizer(quotes)` checks the approved quote against the current undeleted/unarchived reward stamp and cost after the actor's fresh pull. It returns only the existing core `claimReward` command with the expected stamp and frozen quote zone. The core still checks current local affordability atomically. A changed reward requires a new preview and approval; ordinary affordable balance movement is accepted. Public claim registration remains gated on M18/M19 integration and review.
 
+## Authenticated HTTP preview
+
+`createHttpService({ authorization, reads, rewardPreview })` optionally registers this tool alongside the ordinary reads. The actual HTTP/SDK test covers modern and legacy protocols, two synthetic accounts, retry stability and foreign reward refusal. Its observed upstream traffic contains no mutation or account-creation calls. Startup must explicitly supply the preview component; this increment does not activate production writes or claims.
+
 ## Storage and limits
 
 The database, sidecars and physical directory must be private and owned by the service. Full synchronous WAL storage and exact version/schema checks reject unknown or incomplete files. Authenticated database metadata binds the key and public origin before any quote can be issued or approved. Reopening with another key or origin refuses startup. Schema 12 and the phone database remain unchanged. The default lifetime retained limit is 10,000 quotes across this service database; exceeding it returns `RATE_LIMITED`. Namespace lookup, capacity decisions and insertion share one immediate write transaction, so concurrent issuers cannot overfill the retained limit. Replacing an expired or changed-version quote in the same namespace uses its existing slot. There is no implicit history pruning or key-reset API.
