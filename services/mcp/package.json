@@ -9,9 +9,13 @@
   },
   "scripts": {
     "proof:auth": "\"${MCP_PROOF_NODE:-node}\" --test proofs/auth.test.mjs",
-    "lint": "eslint src tests proofs eslint.config.mjs",
+    "lint": "eslint src tests scripts proofs eslint.config.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:proof": "tsc --ignoreConfig --noEmit --allowJs --checkJs --module nodenext --target es2023 --skipLibCheck proofs/*.mjs --types node --allowImportingTsExtensions --strict false",
+    "test": "\"${MCP_NODE:-node}\" scripts/test.mjs unit",
+    "test:integration": "\"${MCP_NODE:-node}\" scripts/test.mjs integration",
+    "test:protocol": "\"${MCP_NODE:-node}\" scripts/test.mjs protocol",
+    "test:coverage": "MCP_TEST_COVERAGE=1 \"${MCP_NODE:-node}\" scripts/test.mjs all",
     "build": "bun build src/core.ts --target=node --packages=external --outdir=dist --metafile=dist/metafile.json"
   },
   "dependencies": {

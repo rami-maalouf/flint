@@ -61,6 +61,12 @@
 - The production boundary bundles 94 modules and its recorded graph contains no Expo/React runtime imports. Frozen service install, build, lint and strict typecheck pass locally and in a private fresh Linux ARM64 source/install directory on Oracle with checksum-verified Node 24.22.2 and Bun 1.4.3. The remote proof installs no mobile dependency graph and changes no production service or route.
 - Independent foundation review approved this boundary; the parent's clean ARM64 verification subsequently passed all 25 foundation tests. The service test runner and reproducible command documentation follow in M05b so configuration/build changes stay bounded.
 
+### M05b - reproducible real-Node suites and dependency proof
+
+- Added separate unit/integration/protocol/coverage commands that compile service tests with Bun and execute on exact real Node 24.22.2. Concurrent runs use unique artifact entry names; the Node test working directory preserves the pinned Snapback schema lookup. The build graph test loads the actual artifact and rejects mobile runtime dependencies.
+- The boundary regression failed before the production core entry existed and now passes. ARM64 frozen install/build/lint/typecheck and 25 foundation tests pass; local unit suites include the separately tested vault, journal/recovery suites pass 57, and the public-enabled SDK/provider protocol suite passes 12. Public metadata cases are explicitly skipped when not enabled.
+- `services/mcp/README.md` records runtime/setup/commands and the Linux proof boundary. Root validate remains 214 suites / 3,114 tests and 100 percent core coverage; backend gates pass. The existing SDK native patch, AJV 6 root requirement and generated API process remain intact. This is a service foundation, not a claim that a public endpoint is already active.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

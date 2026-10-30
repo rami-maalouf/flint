@@ -14,7 +14,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 
 ## Read-only service
 
-- [ ] M05: establish isolated service install/build/test boundary; preserve mobile dependency graph.
+- [x] M05: establish isolated service install/build/test boundary; preserve mobile dependency graph.
 - [ ] M06: persist verified browser identity and encrypted independent Snapback session custody.
 - [ ] M07: complete discovery, PKCE, consent, token validation and registration protections.
 - [ ] M08: implement durable isolated account replicas with one owner and serialized work.
