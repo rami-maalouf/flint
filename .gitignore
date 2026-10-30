@@ -70,3 +70,10 @@ coverage/
 .e2e/videos/
 .e2e/session-urls.txt
 .e2e/session-ids.txt
+
+# snapback generated clients, local stores and private proof accounts
+.snapback4/
+snapback/generated/
+snapback/deployment/
+snapback/staging/
+logs/

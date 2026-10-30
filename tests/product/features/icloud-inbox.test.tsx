@@ -9,7 +9,7 @@ describe('local incoming data summary', () => {
   beforeEach(() => resetProductCoreForTests());
 
   it('shows empty incoming counts separately from uploads while icloud is off', async () => {
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await settle();
     for (const name of ['Waiting to upload', 'Waiting for related data', 'At processing limit', 'Conflicting or invalid data']) {
       expect(screen.getByRole('text', { name })).toHaveAccessibilityValue({ text: '0' });
@@ -46,7 +46,7 @@ describe('local incoming data summary', () => {
     expect(summary).toMatchObject({ ok: true, value: { enabled: false, pendingChanges: 0,
       incoming: { pending: 1, blocked: 2, quarantined: 3 }, lastSuccessAtUtc: null } });
 
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await settle();
     for (const [name, count] of [['Waiting to upload', '0'], ['Waiting for related data', '0'],
       ['At processing limit', '0'], ['Conflicting or invalid data', '3']]) {
@@ -69,7 +69,7 @@ describe('local incoming data summary', () => {
       return read(sql, params);
     });
     try {
-      renderRouter('src/app', { initialUrl: '/settings/sync' });
+      renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
       await settle();
       expect(screen.getByTestId('icloud-summary-error')).toHaveTextContent('Sync information could not be loaded.');
       expect(screen.getByTestId('icloud-toggle')).toBeDisabled();
@@ -89,3 +89,4 @@ describe('local incoming data summary', () => {
     expect(screen.getByRole('text', { name: 'Waiting for related data' })).toHaveAccessibilityValue({ text: '0' });
   });
 });
+import { legacySyncContext } from '../../../src/testing/legacy-sync-router';

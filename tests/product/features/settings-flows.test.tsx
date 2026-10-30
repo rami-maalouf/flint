@@ -17,6 +17,7 @@ import {
 import { act } from '@testing-library/react-native';
 
 import { fireEvent, renderRouter, screen, settle } from '../../../src/testing/render';
+import { legacySyncContext } from '../../../src/testing/legacy-sync-router';
 
 jest.mock('expo-application', () => ({ nativeApplicationVersion: 'test', nativeBuildVersion: 'test' }));
 
@@ -341,7 +342,7 @@ describe('icloud sync settings', () => {
   });
 
   it('exposes sync status and queue values as readable information', async () => {
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     expect(screen.getByRole('text', { name: 'Status' })).toHaveAccessibilityValue({ text: 'Off' });
     expect(screen.getByRole('text', { name: 'Waiting to upload' })).toHaveAccessibilityValue({ text: '0' });
@@ -350,7 +351,7 @@ describe('icloud sync settings', () => {
   });
 
   it('explains where the data goes before turning sync on', async () => {
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     expect(screen.getByTestId('icloud-status')).toHaveTextContent(/Off/);
     // the transport is unavailable in this build and says so
@@ -391,7 +392,7 @@ describe('icloud sync settings', () => {
     if (!created.ok) {
       throw new Error(created.error.message);
     }
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     // the outbox depth is visible before any sync runs
     expect(screen.getByTestId('icloud-pending')).toHaveTextContent(/[1-9]/);
@@ -437,7 +438,7 @@ describe('icloud sync settings', () => {
     if (!created.ok) {
       throw new Error(created.error.message);
     }
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     alertSpy.mockImplementationOnce((_title, _message, buttons) => {
       buttons?.find((button) => button.text === 'Turn On')?.onPress?.();
@@ -491,7 +492,7 @@ describe('icloud sync settings', () => {
     if (!opened.ok) {
       throw new Error('core failed');
     }
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     alertSpy.mockImplementationOnce((_title, _message, buttons) => {
       buttons?.find((button) => button.text === 'Turn On')?.onPress?.();
@@ -531,7 +532,7 @@ describe('icloud sync settings', () => {
     if (!opened.ok) {
       throw new Error('core failed');
     }
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-toggle');
     alertSpy.mockImplementationOnce((_title, _message, buttons) => {
       buttons?.find((button) => button.text === 'Turn On')?.onPress?.();
@@ -577,7 +578,7 @@ describe('icloud sync settings', () => {
        ON CONFLICT (id) DO UPDATE SET last_success_at = excluded.last_success_at`,
       [Date.UTC(2026, 7, 30, 16, 0)],
     );
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await screen.findByTestId('icloud-last-sync');
     expect(screen.getByTestId('icloud-last-sync')).not.toHaveTextContent(/Never/);
     expect(screen.getByTestId('icloud-last-sync')).toHaveTextContent(/2026/);

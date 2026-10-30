@@ -180,12 +180,12 @@ enum RipplesIntentRuntime {
   static func publishWidgets(_ executor: IntentExecutor) {
     guard let group = Bundle.main.object(forInfoDictionaryKey: "ExpoWidgetsAppGroupIdentifier") as? String,
           let defaults = UserDefaults(suiteName: group),
-          defaults.string(forKey: "__expo_widgets_HabitSystemBoards_layout") != nil,
+          defaults.string(forKey: "__expo_widgets_HabitSystemFullStackBoards_layout") != nil,
           let timeline = try? executor.widgetTimeline().get(),
           let data = try? JSONEncoder().encode(timeline.entries),
           let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
-    defaults.set(entries, forKey: "__expo_widgets_HabitSystemBoards_timeline")
-    WidgetCenter.shared.reloadTimelines(ofKind: "HabitSystemBoards")
+    defaults.set(entries, forKey: "__expo_widgets_HabitSystemFullStackBoards_timeline")
+    WidgetCenter.shared.reloadTimelines(ofKind: "HabitSystemFullStackBoards")
   }
 }
 #endif

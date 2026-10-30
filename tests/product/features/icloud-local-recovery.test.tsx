@@ -24,7 +24,7 @@ it('keeps foreground local recovery working after turning iCloud off in Settings
   if (!opened.ok) throw new Error('core failed');
   const core = opened.value;
   await setICloudSyncEnabled(core, { commandId: newCommandId(), enabled: true });
-  const rendered = renderRouter('src/app', { initialUrl: '/settings/sync' });
+  const rendered = renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
   try {
     await settle();
     fireEvent(screen.getByTestId('icloud-toggle'), 'valueChange', false);
@@ -55,3 +55,4 @@ it('keeps foreground local recovery working after turning iCloud off in Settings
     jest.restoreAllMocks();
   }
 });
+import { legacySyncContext } from '../../../src/testing/legacy-sync-router';

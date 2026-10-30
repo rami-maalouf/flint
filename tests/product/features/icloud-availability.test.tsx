@@ -7,6 +7,7 @@ import * as sync from '@/platform/sync';
 
 import { getProductCore, newCommandId, resetProductCoreForTests } from '../../../src/testing/product-core.mock';
 import { renderRouter, screen, settle } from '../../../src/testing/render';
+import { legacySyncContext } from '../../../src/testing/legacy-sync-router';
 
 jest.mock('@/platform/sync', () => ({
   ...jest.requireActual('@/platform/sync'),
@@ -29,7 +30,7 @@ describe('runtime icloud availability', () => {
 
   it('hides the unavailable message when the native account check succeeds', async () => {
     jest.mocked(sync.cloudKitAvailable).mockResolvedValue(true);
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await settle();
     expect(sync.cloudKitAvailable).toHaveBeenCalled();
     expect(screen.queryByTestId('icloud-unavailable')).toBeNull();
@@ -41,7 +42,7 @@ describe('runtime icloud availability', () => {
     } else {
       jest.mocked(sync.cloudKitAvailable).mockResolvedValue(false);
     }
-    renderRouter('src/app', { initialUrl: '/settings/sync' });
+    renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     await settle();
     expect(screen.getByTestId('icloud-unavailable')).toHaveTextContent(/changes stay queued/);
     expect(screen.queryByText(/private account details/)).toBeNull();
@@ -66,7 +67,7 @@ describe('runtime icloud availability', () => {
     jest.spyOn(sync.cloudKitTransport, 'ensureZone').mockResolvedValue();
     jest.spyOn(sync.cloudKitTransport, 'upload').mockResolvedValue();
     jest.spyOn(sync.cloudKitTransport, 'fetchChanges').mockResolvedValue({ records: [record], nextToken: 'deferred', more: false });
-    const rendered = renderRouter('src/app', { initialUrl: '/settings/sync' });
+    const rendered = renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
     try {
       await settle();
       await settle();

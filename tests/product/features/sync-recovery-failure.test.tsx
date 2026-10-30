@@ -10,6 +10,7 @@ import { cloudKitTransport } from '@/platform/sync';
 
 import { getProductCore, newCommandId, resetProductCoreForTests } from '../../../src/testing/product-core.mock';
 import { fireEvent, renderRouter, screen, settle } from '../../../src/testing/render';
+import { legacySyncContext } from '../../../src/testing/legacy-sync-router';
 
 it('refreshes committed incoming data in Settings when later sync retry storage fails', async () => {
   resetProductCoreForTests();
@@ -29,7 +30,7 @@ it('refreshes committed incoming data in Settings when later sync retry storage 
     WHEN NEW.retry_state IS NOT NULL BEGIN SELECT RAISE(ABORT, 'private retry metadata'); END;`);
   const ensure = jest.spyOn(cloudKitTransport, 'ensureZone')
     .mockRejectedValue(new SyncTransportError('offline', 'private network detail'));
-  const rendered = renderRouter('src/app', { initialUrl: '/settings/sync' });
+  const rendered = renderRouter(legacySyncContext, { initialUrl: '/settings/sync' });
   try {
     await settle();
     await settle();

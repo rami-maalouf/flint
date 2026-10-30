@@ -43,6 +43,6 @@ export interface SyncTransport<R extends WireSyncRecord = SyncRecord> {
   // creates the custom private zone when missing; idempotent
   ensureZone(): Promise<void>;
   // idempotent by (entityId, mutationStamp); re-uploading is safe
-  upload(records: R[]): Promise<void>;
-  fetchChanges(token: string | null): Promise<FetchPage<R>>;
+  upload(records: R[], shouldContinue?: () => boolean): Promise<void>;
+  fetchChanges(token: string | null, shouldContinue?: () => boolean): Promise<FetchPage<R>>;
 }

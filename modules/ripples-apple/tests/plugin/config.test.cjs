@@ -35,7 +35,7 @@ class AppDelegate: ExpoAppDelegate {
 `;
 
 async function applyAppDelegateMod(contents, language = 'swift') {
-  const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem' } });
+  const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack' } });
   return config.mods.ios.appDelegate({
     ...config,
     modRequest: { platform: 'ios', modName: 'appDelegate' },
@@ -60,7 +60,7 @@ async function withTemplateProject(action) {
 }
 
 async function applyProjectMod(project, includeDevLauncher = true, afterXcode = () => {}) {
-  let config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem' } });
+  let config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack' } });
   if (includeDevLauncher) config = withDevLauncher(config);
   await config.mods.ios.xcodeproj({
     ...config,
@@ -166,7 +166,7 @@ test('unchanged dev launcher script strips only its release values and preserves
       for (const configuration of ['Debug', 'Release']) {
         for (const custom of [false, true]) {
           const original = {
-            CFBundleIdentifier: 'studio.orbitlabs.habitsystem',
+            CFBundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack',
             NSBonjourServices: custom ? ['_custom._tcp', '_expo._tcp', '_other._udp'] : ['_expo._tcp'],
             NSLocalNetworkUsageDescription: custom ? 'Find my household devices.' : defaultDescription,
           };
@@ -177,7 +177,7 @@ test('unchanged dev launcher script strips only its release values and preserves
             INFOPLIST_PATH: 'App With Spaces.app/Info.plist' } });
           const actualBytes = await fs.readFile(plistPath, 'utf8');
           const expected = configuration === 'Debug' ? original : {
-            CFBundleIdentifier: 'studio.orbitlabs.habitsystem',
+            CFBundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack',
             ...(custom ? { NSBonjourServices: ['_custom._tcp', '_other._udp'],
               NSLocalNetworkUsageDescription: 'Find my household devices.' } : {}),
           };
@@ -207,7 +207,7 @@ test('dev launcher phase configuration fails clearly when the application phase 
 
 test('native generation keeps react and expo modules in the same source build mode', async () => {
   const apply = async (properties) => {
-    const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem' } });
+    const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack' } });
     assert.equal(typeof config.mods.ios.podfileProperties, 'function');
     return (await config.mods.ios.podfileProperties({
       ...config,
@@ -264,7 +264,7 @@ test('generated shortcut provider uses the statically linked intents without an 
   const projectRoot = path.resolve(__dirname, '../../../..');
   const platformProjectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ripples-native-config-'));
   try {
-    const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem' } });
+    const config = withRipplesApple({ ios: { bundleIdentifier: 'studio.orbitlabs.habitsystem.fullstack' } });
     await config.mods.ios.dangerous({
       ...config,
       modRequest: { platform: 'ios', modName: 'dangerous', projectRoot, platformProjectRoot, projectName: 'fixture' },
@@ -281,7 +281,7 @@ test('generated shortcut provider uses the statically linked intents without an 
 });
 
 test('one bundle identifier drives app group, cloudkit and native lookup keys idempotently', () => {
-  const bundle = 'studio.orbitlabs.habitsystem';
+  const bundle = 'studio.orbitlabs.habitsystem.fullstack';
   const entitlements = configureEntitlements({ 'aps-environment': 'development' }, bundle);
   assert.deepEqual(configureEntitlements(entitlements, bundle), entitlements);
   assert.equal(entitlements['aps-environment'], 'development');
@@ -297,7 +297,7 @@ test('one bundle identifier drives app group, cloudkit and native lookup keys id
 });
 
 test('cloudkit release environment is explicit and rejects unknown values', () => {
-  const bundle = 'studio.orbitlabs.habitsystem';
+  const bundle = 'studio.orbitlabs.habitsystem.fullstack';
   const environmentKey = 'com.apple.developer.icloud-container-environment';
   assert.equal(configureEntitlements({}, bundle, 'Production')[environmentKey], 'Production');
   assert.throws(() => configureEntitlements({}, bundle, 'production'), /cloudkit environment/);
@@ -330,32 +330,32 @@ test('app configuration carries the fork identity and never the ripples identity
   const root = path.resolve(__dirname, '../../../..');
   const app = require(path.join(root, 'app.json')).expo;
   const pkg = require(path.join(root, 'package.json'));
-  assert.equal(pkg.name, 'habit-system');
-  assert.equal(app.name, 'habit-system');
-  assert.equal(app.slug, 'habit-system');
-  assert.equal(app.scheme, 'habitsystem');
-  assert.equal(app.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem');
-  assert.equal(app.ios.infoPlist.CFBundleDisplayName, 'Habit System');
+  assert.equal(pkg.name, 'habit-system-fullstack');
+  assert.equal(app.name, 'habit-system-fullstack');
+  assert.equal(app.slug, 'habit-system-fullstack');
+  assert.equal(app.scheme, 'habitsystemfullstack');
+  assert.equal(app.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem.fullstack');
+  assert.equal(app.ios.infoPlist.CFBundleDisplayName, 'Habit System FS');
   const widgets = app.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets')[1];
-  assert.equal(widgets.groupIdentifier, 'group.studio.orbitlabs.habitsystem');
-  assert.equal(widgets.widgets[0].displayName, 'Habit System');
-  assert.equal(widgets.widgets[0].name, 'HabitSystemBoards');
+  assert.equal(widgets.groupIdentifier, 'group.studio.orbitlabs.habitsystem.fullstack');
+  assert.equal(widgets.widgets[0].displayName, 'Habit System FS');
+  assert.equal(widgets.widgets[0].name, 'HabitSystemFullStackBoards');
   assert.equal(widgets.widgets[0].description, 'Your boards with seven-day strips and quick check-in.');
   // the app group is duplicated as a typescript constant; it must not drift from the plugin-derived value
   const databaseSource = require('node:fs').readFileSync(path.join(root, 'src/platform/database/index.ts'), 'utf8');
-  assert.match(databaseSource, /appGroupId = 'group\.studio\.orbitlabs\.habitsystem'/);
+  assert.match(databaseSource, /appGroupId = 'group\.studio\.orbitlabs\.habitsystem\.fullstack'/);
   const transportSource = require('node:fs').readFileSync(path.join(root, 'modules/ripples-apple/ios/CloudKitTransport.swift'), 'utf8');
-  assert.match(transportSource, /static let zoneName = "habit-system"/);
+  assert.match(transportSource, /static let zoneName = "habit-system-fullstack"/);
   const podspec = require('node:fs').readFileSync(path.join(root, 'modules/ripples-apple/ios/RipplesApple.podspec'), 'utf8');
-  assert.match(podspec, /s\.homepage\s*=\s*'https:\/\/github\.com\/rami-maalouf\/habit-system'/);
-  assert.match(podspec, /git: 'https:\/\/github\.com\/rami-maalouf\/habit-system\.git'/);
+  assert.match(podspec, /s\.homepage\s*=\s*'https:\/\/github\.com\/rami-maalouf\/habit-system-fullstack'/);
+  assert.match(podspec, /git: 'https:\/\/github\.com\/rami-maalouf\/habit-system-fullstack\.git'/);
   const widgetSource = require('node:fs').readFileSync(path.join(root, 'src/platform/widgets/ripples-boards-widget.tsx'), 'utf8');
-  assert.match(widgetSource, /createWidget\('HabitSystemBoards'/);
+  assert.match(widgetSource, /createWidget\('HabitSystemFullStackBoards'/);
   assert.doesNotMatch(widgetSource, /habittracker:\/\//);
   const intentsSource = require('node:fs').readFileSync(path.join(root, 'modules/ripples-apple/ios/Intents/RipplesAppIntents.swift'), 'utf8');
   assert.doesNotMatch(intentsSource, /RipplesBoards/);
-  assert.match(intentsSource, /reloadTimelines\(ofKind: "HabitSystemBoards"\)/);
-  assert.equal(app.extra.eas.projectId, '07481ea0-9f44-4f24-ad3c-fd889569cade');
+  assert.match(intentsSource, /reloadTimelines\(ofKind: "HabitSystemFullStackBoards"\)/);
+  assert.equal(app.extra.eas.projectId, '985b07f0-3ecb-49ba-a11c-43a47629246f');
   assert.equal(app.updates.url, `https://u.expo.dev/${app.extra.eas.projectId}`);
   const serialized = JSON.stringify(app) + JSON.stringify(pkg);
   assert.doesNotMatch(serialized, /habittracker|habit-tracker|1e477943/);
@@ -370,43 +370,43 @@ test('only development builds use the side-by-side dev bundle identifiers', asyn
   try {
     delete process.env.APP_VARIANT;
     const preview = configureApp({ config: structuredClone(base) });
-    assert.equal(preview.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem');
+    assert.equal(preview.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem.fullstack');
     assert.equal(preview.icon, './assets/images/icon.png');
     assert.equal(
       preview.extra.eas.build.experimental.ios.appExtensions[0].bundleIdentifier,
-      'studio.orbitlabs.habitsystem.ExpoWidgetsTarget',
+      'studio.orbitlabs.habitsystem.fullstack.ExpoWidgetsTarget',
     );
 
     process.env.APP_VARIANT = 'development';
     const development = configureApp({ config: structuredClone(base) });
-    assert.equal(development.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem.dev');
+    assert.equal(development.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem.fullstack.dev');
     assert.equal(development.icon, './assets/images/icon-development.png');
     const developmentIcon = await getPngInfo(path.join(root, development.icon));
     assert.equal(developmentIcon.width, developmentIcon.height);
     assert.ok(developmentIcon.width >= 1024);
     assert.equal(developmentIcon.bpp, 3);
-    assert.equal(development.extra.ripplesSharedIdentifier, 'studio.orbitlabs.habitsystem');
+    assert.equal(development.extra.ripplesSharedIdentifier, 'studio.orbitlabs.habitsystem.fullstack');
     assert.equal(
       resolveSharedIdentifier(development, development.ios.bundleIdentifier),
-      'studio.orbitlabs.habitsystem',
+      'studio.orbitlabs.habitsystem.fullstack',
     );
     assert.equal(eas.build.development.env.APP_VARIANT, 'development');
     assert.equal(eas.build.preview.env?.APP_VARIANT, undefined);
     assert.equal(eas.build.production.env?.APP_VARIANT, undefined);
     assert.equal(
       development.extra.eas.build.experimental.ios.appExtensions[0].bundleIdentifier,
-      'studio.orbitlabs.habitsystem.dev.ExpoWidgetsTarget',
+      'studio.orbitlabs.habitsystem.fullstack.dev.ExpoWidgetsTarget',
     );
     assert.deepEqual(
       development.extra.eas.build.experimental.ios.appExtensions[0].entitlements[
         'com.apple.security.application-groups'
       ],
-      ['group.studio.orbitlabs.habitsystem'],
+      ['group.studio.orbitlabs.habitsystem.fullstack'],
     );
     const widgets = development.plugins.find(
       (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
     )[1];
-    assert.equal(widgets.groupIdentifier, 'group.studio.orbitlabs.habitsystem');
+    assert.equal(widgets.groupIdentifier, 'group.studio.orbitlabs.habitsystem.fullstack');
 
     const nativeConfig = withRipplesApple(development);
     const entitlements = await nativeConfig.mods.ios.entitlements({
@@ -415,20 +415,20 @@ test('only development builds use the side-by-side dev bundle identifiers', asyn
       modResults: {},
     });
     assert.deepEqual(entitlements.modResults['com.apple.security.application-groups'], [
-      'group.studio.orbitlabs.habitsystem',
+      'group.studio.orbitlabs.habitsystem.fullstack',
     ]);
     assert.deepEqual(entitlements.modResults['com.apple.developer.icloud-container-identifiers'], [
-      'iCloud.studio.orbitlabs.habitsystem',
+      'iCloud.studio.orbitlabs.habitsystem.fullstack',
     ]);
     const infoPlist = await nativeConfig.mods.ios.infoPlist({
       ...nativeConfig,
       modRequest: { platform: 'ios', modName: 'infoPlist' },
       modResults: {},
     });
-    assert.equal(infoPlist.modResults.RipplesAppGroupIdentifier, 'group.studio.orbitlabs.habitsystem');
+    assert.equal(infoPlist.modResults.RipplesAppGroupIdentifier, 'group.studio.orbitlabs.habitsystem.fullstack');
     assert.equal(
       infoPlist.modResults.RipplesCloudKitContainerIdentifier,
-      'iCloud.studio.orbitlabs.habitsystem',
+      'iCloud.studio.orbitlabs.habitsystem.fullstack',
     );
   } finally {
     if (previousVariant === undefined) delete process.env.APP_VARIANT;

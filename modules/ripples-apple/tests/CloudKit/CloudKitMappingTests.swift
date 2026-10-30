@@ -8,11 +8,11 @@ func cloudKitFixtures() throws -> [CloudKitWireRecord] {
   return try JSONDecoder().decode([CloudKitWireRecord].self, from: Data(contentsOf: url))
 }
 
-let testZone = CKRecordZone.ID(zoneName: "habit-system", ownerName: CKCurrentUserDefaultName)
+let testZone = CKRecordZone.ID(zoneName: "habit-system-fullstack", ownerName: CKCurrentUserDefaultName)
 
 final class CloudKitMappingTests: XCTestCase {
   func testZoneNameIsTheForkZone() {
-    XCTAssertEqual(CloudKitTransport.zoneName, "habit-system")
+    XCTAssertEqual(CloudKitTransport.zoneName, "habit-system-fullstack")
   }
 
   func testSharedFixtureRoundTripsThroughCloudKitRecords() throws {
@@ -87,7 +87,7 @@ final class CloudKitMappingTests: XCTestCase {
   }
 
   func testTokenCodecRejectsMalformedAndDifferentContainerTokens() throws {
-    let codec = CloudKitToken(containerIdentifier: "iCloud.studio.orbitlabs.habitsystem", zoneName: "habit-system",
+    let codec = CloudKitToken(containerIdentifier: "iCloud.studio.orbitlabs.habitsystem", zoneName: "habit-system-fullstack",
       accountDigest: CloudKitAccountBinding.digest(recordName: "synthetic-user-a"))
     XCTAssertNil(codec.decode(nil))
     XCTAssertNil(codec.decode("not-base64"))
@@ -102,7 +102,7 @@ final class CloudKitMappingTests: XCTestCase {
   func testVersionTwoTokenEnvelopeRoundTripsOnlyWithinItsAccountContainerAndZone() throws {
     let digest = CloudKitAccountBinding.digest(recordName: "synthetic-user-a")
     let codec = CloudKitToken(containerIdentifier: "iCloud.studio.orbitlabs.habitsystem",
-      zoneName: "habit-system", accountDigest: digest)
+      zoneName: "habit-system-fullstack", accountDigest: digest)
     let archive = Data("opaque-server-token-archive".utf8)
     let token = try codec.encodeArchive(archive)
     XCTAssertEqual(codec.decodeArchive(token), archive)

@@ -1,5 +1,5 @@
 {
-  "name": "habit-system",
+  "name": "habit-system-fullstack",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
@@ -18,6 +18,7 @@
     "expo-localization": "~57.0.1",
     "expo-notifications": "~57.0.17",
     "expo-router": "~57.0.20",
+    "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.18",
     "expo-splash-screen": "~57.0.8",
     "expo-sqlite": "~57.0.2",
@@ -32,7 +33,8 @@
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.10.1"
+    "react-native-worklets": "0.10.1",
+    "snapback4": "0.4.49"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^4.0.68",
@@ -54,6 +56,12 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "postinstall": "snapback4 types",
+    "backend:check": "snapback4 check",
+    "backend:dev": "snapback4 dev --port 4410",
+    "backend:deploy": "snapback4 deploy snapback/deployment",
+    "backend:serve": "snapback4 serve snapback/deployment --port 4410",
+    "test:backend": "snapback4 check && node --test tests/backend/*.test.mjs && bun test tests/backend/domain-convergence.test.js",
     "start": "EXPO_UNSTABLE_MCP_SERVER=1 bun expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -67,7 +75,7 @@
     "test:contracts": "jest --runInBand tests/product/contracts",
     "test:features": "jest --runInBand tests/product/features",
     "test:sync": "jest --runInBand tests/product/sync",
-    "test:native:config": "node --test modules/ripples-apple/tests/plugin/config.test.cjs",
+    "test:native:config": "node --test modules/ripples-apple/tests/plugin/*.test.cjs",
     "test:native:linkage": "sh modules/ripples-apple/tests/native/verify-sqlite-linkage.sh",
     "test:native": "bun run test:native:config && swift test --package-path modules/ripples-apple",
     "validate": "bun run lint && bun run typecheck && bun run test:coverage",
@@ -75,5 +83,8 @@
     "test:e2e:simulator": "E2E_EAS_SIMULATOR=0 E2E_TARGET=simulator e2e run",
     "test:e2e:device": "E2E_EAS_SIMULATOR=0 E2E_TARGET=device e2e run"
   },
-  "private": true
+  "private": true,
+  "patchedDependencies": {
+    "snapback4@0.4.49": "patches/snapback4@0.4.49.patch"
+  }
 }

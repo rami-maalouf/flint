@@ -1,5 +1,5 @@
-import { ICloudScreen } from '@/features/settings';
+import { BackendSyncScreen } from '@/features/settings/backend-screen';
 
-export default function ICloudScreenRoute() {
-  return <ICloudScreen />;
+export default function BackendSyncScreenRoute() {
+  return <BackendSyncScreen />;
 }

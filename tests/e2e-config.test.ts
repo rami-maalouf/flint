@@ -12,14 +12,14 @@ function launchIdentity(overrides: Record<string, string> = {}) {
 }
 
 it('launches the development app for local e2e runs', () => {
-  expect(launchIdentity()).toBe('studio.orbitlabs.habitsystem.dev');
+  expect(launchIdentity()).toBe('studio.orbitlabs.habitsystem.fullstack.dev');
 });
 
 it('launches the matching app for the eas sim build profile', () => {
-  expect(launchIdentity({ E2E_EAS_SIMULATOR: '1' })).toBe('studio.orbitlabs.habitsystem');
+  expect(launchIdentity({ E2E_EAS_SIMULATOR: '1' })).toBe('studio.orbitlabs.habitsystem.fullstack');
 });
 
 it.each(['0', '1'])('honors an explicit app id with eas mode %s', (mode) => {
-  expect(launchIdentity({ E2E_EAS_SIMULATOR: mode, E2E_APP_ID: 'studio.orbitlabs.habitsystem.dev' }))
-    .toBe('studio.orbitlabs.habitsystem.dev');
+  expect(launchIdentity({ E2E_EAS_SIMULATOR: mode, E2E_APP_ID: 'studio.orbitlabs.habitsystem.fullstack.dev' }))
+    .toBe('studio.orbitlabs.habitsystem.fullstack.dev');
 });

@@ -5,7 +5,7 @@ module.exports = {
   watchman: false,
   // generated native dependencies and preserved qa probes are outside the product suite.
   modulePathIgnorePatterns: ['<rootDir>/\\.artifacts/', '<rootDir>/ios/', '<rootDir>/android/'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/\\.artifacts/', '<rootDir>/ios/', '<rootDir>/android/'],
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/\\.artifacts/', '<rootDir>/ios/', '<rootDir>/android/', '<rootDir>/tests/backend/'],
   // bun variant of the expo-recommended pattern (docs.expo.dev/develop/unit-testing),
   // plus standard-navigation, which expo-router 57 depends on and ships as esm
   transformIgnorePatterns: [
@@ -28,6 +28,7 @@ module.exports = {
     '!src/platform/**',
   ],
   moduleNameMapper: {
+    '^@/platform/backend$': '<rootDir>/src/testing/backend.mock.ts',
     // reviewed behavior-focused mock: jest-expo provides no @expo/ui mock and
     // the real package requires the native ObservableState runtime
     '^@expo/ui$': '<rootDir>/src/testing/expo-ui.mock.tsx',

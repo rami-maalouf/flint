@@ -125,7 +125,7 @@ jobs:
       E2E_AGENT: ${{ inputs.agent || 'default' }}
       EXPLORE_GOAL: ${{ inputs.goal || github.event.pull_request.body || '' }}
       EXPLORE_TITLE: ${{ github.event.pull_request.title || '' }}
-      REPO: rami-maalouf/habit-system
+      REPO: rami-maalouf/habit-system-fullstack
       CI: '1'
       E2E_TELEMETRY_DISABLED: '1'
     steps:

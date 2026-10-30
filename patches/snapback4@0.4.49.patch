@@ -1,0 +1,13 @@
+diff --git a/dist/admission.js b/dist/admission.js
+index 05cf6419bde5c1f7a05c04ad1baccf0110fd7c5e..844db5af59100868d181534327fc5106752b09d7 100644
+--- a/dist/admission.js
++++ b/dist/admission.js
+@@ -9,7 +9,7 @@ export const admitNow = (core, request) => {
+     const capture = core[admissionCapture];
+     return capture ? capture(request) : browserAdmission() ? admissionRefusal("the device has no synchronous admission journal", "client.mutate", "open a webDevice() with an exclusive persistence claim before writing") : undefined;
+ };
+-export const browserAdmission = () => typeof window !== "undefined" && typeof window.location !== "undefined";
++export const browserAdmission = () => globalThis.navigator?.product !== "ReactNative" && typeof window !== "undefined" && typeof window.location !== "undefined";
+ export const BROWSER_WRITE_FIX = "createApp({ url, device: webDevice(), sessionStore: localStorageSessionStore() })";
+ /** A browser app whose schema syncs no table (LLP 3000.013.000). */
+ export const ONLINE_WRITE_FIX = "createApp({ url, sessionStore: localStorageSessionStore() })";

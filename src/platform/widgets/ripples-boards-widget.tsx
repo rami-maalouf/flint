@@ -67,7 +67,7 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
       <HStack key={row.boardId}>
         <Image systemName={row.symbol as never} color={row.accentHex} size={14} />
         <Link
-          destination={`habitsystem://boards/${row.boardId}`}
+          destination={`habitsystemfullstack://boards/${row.boardId}`}
           modifiers={[accessibilityLabel(titleLabel)]}
         >
           <Text modifiers={[lineLimit(1)]}>{row.title}</Text>
@@ -90,8 +90,8 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
         </HStack>
         <Link
           destination={daily
-            ? `habitsystem://boards/${row.boardId}/quick-action`
-            : `habitsystem://boards/${row.boardId}/check-ins/new?source=widget`}
+            ? `habitsystemfullstack://boards/${row.boardId}/quick-action`
+            : `habitsystemfullstack://boards/${row.boardId}/check-ins/new?source=widget`}
           modifiers={[accessibilityLabel(actionLabel)]}
         >
           <Image systemName={actionSymbol} color={row.accentHex} size={16} />
@@ -102,7 +102,7 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
 
   if (rows.length === 0) {
     return (
-      <VStack modifiers={[widgetURL('habitsystem://boards/new'), padding({ all: 12 }), widgetBackground]}>
+      <VStack modifiers={[widgetURL('habitsystemfullstack://boards/new'), padding({ all: 12 }), widgetBackground]}>
         <Text>Open Habit System to create your first board</Text>
       </VStack>
     );
@@ -126,4 +126,4 @@ const RipplesBoards = (props: RipplesWidgetProps, environment: WidgetEnvironment
   );
 };
 
-export default createWidget('HabitSystemBoards', RipplesBoards);
+export default createWidget('HabitSystemFullStackBoards', RipplesBoards);
