@@ -5,16 +5,17 @@ import type { AuthContext } from './auth/context';
 import { contracts } from './tools/contracts';
 import { publicError, ToolError } from './tools/errors';
 import { ReadTools, readToolNames, type ReadToolName } from './tools/reads';
-import { MutationTools, mutationToolNames, type MutationToolName } from './tools/mutations';
+import { MutationTools, type MutationToolName } from './tools/mutations';
 import { RewardPreviewTools } from './rewards/tools';
 
 type AuthorizationService = Awaited<ReturnType<typeof createAuthorizationService>>;
-type HttpOptions = { authorization: AuthorizationService; reads: ReadTools; mutations?: MutationTools; rewardPreview?: RewardPreviewTools };
+type HttpOptions = { authorization: AuthorizationService; reads: ReadTools; mutations?: MutationTools; rewardPreview?: RewardPreviewTools;
+  browser?: { fetch: (request: Request) => Promise<Response | null> } };
 
 // one SDK factory per exchange: no principal, scope, or upstream bearer lives in a shared MCP session.
-export function createHttpService({ authorization, reads, mutations, rewardPreview }: HttpOptions) {
+export function createHttpService({ authorization, reads, mutations, rewardPreview, browser }: HttpOptions) {
   const origin = new URL(authorization.resource).origin;
-  const names = [...readToolNames, ...(mutations ? mutationToolNames : []), ...(rewardPreview ? ['get_reward_claim_preview' as const] : [])];
+  const names = [...readToolNames, ...(mutations?.toolNames ?? []), ...(rewardPreview ? ['get_reward_claim_preview' as const] : [])];
   const catalog = names.map((name): Tool => ({ name, description: contracts[name].description,
     inputSchema: z.toJSONSchema(contracts[name].input) as Tool['inputSchema'],
     outputSchema: z.toJSONSchema(contracts[name].output), annotations: contracts[name].annotations }));
@@ -40,7 +41,7 @@ export function createHttpService({ authorization, reads, mutations, rewardPrevi
         const args = request.params.arguments ?? {};
         let structuredContent;
         if (readToolNames.includes(name as ReadToolName)) structuredContent = await reads.invoke(name as ReadToolName, args, context);
-        else if (mutations && mutationToolNames.includes(name as MutationToolName)) structuredContent = await mutations.invoke(name as MutationToolName, args, context);
+        else if (mutations?.toolNames.includes(name as MutationToolName)) structuredContent = await mutations.invoke(name as MutationToolName, args, context);
         else if (rewardPreview && name === 'get_reward_claim_preview') structuredContent = await rewardPreview.invoke(args, context);
         else throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
         return server.projectCallToolResult({ structuredContent, content: [{ type: 'text',
@@ -66,7 +67,7 @@ export function createHttpService({ authorization, reads, mutations, rewardPrevi
       }
       // the Node adapter observes loopback HTTP. reconstruct only the configured TLS authority.
       request = new Request(origin + url.pathname + url.search, request);
-      if (url.pathname !== '/mcp') return authorization.handler(request);
+      if (url.pathname !== '/mcp') return await browser?.fetch(request) ?? authorization.handler(request);
       const admitted = await gate(request);
       if (admitted instanceof Response) return admitted;
       const response = await handler.fetch(request, { authInfo: admitted });

@@ -31,7 +31,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [x] M16: expose authorized durable operation lookup (checkpoint W).
 - [x] M17: create operation-bound reward quotes without spending/reservation.
 - [x] M18: render and verify authenticated cost confirmation with safe POST approval.
-- [ ] M19: deliver confirmed reward claims with existing offline-overspend semantics (checkpoint C).
+- [x] M19: deliver confirmed reward claims with existing offline-overspend semantics (checkpoint C).
 
 ## Release
 

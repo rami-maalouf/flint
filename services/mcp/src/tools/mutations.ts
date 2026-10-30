@@ -7,7 +7,7 @@ import { contracts, hasToolScope, operationSchema, validateResult, type Metadata
 import { domainValue, publicError, ToolError } from './errors';
 
 export const mutationToolNames = ['create_checkin', 'undo_checkin', 'get_operation'] as const;
-export type MutationToolName = typeof mutationToolNames[number];
+export type MutationToolName = typeof mutationToolNames[number] | 'claim_reward';
 const created = z.object({ checkInId: z.string(), logicalDate: z.string(), created: z.boolean() });
 const claimed = z.object({ ledgerEntryId: z.string(), rewardId: z.string(), titleSnapshot: z.string(),
   costCoins: z.number(), logicalDate: z.string(), balance: z.number() });
@@ -43,9 +43,13 @@ export function publicOperation(operation: JournalOperation): PublicOperation {
 }
 
 export class MutationTools {
-  constructor(private readonly options: { accounts: Pick<AccountActors, 'runOperation' | 'lookupOperation'> }) {}
+  readonly toolNames: readonly MutationToolName[];
+  constructor(private readonly options: { accounts: Pick<AccountActors, 'runOperation' | 'lookupOperation'>; rewardClaims?: boolean }) {
+    this.toolNames = Object.freeze([...mutationToolNames, ...(options.rewardClaims ? ['claim_reward' as const] : [])]);
+  }
 
   async invoke(name: MutationToolName, raw: unknown, context: AuthContext): Promise<{ data: PublicOperation; meta: Metadata }> {
+    if (!this.toolNames.includes(name)) throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
     const contract = contracts[name];
     if (!hasToolScope(contract, context.scopes)) throw new ToolError('FORBIDDEN', 'This connection lacks permission for this tool.');
     const parsed = contract.input.safeParse(raw);
@@ -61,7 +65,9 @@ export class MutationTools {
       }
       const request: MutationRequest = name === 'create_checkin'
         ? { clientId: context.clientId, tool: name, input: contracts.create_checkin.input.parse(parsed.data) }
-        : { clientId: context.clientId, tool: name, input: contracts.undo_checkin.input.parse(parsed.data) };
+        : name === 'undo_checkin'
+          ? { clientId: context.clientId, tool: name, input: contracts.undo_checkin.input.parse(parsed.data) }
+          : { clientId: context.clientId, tool: name, input: contracts.claim_reward.input.parse(parsed.data) };
       const response = await this.options.accounts.runOperation(context, request);
       const result = { data: publicOperation(response.data), meta: response.meta };
       validateResult(name, result); return result;

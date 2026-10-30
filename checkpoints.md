@@ -179,6 +179,12 @@
 - Real Node HTTP/provider/SDK/Snapback/SQLite coverage verifies two accounts, CSRF and quote swaps, wrong Origin/type, duplicates, POST replay and safe continuation to the real standalone sign-in page. Review caught an incompatible return parameter; the regression failed first, then passed with `return_to`. Fresh round-two review accepted the route and replay correction.
 - Inspected the actual production renderer in Chromium at phone 390 x 844 and desktop 1024 x 844 in both appearances, with 24 state captures. Measured no horizontal overflow; phone actions are 48 pixels tall and primary approval is visible at y=461. Evidence and honest browser-versus-HTTP boundaries are in `docs/mcp/confirmation.md`. Parent protocol passes 51/51; lint/typecheck pass. Full interactive owner continuation and deployment remain release checks.
 
+### M19 - confirmed claims and checkpoint C
+
+- Explicitly composed mutation tools can now register `claim_reward`; ordinary protected composition retains its prior three-tool catalog. Browser handlers mount after fixed-origin reconstruction and before authorization fallback. The complete composed catalog has all fifteen strict v1 tools.
+- Actual SDK/OAuth/HTTP/browser-POST/Snapback/SQLite proof failed first at fourteen tools, then passed with confirmed claims. It covers lost HTTP response and stable retry, wrong account/client/operation, changed reward requiring reconfirmation, affordable intervening balance movement, and receipt replay after reward edit/deletion. Exact tuple acceptance remains durable before clearing the queue.
+- A native-like replica claims offline against the same initial funds as the MCP claim. Upload and reconciliation retain both immutable claims and converge to the required negative balance, with matching ledger identities and payloads. Fresh independent review accepted the production dispatch, proof assertions and fixture cleanup; the existing default HTTP mutation proof also passes. Parent's full public protocol run passes 51/51 without skips; lint/typecheck pass. This closes checkpoint C without asserting real ChatGPT/Claude or production activation.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
