@@ -18,27 +18,151 @@ import { createClient, type Client as SnapbackClient } from 'snapback4/client';
 import { startDev } from 'snapback4/proof';
 import { api } from '../../../snapback/generated/api.ts';
 import { createAuthorizationService } from '../src/auth/provider';
+import { GrantStore, authorizationScopes, writeScopes } from '../src/auth/grants';
 import { CredentialVault } from '../src/auth/vault';
 import type { AuthContext } from '../src/auth/context';
 
 type RestartInput = { publicOrigin: string; backendUrl: string; databasePath: string; secret: string;
-  vaultPath: string; vaultKey: string; accessToken: string };
+  vaultPath: string; vaultKey: string; accessToken: string; writeConnections?: boolean };
+type CrashInput = { databasePath: string; vaultPath: string; vaultKey: string };
+if (process.env.MCP_AUTH_GRANT_CRASH_CHILD === '1') {
+  process.once('message', (input: CrashInput) => {
+    const database = new DatabaseSync(input.databasePath);
+    const vault = new CredentialVault({ location: input.vaultPath, activeKeyVersion: 'v1',
+      keys: new Map([['v1', Buffer.from(input.vaultKey, 'hex')]]) });
+    const put = vault.put.bind(vault);
+    vault.put = (grantBinding, session) => {
+      put(grantBinding, session);
+      if (grantBinding.scope === 'full') process.kill(process.pid, 'SIGKILL');
+    };
+    const grants = new GrantStore(database, vault, [...authorizationScopes, ...writeScopes]);
+    const account = { accountId: 'crash-account', backendUrl: 'https://snapback.synthetic.test', principal: 'crash-user' };
+    const expiresAt = Date.now() + 600_000;
+    grants.stage('crash-session', 'crash-user-id', { ...account,
+      session: { kind: 'user', principal: account.principal, token: 'read-crash-token', scope: 'read', expiresAt } });
+    grants.connect('crash-session', 'crash-user-id', 'crash-client', ['checkins:write'], { ...account,
+      session: { kind: 'user', principal: account.principal, token: 'full-crash-token', scope: 'full', expiresAt } });
+  });
+}
 if (process.env.MCP_AUTH_RESTART_CHILD === '1') {
   process.once('message', async (input: RestartInput) => {
     const vault = new CredentialVault({ location: input.vaultPath, activeKeyVersion: 'v1', keys: new Map([['v1', Buffer.from(input.vaultKey, 'hex')]]) });
-    const service = await createAuthorizationService({ ...input, vault, allowTestLoopback: true });
+    const service = await createAuthorizationService({ ...input, vault, allowTestLoopback: true,
+      writeConnections: input.writeConnections ? { revoke: async (_grant, commit) => commit() } : undefined });
     try {
       const context = await service.authenticate(new Request(service.resource, { headers: { authorization: `Bearer ${input.accessToken}` } }));
       process.send?.({ accountId: context.accountId, grantId: context.grantId,
         upstreamHash: createHash('sha256').update(context.session.token).digest('hex'),
-        jwks: await (await service.handler(new Request(input.publicOrigin + '/mcp/auth/jwks'))).json() });
+        jwks: await (await service.handler(new Request(input.publicOrigin + '/mcp/auth/jwks'))).json(),
+        ...(input.writeConnections ? { upstreamScope: context.session.scope, scopes: context.scopes } : {}) });
     } finally { await service.close(); vault.close(); process.disconnect(); }
   });
 }
 
-if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('authorization requires a fixed canonical origin and externally supplied secrets', async () => {
+if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHILD)
+  test('authorization requires a fixed canonical origin and externally supplied secrets', async () => {
   await assert.rejects(createAuthorizationService({ publicOrigin: 'http://attacker.test' } as never));
 });
+
+if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHILD)
+  test('a killed process after full custody leaves an inactive grant that startup tombstones', { timeout: 20_000 }, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'habit-mcp-grant-crash-'));
+    const databasePath = join(directory, 'provider.sqlite');
+    const vaultPath = join(directory, 'vault.sqlite');
+    const vaultKey = randomBytes(32).toString('hex');
+    const child = fork(new URL(import.meta.url), [], { execPath: process.execPath,
+      env: { ...process.env, MCP_AUTH_GRANT_CRASH_CHILD: '1' }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const liveFull = () => {
+      const database = new DatabaseSync(vaultPath);
+      try { return (database.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full' AND token_hash IS NOT NULL")
+        .get() as { n: number }).n; } finally { database.close(); }
+    };
+    try {
+      const exited = once(child, 'exit', { signal: AbortSignal.timeout(10_000) });
+      child.send({ databasePath, vaultPath, vaultKey } satisfies CrashInput);
+      assert.deepEqual(await exited, [null, 'SIGKILL']);
+      const database = new DatabaseSync(databasePath);
+      const vault = new CredentialVault({ location: vaultPath, activeKeyVersion: 'v1',
+        keys: new Map([['v1', Buffer.from(vaultKey, 'hex')]]) });
+      try {
+        const stored = database.prepare('SELECT active, credential_scope FROM mcp_grants').all();
+        assert.equal(stored.length, 1);
+        assert.equal(stored[0]?.active, 0);
+        assert.equal(stored[0]?.credential_scope, 'full');
+        assert.equal(liveFull(), 1);
+        const grants = new GrantStore(database, vault, [...authorizationScopes, ...writeScopes]);
+        assert.equal(grants.lookupSession('crash-session')?.active, false);
+        assert.equal(liveFull(), 0);
+      } finally { database.close(); vault.close(); }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHILD)
+  test('private M07 metadata migrates to explicit read custody', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'habit-mcp-grant-migration-'));
+    const database = new DatabaseSync(join(directory, 'provider.sqlite'));
+    const vault = new CredentialVault({ location: join(directory, 'vault.sqlite'), activeKeyVersion: 'v1',
+      keys: new Map([['v1', randomBytes(32)]]) });
+    try {
+      database.exec(`CREATE TABLE mcp_pending (
+        session_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, backend TEXT NOT NULL, principal TEXT NOT NULL,
+        user_id TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0) STRICT;
+        CREATE TABLE mcp_grants (
+        id TEXT PRIMARY KEY, account_id TEXT NOT NULL, backend TEXT NOT NULL, principal TEXT NOT NULL,
+        user_id TEXT NOT NULL, client_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, lineage TEXT NOT NULL,
+        scopes TEXT NOT NULL, expires_at INTEGER NOT NULL, active INTEGER NOT NULL CHECK(active IN (0,1))) STRICT;`);
+      const expiresAt = Date.now() + 600_000;
+      database.prepare('INSERT INTO mcp_pending VALUES (?, ?, ?, ?, ?, ?, 0)').run('old-pending', 'old-account',
+        'https://snapback.synthetic.test', 'old-user', 'old-user-id', expiresAt);
+      database.prepare('INSERT INTO mcp_grants VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)').run('old-grant',
+        'old-account', 'https://snapback.synthetic.test', 'old-user', 'old-user-id', 'old-client',
+        'old-session', 'old-lineage', JSON.stringify(['habits:read']), expiresAt);
+      vault.put({ backend: 'https://snapback.synthetic.test', principal: 'old-user', accountId: 'old-account',
+        grantId: 'old-grant', scope: 'read' }, { principal: 'old-user', kind: 'user', token: 'old-read-token',
+        expiresAt, scope: 'read' });
+      const grants = new GrantStore(database, vault);
+      assert.equal(grants.active('old-grant').credentialScope, 'read');
+      assert.equal(database.prepare('SELECT credential_scope FROM mcp_pending WHERE session_id = ?').get('old-pending')?.credential_scope,
+        'read');
+      assert.equal(database.prepare('SELECT credential_scope FROM mcp_grants WHERE id = ?').get('old-grant')?.credential_scope,
+        'read');
+    } finally { database.close(); vault.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+
+if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHILD)
+  test('malformed custody cannot match read permissions or pass private schema admission', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'habit-mcp-malformed-custody-'));
+    const validDatabase = new DatabaseSync(join(directory, 'valid.sqlite'));
+    const malformedDatabase = new DatabaseSync(join(directory, 'malformed.sqlite'));
+    const vault = new CredentialVault({ location: join(directory, 'vault.sqlite'), activeKeyVersion: 'v1',
+      keys: new Map([['v1', randomBytes(32)]]) });
+    try {
+      const grants = new GrantStore(validDatabase, vault);
+      malformedDatabase.exec(`CREATE TABLE mcp_grants (
+        id TEXT PRIMARY KEY, account_id TEXT NOT NULL, backend TEXT NOT NULL, principal TEXT NOT NULL,
+        user_id TEXT NOT NULL, client_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, lineage TEXT NOT NULL,
+        scopes TEXT NOT NULL, credential_scope TEXT NOT NULL DEFAULT 'read',
+        expires_at INTEGER NOT NULL, active INTEGER NOT NULL CHECK(active IN (0,1))) STRICT;`);
+      const expiresAt = Date.now() + 600_000;
+      malformedDatabase.prepare('INSERT INTO mcp_grants VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)')
+        .run('malformed-grant', 'account', 'https://snapback.synthetic.test', 'principal', 'user', 'client',
+          'session', 'lineage', JSON.stringify(['habits:read']), 'unknown', expiresAt);
+      const stored = malformedDatabase.prepare('SELECT credential_scope FROM mcp_grants WHERE id = ?')
+        .get('malformed-grant') as { credential_scope: 'read' };
+      const metadata = { grantId: 'malformed-grant', accountId: 'account', backendUrl: 'https://snapback.synthetic.test',
+        principal: 'principal', userId: 'user', clientId: 'client', sessionId: 'session', operationLineageId: 'lineage',
+        scopes: ['habits:read'], credentialScope: stored.credential_scope, expiresAt, active: true };
+      assert.equal(grants.permissionsMatch(metadata), false);
+      malformedDatabase.prepare('UPDATE mcp_grants SET credential_scope = ? WHERE id = ?').run('read', 'malformed-grant');
+      assert.throws(() => new GrantStore(malformedDatabase, vault), /Authorization is unavailable/);
+    } finally {
+      validDatabase.close(); malformedDatabase.close(); vault.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 
 function oauthClient(name: string) {
   let information: Awaited<ReturnType<OAuthClientProvider['clientInformation']>>;
@@ -66,7 +190,8 @@ const hidden = (body: string, name: string) => {
   assert.ok(value, `missing ${name} field`); return decode(value);
 };
 
-if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('production browser provider binds independent read grants over real SDK, SQLite and Snapback HTTP', { timeout: 120_000 }, async t => {
+if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHILD)
+  test('production browser provider binds independent read grants over real SDK, SQLite and Snapback HTTP', { timeout: 120_000 }, async t => {
   assert.equal(process.versions.node, '24.22.2');
   const directory = await mkdtemp(join(tmpdir(), 'habit-mcp-http-auth-'));
   const host = await startDev({ cwd: resolve('.'), logsDir: directory, args: ['--memory', '--no-watch', '--unsafe-dev-doors'] });
@@ -100,8 +225,12 @@ if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('production browser provide
   };
   const config = { publicOrigin: origin, backendUrl: 'https://snapback.synthetic.test', databasePath: join(directory, 'provider.sqlite'),
     secret, vault, allowTestLoopback: true, identityOptions: { fetch: backendFetch } };
+  const writeEvents: { phase: 'before' | 'after'; grantId: string; active: boolean; scope: string[] }[] = [];
+  let failCoordination = false;
+  let writeConnections: { revoke: (grant: { grantId: string; accountId: string; scopes: readonly string[] },
+    commitRevocation: () => Promise<void>) => Promise<void> } | undefined;
   const start = async (accessTokenExpiresIn = 300) => {
-    service = await createAuthorizationService({ ...config, vault, accessTokenExpiresIn });
+    service = await createAuthorizationService({ ...config, vault, accessTokenExpiresIn, writeConnections });
     const gate = requireBearerAuth({ expectedResource: new URL(service.resource), resourceMetadataUrl: service.resourceMetadataUrl,
       verifier: { async verifyAccessToken(token) {
         try {
@@ -183,8 +312,10 @@ if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('production browser provide
       response = await browser.request(location); assert.equal(response.status, 200, await response.clone().text());
       body = await response.text();
     }
-    assert.ok(body.includes('Allow connection'));
-    response = await browser.submit('/mcp/consent', { decision: accept ? 'allow' : 'deny', csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
+    const write = scope.includes('checkins:write') || scope.includes('rewards:claim');
+    assert.ok(body.includes(write ? 'Confirm and allow' : 'Allow connection'));
+    response = await browser.submit('/mcp/consent', { decision: accept ? 'allow' : 'deny', ...(write && accept ? account : {}),
+      csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
     assert.equal(response.status, 303, await response.clone().text());
     const callback = new URL(response.headers.get('location')!);
     if (accept && exchange) {
@@ -229,6 +360,9 @@ if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('production browser provide
   });
   const sql = <T>(work: (database: DatabaseSync) => T) => {
     const database = new DatabaseSync(config.databasePath); try { return work(database); } finally { database.close(); }
+  };
+  const vaultSql = <T>(work: (database: DatabaseSync) => T) => {
+    const database = new DatabaseSync(vaultConfig.location); try { return work(database); } finally { database.close(); }
   };
   await t.test('each client connection consumes exactly one pending credential and private reauthentication keeps account bindings separate', async () => {
     const third = oauthClient('Synthetic app C');
@@ -525,5 +659,268 @@ if (process.env.MCP_AUTH_RESTART_CHILD !== '1') test('production browser provide
     await new Promise(resolve => setTimeout(resolve, 1100));
     await assert.rejects(contextFor(short)); await assert.rejects(current.assertActive());
     assert.equal(service.lookupGrant(current)!.active, true);
+  });
+  let writer: ReturnType<typeof oauthClient>;
+  let writeContext: AuthContext;
+  await t.test('write consent requires fresh matching credentials after read-only sign-in', async () => {
+    await service.close();
+    writeConnections = { revoke: async (grant, commitRevocation) => {
+      assert.ok(Object.isFrozen(grant));
+      assert.equal('token' in grant, false);
+      writeEvents.push({ phase: 'before', grantId: grant.grantId, active: service.lookupGrant(grant)!.active, scope: [...grant.scopes] });
+      if (failCoordination) throw new Error('account lane unavailable');
+      await commitRevocation();
+      writeEvents.push({ phase: 'after', grantId: grant.grantId, active: service.lookupGrant(grant)!.active, scope: [...grant.scopes] });
+    } };
+    await start();
+    writer = oauthClient('Explicit write client');
+    const browser = new Browser();
+    let response = await browser.request(await begin(writer, 'habits:read checkins:write offline_access'));
+    response = await browser.request(response.headers.get('location')!);
+    let body = await response.text();
+    assert.equal(response.status, 200);
+    assert.ok(body.includes('Sign in to connect'));
+    assert.equal(vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full'").get() as { n: number }).n), 0);
+    response = await browser.submit('/mcp/sign-in', { ...accounts[0]!, csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
+    assert.equal(response.status, 303);
+    response = await browser.request(response.headers.get('location')!);
+    body = await response.text();
+    assert.equal(response.status, 200);
+    assert.ok(body.includes('Create check-ins'));
+    assert.ok(body.includes('name="password"'));
+    assert.equal(vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full'").get() as { n: number }).n), 0);
+    response = await browser.submit('/mcp/consent', { decision: 'allow', csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
+    assert.notEqual(response.status, 303, 'write approval cannot use the sign-in read session');
+    for (const [credentials, headers] of [
+      [{ ...accounts[0]!, password: 'incorrect' }, {}],
+      [accounts[1]!, {}],
+      [accounts[0]!, { origin: 'https://evil.test' }],
+    ] as const) {
+      response = await browser.submit('/mcp/consent', { decision: 'allow', ...credentials,
+        csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') }, headers);
+      assert.notEqual(response.status, 303);
+      assert.equal(vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full'").get() as { n: number }).n), 0);
+    }
+    response = await browser.submit('/mcp/consent', { decision: 'allow', ...accounts[0]!,
+      csrf: 'forged', oauth_query: hidden(body, 'oauth_query') });
+    assert.equal(response.status, 403);
+    response = await browser.submit('/mcp/consent', { decision: 'allow', ...accounts[0]!, csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
+    assert.equal(response.status, 303, await response.clone().text());
+    const callback = new URL(response.headers.get('location')!);
+    assert.equal(await sdkAuthorize(writer, { serverUrl: service.resource, authorizationCode: callback.searchParams.get('code')!,
+      iss: callback.searchParams.get('iss')! }), 'AUTHORIZED');
+    const context = await contextFor(writer);
+    writeContext = context;
+    assert.equal(context.session.scope, 'full');
+    assert.ok(context.scopes.includes('checkins:write'));
+    assert.deepEqual(await service.deliveryGrantStatus(context.grantId), {
+      accountId: context.accountId, clientId: context.clientId, active: true,
+      scopes: service.lookupGrant(context)!.scopes,
+    });
+    assert.equal(await service.deliveryGrantStatus(randomUUID()), null);
+    assert.equal(vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full' AND token_hash IS NOT NULL").get() as { n: number }).n), 1);
+    assert.notEqual(context.session.token, aliceContext.session.token);
+    const fullClient = createClient({ url: host.url, token: context.session.token }); snapbackClients.push(fullClient);
+    assert.equal((await fullClient.mutate(api.saveProfile, { name: 'Write consent proved' })).state, 'sent');
+    const read = oauthClient('Read after write'); await authorize(read, accounts[0]!);
+    const readContext = await contextFor(read);
+    assert.equal(readContext.session.scope, 'read');
+    assert.deepEqual(readContext.scopes, ['habits:read']);
+    assert.notEqual(readContext.session.token, context.session.token);
+    assert.equal(vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full' AND token_hash IS NOT NULL").get() as { n: number }).n), 1);
+  });
+  await t.test('delivery status is metadata-only and fails closed for upstream expiry or missing provider session', async () => {
+    const grant = service.lookupGrant(writeContext)!;
+    sql(db => db.prepare('UPDATE mcp_grants SET expires_at = ? WHERE id = ?').run(Date.now() - 1, grant.grantId));
+    assert.equal((await service.deliveryGrantStatus(grant.grantId))?.active, false);
+    sql(db => db.prepare('UPDATE mcp_grants SET expires_at = ? WHERE id = ?').run(grant.expiresAt, grant.grantId));
+    assert.equal((await service.deliveryGrantStatus(grant.grantId))?.active, true);
+    const disposable = oauthClient('Missing provider session');
+    await authorize(disposable, accounts[0]!);
+    const disposableContext = await contextFor(disposable);
+    sql(db => db.prepare('DELETE FROM session WHERE id = ?').run(service.lookupGrant(disposableContext)!.sessionId));
+    const status = await service.deliveryGrantStatus(disposableContext.grantId);
+    assert.deepEqual(status, { accountId: disposableContext.accountId, clientId: disposableContext.clientId,
+      active: false, scopes: service.lookupGrant(disposableContext)!.scopes });
+    await service.revokeGrant(disposableContext);
+  });
+  await t.test('full custody and exact write scopes survive a fresh Node process without rotating the upstream session', async () => {
+    const before = await contextFor(writer);
+    const keys = await (await request('/mcp/auth/jwks')).json();
+    await service.close(); vault.close();
+    const child = fork(new URL(import.meta.url), [], { execPath: process.execPath,
+      env: { ...process.env, MCP_AUTH_RESTART_CHILD: '1' }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    try {
+      const result = once(child, 'message', { signal: AbortSignal.timeout(10_000) });
+      const exited = once(child, 'exit', { signal: AbortSignal.timeout(10_000) });
+      child.send({ publicOrigin: origin, backendUrl: config.backendUrl, databasePath: config.databasePath, secret,
+        vaultPath: vaultConfig.location, vaultKey: Buffer.from(vaultConfig.keys.get('v1')!).toString('hex'),
+        accessToken: writer.tokens()!.access_token, writeConnections: true });
+      assert.deepEqual((await result)[0], { accountId: before.accountId, grantId: before.grantId,
+        upstreamHash: createHash('sha256').update(before.session.token).digest('hex'), jwks: keys,
+        upstreamScope: 'full', scopes: before.scopes });
+      assert.equal((await exited)[0], 0);
+    } finally { if (child.exitCode === null) child.kill(); }
+    vault = new CredentialVault(vaultConfig);
+    await assert.rejects(createAuthorizationService({ ...config, vault, writeConnections: undefined }),
+      /Active write grants require a write connection lifecycle/);
+    await start();
+    const after = await contextFor(writer);
+    writeContext = after;
+    assert.equal(after.grantId, before.grantId);
+    assert.equal(after.session.token, before.session.token);
+    assert.equal(after.session.scope, 'full');
+  });
+  await t.test('failed account coordination refuses revocation and cannot claim the connection ended', async () => {
+    failCoordination = true;
+    const before = writeEvents.length;
+    await assert.rejects(service.revokeGrant(writeContext), /account lane unavailable/);
+    assert.deepEqual(writeEvents.slice(before).map(event => event.phase), ['before']);
+    assert.equal(service.lookupGrant(writeContext)!.active, true);
+    await writeContext.assertActive();
+    const failedProtocol = await postProtocol('revoke', { token: writer.tokens()!.refresh_token!,
+      token_type_hint: 'refresh_token', client_id: writer.clientInformation()!.client_id });
+    assert.notEqual(failedProtocol.status, 200);
+    assert.equal(service.lookupGrant(writeContext)!.active, true);
+    failCoordination = false;
+  });
+  await t.test('trusted and repeated protocol revocations coordinate before cutoff and preserve another full grant', async () => {
+    const other = oauthClient('Second write grant');
+    await authorize(other, accounts[0]!, new Browser(), true, 'habits:read checkins:write offline_access');
+    const otherContext = await contextFor(other);
+    assert.equal(otherContext.session.scope, 'full');
+    assert.notEqual(otherContext.session.token, writeContext.session.token);
+    const oldRefresh = writer.tokens()!.refresh_token!;
+    const before = writeEvents.length;
+    await service.revokeGrant(writeContext);
+    assert.deepEqual(writeEvents.slice(before).map(event => ({ phase: event.phase, active: event.active })),
+      [{ phase: 'before', active: true }, { phase: 'after', active: false }]);
+    await assert.rejects(writeContext.assertActive());
+    await otherContext.assertActive();
+    assert.equal((await refresh(writer, oldRefresh)).status, 400);
+    writer.forgetTokens();
+    await authorize(writer, accounts[0]!, new Browser(), true, 'habits:read checkins:write offline_access');
+    const writerReplacement = await contextFor(writer);
+    assert.equal(writerReplacement.clientId, writeContext.clientId);
+    assert.notEqual(writerReplacement.grantId, writeContext.grantId);
+    assert.notEqual(writerReplacement.session.token, writeContext.session.token);
+    const endedRefresh = await postProtocol('revoke', { token: oldRefresh, client_id: writer.clientInformation()!.client_id });
+    assert.equal(endedRefresh.status, 200);
+    const repeatedRefresh = await Promise.all([oldRefresh, oldRefresh].map(token => postProtocol('revoke', {
+      token, client_id: writer.clientInformation()!.client_id,
+    })));
+    assert.deepEqual(repeatedRefresh.map(response => response.status), [200, 200]);
+    await writerReplacement.assertActive();
+    const writerRefresh = await refresh(writer); assert.equal(writerRefresh.status, 200);
+    writer.saveTokens({ ...writer.tokens()!, ...await writerRefresh.json() });
+    await otherContext.assertActive();
+    const access = oauthClient('Access write grant');
+    await authorize(access, accounts[0]!, new Browser(), true, 'coins:read rewards:claim offline_access');
+    const accessContext = await contextFor(access);
+    assert.deepEqual(accessContext.scopes, ['coins:read', 'rewards:claim']);
+    const oldAccess = access.tokens()!.access_token;
+    const accessBefore = writeEvents.length;
+    const revokedAccess = await postProtocol('revoke', { token: access.tokens()!.access_token,
+      client_id: access.clientInformation()!.client_id });
+    assert.equal(revokedAccess.status, 200);
+    assert.deepEqual(writeEvents.slice(accessBefore, accessBefore + 2).map(event => event.phase), ['before', 'after']);
+    await assert.rejects(accessContext.assertActive());
+    access.forgetTokens();
+    await authorize(access, accounts[0]!, new Browser(), true, 'coins:read rewards:claim offline_access');
+    const accessReplacement = await contextFor(access);
+    assert.equal(accessReplacement.clientId, accessContext.clientId);
+    assert.notEqual(accessReplacement.grantId, accessContext.grantId);
+    const repeated = await Promise.all([oldRefresh, oldRefresh].map(token => postProtocol('revoke', {
+      token, client_id: writer.clientInformation()!.client_id,
+    })));
+    assert.deepEqual(repeated.map(response => response.status), [200, 200]);
+    const endedAccess = await Promise.all([oldAccess, oldAccess].map(token => postProtocol('revoke', {
+      token, client_id: access.clientInformation()!.client_id,
+    })));
+    assert.deepEqual(endedAccess.map(response => response.status), [200, 200]);
+    await accessReplacement.assertActive();
+    const accessRefresh = await refresh(access); assert.equal(accessRefresh.status, 200);
+    access.saveTokens({ ...access.tokens()!, ...await accessRefresh.json() });
+    await otherContext.assertActive();
+    const otherRefresh = await refresh(other); assert.equal(otherRefresh.status, 200);
+    other.saveTokens({ ...other.tokens()!, ...await otherRefresh.json() });
+    await (await contextFor(other)).assertActive();
+  });
+  await t.test('a full upstream session expires honestly without automatic rotation', async () => {
+    const replacement = oauthClient('Expiring write grant');
+    await authorize(replacement, accounts[0]!, new Browser(), true, 'checkins:write offline_access');
+    const context = await contextFor(replacement);
+    vaultNow = context.session.expiresAt + 1;
+    await assert.rejects(context.assertActive());
+    assert.equal((await refresh(replacement)).status, 400);
+    vaultNow = undefined;
+    assert.equal(service.lookupGrant(context)!.active, true);
+    sql(db => db.prepare('UPDATE mcp_grants SET expires_at = ? WHERE id = ?').run(Date.now() - 1, context.grantId));
+    assert.equal((await service.deliveryGrantStatus(context.grantId))?.active, false);
+    const before = writeEvents.length;
+    await service.revokeGrant(context);
+    assert.deepEqual(writeEvents.slice(before).map(event => event.phase), ['before', 'after']);
+    assert.equal(service.lookupGrant(context)!.active, false);
+  });
+  await t.test('grant insertion failure never places a full credential in vault custody', async () => {
+    const liveFull = () => vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full' AND token_hash IS NOT NULL")
+      .get() as { n: number }).n);
+    const before = liveFull();
+    const grantCount = sql(db => (db.prepare('SELECT COUNT(*) AS n FROM mcp_grants').get() as { n: number }).n);
+    sql(db => db.exec("CREATE TRIGGER fail_grant_insert BEFORE INSERT ON mcp_grants BEGIN SELECT RAISE(ABORT, 'insert fault'); END"));
+    try {
+      const failed = oauthClient('Grant insert failure'); const browser = new Browser();
+      let response = await browser.request(await begin(failed, 'checkins:write offline_access'));
+      response = await browser.request(response.headers.get('location')!); let body = await response.text();
+      response = await browser.submit('/mcp/sign-in', { ...accounts[0]!, csrf: hidden(body, 'csrf'),
+        oauth_query: hidden(body, 'oauth_query') });
+      assert.equal(response.status, 303);
+      response = await browser.request(response.headers.get('location')!); body = await response.text();
+      response = await browser.submit('/mcp/consent', { decision: 'allow', ...accounts[0]!, csrf: hidden(body, 'csrf'),
+        oauth_query: hidden(body, 'oauth_query') });
+      assert.notEqual(response.status, 303);
+    } finally { sql(db => db.exec('DROP TRIGGER fail_grant_insert')); }
+    assert.equal(sql(db => (db.prepare('SELECT COUNT(*) AS n FROM mcp_grants').get() as { n: number }).n), grantCount);
+    assert.equal(liveFull(), before);
+  });
+  await t.test('activation failure tombstones full custody and leaves a known inactive grant', async () => {
+    const liveFull = () => vaultSql(db => (db.prepare("SELECT COUNT(*) AS n FROM vault_credentials WHERE scope = 'full' AND token_hash IS NOT NULL")
+      .get() as { n: number }).n);
+    const before = liveFull();
+    const inactiveBefore = sql(db => (db.prepare("SELECT COUNT(*) AS n FROM mcp_grants WHERE active = 0 AND credential_scope = 'full'")
+      .get() as { n: number }).n);
+    sql(db => db.exec("CREATE TRIGGER fail_grant_activation BEFORE UPDATE OF active ON mcp_grants WHEN NEW.active = 1 BEGIN SELECT RAISE(ABORT, 'activation fault'); END"));
+    try {
+      const failed = oauthClient('Grant activation failure'); const browser = new Browser();
+      let response = await browser.request(await begin(failed, 'checkins:write offline_access'));
+      response = await browser.request(response.headers.get('location')!); let body = await response.text();
+      response = await browser.submit('/mcp/sign-in', { ...accounts[0]!, csrf: hidden(body, 'csrf'),
+        oauth_query: hidden(body, 'oauth_query') });
+      assert.equal(response.status, 303);
+      response = await browser.request(response.headers.get('location')!); body = await response.text();
+      response = await browser.submit('/mcp/consent', { decision: 'allow', ...accounts[0]!, csrf: hidden(body, 'csrf'),
+        oauth_query: hidden(body, 'oauth_query') });
+      assert.notEqual(response.status, 303);
+    } finally { sql(db => db.exec('DROP TRIGGER fail_grant_activation')); }
+    assert.equal(sql(db => (db.prepare("SELECT COUNT(*) AS n FROM mcp_grants WHERE active = 0 AND credential_scope = 'full'")
+      .get() as { n: number }).n), inactiveBefore + 1);
+    assert.equal(liveFull(), before);
+  });
+  await t.test('full custody binding survives OAuth scope drift and revocation preserves another grant', async () => {
+    const drifted = oauthClient('Drifted write grant');
+    const surviving = oauthClient('Surviving write grant');
+    await authorize(drifted, accounts[0]!, new Browser(), true, 'checkins:write offline_access');
+    await authorize(surviving, accounts[0]!, new Browser(), true, 'checkins:write offline_access');
+    const current = await contextFor(drifted);
+    const other = await contextFor(surviving);
+    assert.equal(service.lookupGrant(current)!.credentialScope, 'full');
+    sql(db => db.prepare('UPDATE mcp_grants SET scopes = ? WHERE id = ?').run(JSON.stringify(['habits:read']), current.grantId));
+    assert.equal((await service.deliveryGrantStatus(current.grantId))?.active, false);
+    await assert.rejects(current.assertActive());
+    await service.revokeGrant(current);
+    assert.equal(service.lookupGrant(current)!.active, false);
+    assert.equal(vaultSql(db => (db.prepare('SELECT COUNT(*) AS n FROM vault_credentials WHERE grant_id = ? AND scope = ? AND token_hash IS NOT NULL')
+      .get(current.grantId, 'full') as { n: number }).n), 0);
+    await other.assertActive();
   });
 });

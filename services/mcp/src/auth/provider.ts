@@ -14,9 +14,10 @@ import { mcp } from '@better-auth/mcp';
 import { getOAuthProviderApi, verifyOAuthQueryParams } from '@better-auth/oauth-provider';
 import { z } from 'zod';
 import type { AuthContext } from './context';
-import { createIdentityBridge, type IdentityConfig } from './identity';
+import { createIdentityBridge, createWriteIdentityBridge, type IdentityConfig } from './identity';
 import { CredentialVault } from './vault';
-import { AuthorizationDenied, authorizationScopes, binding, GrantStore, readScopes, type PrivateGrant } from './grants';
+import { AuthorizationDenied, authorizationScopes, binding, GrantStore, readScopes, requestsWrite, writeScopes, type PrivateGrant } from './grants';
+import type { Scope } from '../tools/contracts';
 import { renderAuthPage } from '../web/auth-pages';
 
 export { AuthorizationDenied } from './grants';
@@ -25,6 +26,7 @@ export type AuthorizationConfig = {
   identityOptions?: Omit<IdentityConfig, 'backendUrl'>;
   allowTestLoopback?: boolean;
   accessTokenExpiresIn?: number;
+  writeConnections?: Readonly<{ revoke: (grantMetadata: PrivateGrant, commitRevocation: () => Promise<void>) => Promise<void> }>;
 };
 export type BrowserSession = Readonly<{ accountId: string; principal: string; backendUrl: string; providerSessionId: string }>;
 const basePath = '/mcp/auth';
@@ -96,10 +98,23 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
   const resource = origin + '/mcp';
   const resourceMetadataUrl = origin + '/.well-known/oauth-protected-resource/mcp';
   const identity = createIdentityBridge({ ...config.identityOptions, backendUrl: config.backendUrl });
+  if (config.writeConnections !== undefined && (!config.writeConnections || typeof config.writeConnections.revoke !== 'function')) {
+    throw new Error('Write connection lifecycle configuration is invalid.');
+  }
+  const writeIdentity = config.writeConnections ? createWriteIdentityBridge({ ...config.identityOptions, backendUrl: config.backendUrl }) : undefined;
+  const allowedScopes = config.writeConnections ? [...authorizationScopes, ...writeScopes] : authorizationScopes;
   if (config.accessTokenExpiresIn !== undefined && (!Number.isSafeInteger(config.accessTokenExpiresIn) ||
     config.accessTokenExpiresIn < 1 || config.accessTokenExpiresIn > 900)) throw new Error('Access token lifetime configuration is invalid.');
   const db = privateDatabase(config.databasePath);
-  const grants = new GrantStore(db, config.vault);
+  const grants = new GrantStore(db, config.vault, allowedScopes);
+  if (!config.writeConnections) {
+    try {
+      const activeWrite = db.prepare(`SELECT 1 FROM mcp_grants AS g WHERE g.active = 1 AND
+        (g.credential_scope = 'full' OR EXISTS
+        (SELECT 1 FROM json_each(g.scopes) WHERE value IN ('checkins:write', 'rewards:claim'))) LIMIT 1`).get();
+      if (activeWrite) throw new Error('Active write grants require a write connection lifecycle.');
+    } catch (error) { db.close(); throw error; }
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS mcp_revoked_access_tokens (
     token_mac TEXT PRIMARY KEY, grant_id TEXT NOT NULL, expires_at INTEGER NOT NULL
   ) STRICT;`);
@@ -107,9 +122,28 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
   const revokedAccessMac = (token: string) => createHmac('sha256', config.secret)
     .update(JSON.stringify(['mcp/revoked-access/v1', token])).digest('hex');
   let closed = false;
+  const deletingSessions = new Set<string>();
+  const coordinateRevocation = async (grant: PrivateGrant, commitRevocation: () => Promise<void>) => {
+    if (config.writeConnections) await config.writeConnections.revoke(grant, commitRevocation);
+    else await commitRevocation();
+  };
+  const cutoffGrant = async (grant: PrivateGrant, deleteProviderSession: () => Promise<void>, beforeFence?: () => void) => {
+    let commitPromise: Promise<void> | undefined;
+    await coordinateRevocation(grant, () => {
+      commitPromise ??= (async () => {
+        beforeFence?.();
+        grants.revoke(grant.grantId);
+        deletingSessions.add(grant.sessionId);
+        try { await deleteProviderSession(); } finally { deletingSessions.delete(grant.sessionId); }
+      })();
+      return commitPromise;
+    });
+    if (!commitPromise) throw new AuthorizationDenied();
+    await commitPromise;
+  };
   const options: Parameters<typeof mcp>[0] = {
     loginPage: '/mcp/sign-in', consentPage: '/mcp/consent', resource,
-    scopes: authorizationScopes, grantTypes: ['authorization_code', 'refresh_token'],
+    scopes: allowedScopes, grantTypes: ['authorization_code', 'refresh_token'],
     accessTokenExpiresIn: config.accessTokenExpiresIn ?? 300,
     refreshTokenExpiresIn: 60 * 60 * 24 * 30,
     refreshTokenReuseInterval: 0,
@@ -171,17 +205,17 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         // authenticate once at the real endpoint, retaining assertion audience and replay checks.
         const client = await provider.authenticateClient({ requireCredentials: false });
         if (grant && tokenClientId === client.clientId && grant.clientId === client.clientId) {
-          if (verifiedAccessExpiresAt !== undefined) {
+          // exact grant fencing is idempotent; provider-wide refresh replay invalidation must never run here.
+          await cutoffGrant(grant, async () => {
+            const session = await ctx.context.adapter.findOne<{ token: string }>({
+              model: 'session', where: [{ field: 'id', value: grant.sessionId }],
+            });
+            if (session) await ctx.context.internalAdapter.deleteSession(session.token);
+          }, verifiedAccessExpiresAt === undefined ? undefined : () => {
             db.prepare('DELETE FROM mcp_revoked_access_tokens WHERE expires_at <= ?').run(Date.now());
             db.prepare('INSERT OR IGNORE INTO mcp_revoked_access_tokens VALUES (?, ?, ?)')
               .run(revokedAccessMac(token), grant.grantId, verifiedAccessExpiresAt);
-          }
-          // exact grant fencing is idempotent; provider-wide refresh replay invalidation must never run here.
-          grants.revoke(grant.grantId);
-          const session = await ctx.context.adapter.findOne<{ token: string }>({
-            model: 'session', where: [{ field: 'id', value: grant.sessionId }],
           });
-          if (session) await ctx.context.internalAdapter.deleteSession(session.token);
         }
         return Response.json(null);
       }),
@@ -230,10 +264,12 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
   const authOptions: BetterAuthOptions = {
     baseURL: origin, basePath, secret: config.secret, database: db, telemetry: { enabled: false },
     trustedOrigins: [origin], logger: { disabled: true },
-    databaseHooks: { session: { delete: { after: async session => {
+    databaseHooks: { session: { delete: { before: async session => {
+      if (deletingSessions.has(session.id)) return;
       const grant = grants.lookupSession(session.id);
-      if (grant?.active) grants.revoke(grant.grantId);
-      grants.discardPending(session.id);
+      if (grant) await cutoffGrant(grant, async () => undefined);
+    }, after: async session => {
+      if (!grants.lookupSession(session.id)) grants.discardPending(session.id);
     } } } },
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     advanced: { cookiePrefix: 'habit-mcp', useSecureCookies: origin.startsWith('https:'),
@@ -280,7 +316,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
           request.headers.get('content-type')?.split(';')[0] !== 'application/x-www-form-urlencoded') return denied(403);
         form = new URLSearchParams(await boundedBody(request));
         for (const key of form.keys()) if (form.getAll(key).length !== 1) return denied(400);
-        const allowed = kind === 'sign-in' ? ['csrf', 'oauth_query', 'email', 'password'] : ['csrf', 'oauth_query', 'decision'];
+        const allowed = kind === 'sign-in' ? ['csrf', 'oauth_query', 'email', 'password'] :
+          ['csrf', 'oauth_query', 'decision', 'email', 'password'];
         if ([...form.keys()].some(key => !allowed.includes(key))) return denied(400);
         query = form.get('oauth_query') ?? '';
         const [expires, signature = ''] = (form.get('csrf') ?? '').split(':');
@@ -292,7 +329,9 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (query.length > 12_000 || !await verifyOAuthQueryParams(query, config.secret)) return denied(400);
       const params = new URLSearchParams(query);
       const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
-      if (scopes.some(scope => !authorizationScopes.includes(scope))) return denied(400);
+      if (scopes.some(scope => !allowedScopes.includes(scope)) ||
+        (scopes.includes('rewards:claim') && !scopes.includes('coins:read'))) return denied(400);
+      if (kind === 'consent' && !requestsWrite(scopes) && (form?.has('email') || form?.has('password'))) return denied(400);
       const client = await auth.api.getOAuthClientPublicPrelogin({ headers: new Headers({ origin }),
         body: { client_id: params.get('client_id') ?? '', oauth_query: query } });
       const name = client.client_name ?? 'Requesting app';
@@ -321,10 +360,20 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (!['allow', 'deny'].includes(form!.get('decision') ?? '')) return denied(400);
       if (accept && !grants.pending(current.session.id)) return page(request, 'sign-in', name, scopes, query,
         'Sign in again to create a separate connection.');
+      let verifiedWrite;
+      if (accept && requestsWrite(scopes)) {
+        const user = current.user as typeof current.user & { snapbackBackend: string; snapbackPrincipal: string };
+        try {
+          verifiedWrite = await writeIdentity!.login({ email: form!.get('email') ?? '', password: form!.get('password') ?? '' },
+            { accountId: user.id, backendUrl: user.snapbackBackend, principal: user.snapbackPrincipal });
+        } catch { return page(request, kind, name, scopes, query, 'Confirm this account with your email and password.'); }
+        const stillCurrent = await providerSession(request);
+        if (!stillCurrent || stillCurrent.session.id !== current.session.id || stillCurrent.user.id !== user.id) return denied();
+      }
       // consume synchronously before awaiting provider consent, so concurrent forms cannot share custody.
       let acceptedGrant: PrivateGrant | undefined;
       if (accept) {
-        try { acceptedGrant = grants.connect(current.session.id, current.user.id, params.get('client_id')!, scopes); }
+        try { acceptedGrant = grants.connect(current.session.id, current.user.id, params.get('client_id')!, scopes, verifiedWrite); }
         catch { return page(request, 'sign-in', name, scopes, query, 'Sign in again to create a separate connection.'); }
       }
       const response = await auth.handler(new Request(issuer + '/oauth2/consent', { method: 'POST', headers,
@@ -353,6 +402,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
             audience.some(value => value !== resource && value !== issuer + '/oauth2/userinfo') || typeof claims.scope !== 'string' ||
             typeof claims.exp !== 'number' || claims.exp * 1000 <= Date.now()) throw new AuthorizationDenied();
           const grant = grants.active(id);
+          if ((grant.credentialScope === 'full' || requestsWrite(grant.scopes)) && !config.writeConnections) throw new AuthorizationDenied();
           if (claims.sub !== grant.userId || claims.sid !== grant.sessionId || claims.client_id !== grant.clientId ||
             claims.scope.split(' ').some(scope => !grant.scopes.includes(scope))) throw new AuthorizationDenied();
           return { grant, session: config.vault.get(binding(grant)), scopes: claims.scope.split(' '), expiresAt: claims.exp };
@@ -361,16 +411,17 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const admitted = await check();
       return Object.freeze({ accountId: admitted.grant.accountId, principal: admitted.grant.principal,
         backendUrl: admitted.grant.backendUrl, clientId: admitted.grant.clientId, grantId: admitted.grant.grantId,
-        scopes: Object.freeze(readScopes.filter(scope => admitted.scopes.includes(scope))),
+        scopes: Object.freeze(([...readScopes, ...writeScopes] as Scope[]).filter(scope => admitted.scopes.includes(scope))),
         session: Object.freeze({ ...admitted.session }), assertActive: async () => { await check(); } });
     };
     const revokeGrant = async (input: { accountId: string; grantId: string }): Promise<void> => {
       if (closed) throw new AuthorizationDenied();
       const grant = grants.lookup(input.grantId);
       if (!grant || grant.accountId !== input.accountId) throw new AuthorizationDenied();
-      grants.revoke(grant.grantId);
-      const session = await context.adapter.findOne<{ token: string }>({ model: 'session', where: [{ field: 'id', value: grant.sessionId }] });
-      if (session) await context.internalAdapter.deleteSession(session.token);
+      await cutoffGrant(grant, async () => {
+        const session = await context.adapter.findOne<{ token: string }>({ model: 'session', where: [{ field: 'id', value: grant.sessionId }] });
+        if (session) await context.internalAdapter.deleteSession(session.token);
+      });
     };
     async function handler(request: Request): Promise<Response> {
       if (closed) return denied(503);
@@ -448,6 +499,20 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         if (closed) throw new AuthorizationDenied();
         const grant = grants.lookup(input.grantId);
         return grant?.accountId === input.accountId ? grant : undefined;
+      },
+      async deliveryGrantStatus(grantId: string): Promise<Readonly<{ accountId: string; clientId: string;
+        active: boolean; scopes: readonly string[] }> | null> {
+        if (closed) throw new AuthorizationDenied();
+        const grant = grants.lookup(grantId);
+        if (!grant) return null;
+        const session = await context.adapter.findOne<{ userId: string; expiresAt: Date }>({
+          model: 'session', where: [{ field: 'id', value: grant.sessionId }],
+        });
+        return Object.freeze({ accountId: grant.accountId, clientId: grant.clientId,
+          active: grant.active && grants.permissionsMatch(grant) &&
+            (grant.credentialScope !== 'full' || !!config.writeConnections) &&
+            grant.expiresAt > Date.now() && session?.userId === grant.userId &&
+            session.expiresAt instanceof Date && session.expiresAt.getTime() > Date.now(), scopes: grant.scopes });
       },
       revokeGrant,
       async close(): Promise<void> { if (!closed) { closed = true; db.close(); } },
