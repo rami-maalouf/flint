@@ -8,6 +8,13 @@
 - Server sources/tests have their own check boundary and are excluded from mobile TypeScript, Jest discovery and Expo ESLint. Root dependencies, lockfile, the native Snapback patch and product/native schema 12 remain unchanged. This prerequisite brings the root exclusion portion of M05 forward so intermediate service commits keep the mobile suite valid.
 - Root `bun run validate` on the selected Node passes 214 suites / 3,114 tests with every core metric at 100 percent; `bun run test:native` passes 16 plugin / 195 Swift tests. Backend checks and the synthetic read-only bootstrap pass. Independent foundation review found no concrete storage/pull-only defect; the separately reported historical timing contract issue was fixed and accepted in a fresh review.
 
+### M01 - demonstrated authorization and runtime selection
+
+- Selected Node 24.22.2 with maintained Better Auth/MCP/CIMD 1.7.14, official MCP server/client/core 2.4.0, independently versioned Node adapter 2.1.2, Zod 4.6.7 and Bun 1.4.3 package management. The isolated service lock is authoritative. Bun execution was rejected at the documented Node-only secure CIMD boundary; no custom SSRF transport or OAuth internals were introduced.
+- The actual Snapback/provider/SDK proof passed 12 tests with no skips, including public HTTPS metadata fetching, origin/PKCE/resource/redirect/replay rejection, read-session write refusal, two synthetic accounts, three DCR callback profiles and durable fresh-process provider/refresh state. Red evidence included the missing implementation and an untrusted-Origin acceptance, fixed with supported provider middleware. Reproduction and exact boundaries are in `docs/mcp/authorization.md`.
+- Parent independently reran `MCP_PROOF_NODE=/tmp/node-v24.22.2-darwin-arm64/bin/node MCP_PROOF_PUBLIC_CIMD=1 bun run proof:auth`; all 12 passed. Service lint/typecheck/frozen install passed. Fresh independent gate review accepted provider/runtime selection without blockers. Root validate rerun passes 214 suites / 3,114 tests and 100 percent core coverage after task-owned cache cleanup resolved host ENOSPC.
+- Upstream was rechecked once at `dd38373d2f99631225f5114eacaf54884c295675`; no supported v4 MCP route/command was found. Snapback remains 0.4.49 with its native patch. Real ChatGPT/Claude client connections and ChatGPT CIMD private-key exchange remain unverified. Production custody/pages/empty-account verification are later tasks.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

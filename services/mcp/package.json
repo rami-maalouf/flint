@@ -1,0 +1,28 @@
+{
+  "name": "habit-system-mcp-proof",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": "24.22.2"
+  },
+  "scripts": {
+    "proof:auth": "\"${MCP_PROOF_NODE:-node}\" --test proofs/auth.test.mjs",
+    "lint": "eslint --no-config-lookup --global process --global URL --global URLSearchParams --global Response --global AbortSignal --global fetch --rule no-unused-vars:error --rule no-undef:error --rule eqeqeq:error --rule no-constant-condition:error proofs/*.mjs",
+    "typecheck": "tsc --ignoreConfig --noEmit --allowJs --checkJs --module nodenext --target es2023 --skipLibCheck proofs/*.mjs --types node --allowImportingTsExtensions --strict false"
+  },
+  "dependencies": {
+    "@better-auth/cimd": "1.7.14",
+    "@better-auth/mcp": "1.7.14",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "better-auth": "1.7.14",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "eslint": "9.39.1",
+    "typescript": "6.0.3"
+  }
+}

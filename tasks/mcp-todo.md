@@ -1,12 +1,12 @@
 # Habit System MCP task ledger
 
-Plan: [mcp-plan.md](mcp-plan.md). Created against fullstack main `1985795` on 2026-10-30. No implementation task is complete yet. Existing product/fullstack todos remain historical authority for their own work.
+Plan: [mcp-plan.md](mcp-plan.md). Created against fullstack main `1985795` on 2026-10-30. Verified progress is recorded below and in `../checkpoints.md`. Existing product/fullstack todos remain historical authority for their own work.
 
 For every task: write the meaningful failing proof/test first, implement the bounded slice, run its verification, obtain independent review where indicated, add an M-prefixed checkpoint, and commit with a lowercase conventional message. Split oversized work without changing the acceptance contract. Do not mark a proof passed from static reasoning alone.
 
 ## Feasibility
 
-- [ ] M01: prove supported OAuth identity/runtime/client integration; record provider, runtime and pinned versions (gate A).
+- [x] M01: prove supported OAuth identity/runtime/client integration; record provider, runtime and pinned versions (gate A).
 - [ ] M02: freeze scoped tool, result, date, confirmation and operation contracts.
 - [ ] M03: prove awaited SQLite transactions and genuinely read-only bootstrap (gate B).
 - [ ] M04: prove receipt/journal linkage and exact delivery evidence through crash windows (gate C).
