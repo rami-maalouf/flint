@@ -65,6 +65,48 @@ function remoteBoard(overrides: Partial<SyncRecord> & { id: string; stamp: strin
 }
 
 describe('sync engine', () => {
+  it('pulls without creating a provider zone or delivering queued local work', async () => {
+    const { harness, transport, deps } = await setup();
+    try {
+      await createBoardForTest(harness, { title: 'queued local work' });
+      const queued = await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id');
+      expect(queued.length).toBeGreaterThan(0);
+      const remoteId = '00000000-0000-4000-8000-0000000000b1';
+      transport.seedRemote(remoteBoard({ id: remoteId, stamp: '00000000000900-00001-remote' }));
+      const result = await runSync({ ...deps, mode: 'pull_only' });
+      expect(result).toMatchObject({ ok: true, value: { status: 'up_to_date', uploaded: 0, applied: 1 } });
+      expect(transport.ensureZoneCalls).toBe(0);
+      expect(transport.uploads).toEqual([]);
+      expect(await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id')).toEqual(queued);
+      expect(await getBoard(harness.deps, remoteId as BoardId)).toMatchObject({ ok: true, value: { id: remoteId } });
+      expect(await harness.db.getFirstAsync('SELECT zone_created FROM sync_state')).toEqual({ zone_created: 0 });
+    } finally { await harness.db.closeAsync(); }
+  });
+
+  it('retains read-generated legacy reconciliation across repeated pull-only passes', async () => {
+    const { harness, transport, deps } = await setup();
+    try {
+      const boardId = '00000000-0000-4000-8000-0000000000b1';
+      const checkId = '00000000-0000-4000-8000-0000000000c1';
+      transport.seedRemote(remoteBoard({ id: boardId, stamp: '00000000000900-00001-remote' }));
+      transport.seedRemote({ schemaVersion: SYNC_SCHEMA_VERSION, entityType: 'check_in', entityId: checkId,
+        mutationStamp: '00000000000900-00002-remote', deleted: false,
+        fields: { id: checkId, board_id: boardId, logical_date: '2026-08-20', occurred_at_utc: null,
+          time_zone_id: null, offset_minutes: null, amount: null, note: 'untrusted remote content', source: 'app',
+          idempotency_key: checkId, created_at: Date.UTC(2026, 7, 20), updated_at: Date.UTC(2026, 7, 20), deleted_at: null } });
+      expect(await runSync({ ...deps, mode: 'pull_only' })).toMatchObject({ ok: true, value: { status: 'up_to_date', uploaded: 0 } });
+      const evidence = await harness.db.getAllAsync('SELECT * FROM habit_actions ORDER BY id');
+      const queued = await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id');
+      expect(evidence.length).toBeGreaterThan(0);
+      expect(queued.length).toBeGreaterThan(0);
+      expect(await runSync({ ...deps, mode: 'pull_only' })).toMatchObject({ ok: true, value: { status: 'up_to_date', uploaded: 0 } });
+      expect(await harness.db.getAllAsync('SELECT * FROM habit_actions ORDER BY id')).toEqual(evidence);
+      expect(await harness.db.getAllAsync('SELECT * FROM mutation_outbox ORDER BY id')).toEqual(queued);
+      expect(transport.ensureZoneCalls).toBe(0);
+      expect(transport.uploads).toEqual([]);
+    } finally { await harness.db.closeAsync(); }
+  });
+
   it.each([false, true])('preserves a real backward archive with a previously synced open range: %s', async receivedOpen => {
     const { harness: source, transport, deps: sourceDeps } = await setup();
     const { harness: destination, deps: destinationDeps } = await setup();

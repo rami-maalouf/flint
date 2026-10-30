@@ -46,6 +46,8 @@ export type SyncDeps = {
   transport: SyncTransport<WireSyncRecord>;
   // deterministic in tests; Math.random in the app
   random: () => number;
+  // pull-only retains reconciliation and queued facts without provider mutations.
+  mode?: 'bidirectional' | 'pull_only';
   // a coordinator generation guard; false cancels without retry metadata
   shouldContinue?: () => boolean;
 };
@@ -174,7 +176,7 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
     let applied = 0;
 
     try {
-      if (!preflight.state.zoneCreated) {
+      if (deps.mode !== 'pull_only' && !preflight.state.zoneCreated) {
         checkpoint(deps);
         await deps.transport.ensureZone();
         checkpoint(deps);
@@ -187,7 +189,7 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
 
       // upload in batches until the outbox drains; each batch clears only
       // its own rows, so an interrupted run never loses a mutation
-      for (;;) {
+      while (deps.mode !== 'pull_only') {
         checkpoint(deps);
         const batch = await deps.db.withTransactionAsync((tx) => collectUpload(tx));
         if (batch.outboxIds.length === 0) {

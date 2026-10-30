@@ -27,6 +27,12 @@
 - Eighteen real-Node tests pass. The initial adapter baseline reproduced external queries escaping an awaited transaction, premature close and invalid-schema acceptance. Final tests exercise all twelve unchanged migrations, rollback before/after awaits and at failed commit, consistent snapshots, actual core commands, persistent device/HLC/receipts/outbox, embedded NUL and six refused schema states.
 - Parent rebuilt and reran the test artifact with official Node 24.22.2; 18 passed. Independent foundation review found no concrete M03 defect. `docs/mcp/storage.md` records exact commands and caller/account ownership boundaries. Linux runtime and process/account ownership are later gates.
 
+### M03b - genuinely pull-only bootstrap
+
+- Added optional `pull_only` mode to the existing sync engine, preserving mobile's bidirectional default. Pull-only skips both provider/account creation and uploads, while sharing fact recovery, inbound validation/admission/settlement, HLC observation and cursor transactions. Queued derived facts remain durable for a future separately authorized delivery.
+- Two new behavioral regressions failed first because queued local records and subsequently generated reconciliation were uploaded. All 50 focused engine tests now pass. A real disposable Snapback read bearer bootstraps legacy check evidence, retains generated action/outbox work across repeat reads and attempts zero transport mutations; its direct mutation probe is refused. Both backend convergence tests pass.
+- Root validate passes 214 suites / 3,114 tests with 100 percent core coverage. Independent foundation review accepted the SQLite/pull-only boundary. Schema 12, native checksum gates, the SDK native patch and CloudKit reference behavior remain unchanged. Gate B is passed; account/runtime and durable-delivery integration are later tasks.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
