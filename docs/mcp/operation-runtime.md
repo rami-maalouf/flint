@@ -1,0 +1,101 @@
+# Protected account operations
+
+M12 integrates the existing `OperationJournal` and `RecoveryHeadAdapter` with the M08 account owner and FIFO lane. It adds internal operation and account-control methods. No mutation tool is advertised, no HTTP mutation route is added, and product delivery remains parked for M13. The service's existing read-only configuration remains functional without an operation policy.
+
+## Interfaces
+
+`AccountActors` accepts an optional `operationPolicy: OperationPolicy`. Providing it requires all three trusted dependencies:
+
+```ts
+type OperationPolicy = {
+  latch: RestoreLatch;
+  authorize: (admission: OperationAuthorization) => Promise<void>;
+  normalize: (request: MutationRequest, frozen: NormalizeContext) => Promise<{
+    timeZone: string;
+    command: CoreCommand;
+  }>;
+  maxOperations?: number;
+  failpoint?: (point: Failpoint) => void; // test-only injection
+};
+```
+
+There is no default publisher, permissive authorization, session lookup or execution callback. The policy cannot be combined with M08's legacy `recover` callback. Production composition must supply a real independently provisioned restore latch, current-grant/account-barrier authorization and tool-specific normalization. Startup is not automatically wired to this capability by M12.
+
+The public TypeScript methods are:
+
+```ts
+runOperation(ctx: AuthContext, request: MutationRequest):
+  Promise<{ data: JournalOperation; meta: Metadata }>;
+
+lookupOperation(ctx: AuthContext, operationId: string):
+  Promise<{ data: JournalOperation | null; meta: Metadata }>;
+
+withAccountControl<T>(ctx: AuthContext,
+  work: (control: AccountControlRuntime) => Promise<T>): Promise<T>;
+```
+
+`request.clientId` must exactly equal `ctx.clientId`, the actual OAuth client lineage. Tool input schemas, operation ID, matching client, required scopes and a current full upstream session are checked before account acquisition. The request is captured before queueing. `grantId` is deliberately absent from the journal fingerprint, while original grant provenance remains durable across reconnects.
+
+Operation lookup requires the `get_operation` read permission before validating the ID or entering the account lane. Known and unknown IDs receive the same scope refusal. A found operation additionally requires its original tool permissions and client lineage.
+
+`JournalOperation` is an internal result including frozen intent, receipt/result, exact wire tuples and delivery state. Public handlers must map it to the existing public operation contract, enforce response bounds and avoid exposing internal intent/tuple data. A completed local mutation normally returns `state: 'pending_sync'` and `delivery: 'pending'`. Metadata is reread after the command so pending counts include its actual outbox. A completed pull is an observation of the backend and does not acknowledge delivery of the new operation.
+
+## Trusted policy contracts
+
+`OperationAuthorization` contains `{ context, action, intent, originGrantId, request? }`. Actions are `recover`, `prepare`, `execute`, `read`, `publish` and `control`. The current request context is always supplied; no different grant or stronger credential is loaded. `prepare` includes the validated request before journal preparation. Intent-specific actions include the immutable intent and its original grant ID. Lifecycle actions have null intent/origin.
+
+The actor checks `ctx.assertActive()` around authorization and before returning protected data. Execution additionally requires the original client and grant, original tool permissions, a full live upstream session and a ready restore latch. The real core command opens its own transaction. Its transaction callback is wrapped with authorization/latch checks before work and immediately before commit; there is no enclosing product transaction or caller-supplied core executor. The account lane gives M13 a place to serialize control changes with that commit.
+
+`NormalizeContext` supplies `{ commandId, nowUtcMs, context, read, undoTarget }`. `read` contains only scoped `getFirstAsync` and `getAllAsync` SELECT/WITH queries, protected by SQLite query-only mode during normalization. The capability expires when normalization ends. `undoTarget(operationId)` uses the current client's actual original create result and existing journal ownership checks. Normalization must resolve logical dates, command arguments and confirmation semantics without changing product data. M14/M19 own those tool-specific rules.
+
+The journal freezes the normalized intent. Execution creates immutable ports using `intent.timeZone` and `intent.nowUtcMs`, then dispatches only `createCheckIn`, `undoCreatedCheckIn` or `claimReward` from the production core entry point. A normalizer cannot substitute an execution function. The existing core persists product data, HLC, receipt and outbox atomically.
+
+## Durable generation and grant origin
+
+`operations.sqlite` is a separate service sidecar inside the already owned account directory. It has exact schema/version checks, account/backend/principal bindings, a durable random generation, journal initialization marker and an `operation_grants` table keyed by `(client_id, operation_id)`. New files are private mode 0600. Generation commits with full SQLite durability and the parent directory is fsynced before the journal is opened. The journal receives that generation; reconnecting never invents another one.
+
+An operation's original grant/tool is persisted before `journal.run()` can prepare or execute it. Replays do not overwrite that origin. A same-client reconnect can look up completed intent under its current permissions and policy; it cannot execute a prepared operation belonging to another grant. Same operation IDs under different actual OAuth clients remain independent namespaces. Cross-client lookup returns null and never reveals the other client's intent.
+
+Opening retained history uses a bounded read-only view of the released journal schema to inspect prepared state and verify every operation has matching grant provenance. This adds no journal API or writer. Missing sidecar, journal, origin, generation, schema or ancestry is not reconstructed permissively. A surviving journal or product command receipt without this sidecar fences the account. A preexisting remote owner head without local generation also fences new operation initialization. Neither fresh OAuth consent nor a new device ID repairs lost history.
+
+An origin row left by a crash before journal prepare is retained, counts toward admission and never changes its originating grant. There is no pruning/reset API. Current operation history and provenance are lifetime records under the v1 retention contract.
+
+## Ordering and recovery
+
+All read, operation and control methods use the same bounded M08 queue and process ownership. For a normal account turn:
+
+1. Check active request authority and existing account/product bindings.
+2. Open/verify the operation sidecar and journal under that owner, when applicable.
+3. Check the independent restore latch and owner-scoped Snapback recovery head using the exact request session.
+4. Recover prepared journal intent before product initialization, local fact processing, pulling or any new command. A surviving receipt is captured first; the core command is not executed again. Without a receipt, only the original active client/grant may execute the frozen command.
+5. Publish required journal heads before execution, result delivery or any future delivery attempt. Then perform the bounded pull and read/operation work.
+
+The actual Snapback SDK performs metadata queries and compare-and-swap mutations. HTTP guards permit only reads and the two recovery-head mutation routes; they cannot upload product records. Every metadata mutation requires a current full operation grant, trusted publication authorization and the restore latch. Lost replies and remote ancestry mismatches retain the existing adapter's fencing behavior.
+
+Read authority, including a full upstream token with only read OAuth scopes, may compare a current head. It never initializes/advances metadata or runs/captures prepared work. A missing/unpublished head, prepared intent, unavailable head, damaged history or restore latch refuses the turn before any pull or local fact recovery. A safe current read returns `deliveryPaused: true`; operation-capable infrastructure reports `writeFenced` according to current full operation authority. Read database capabilities remain read-only regardless of that status. Accounts without operation history retain M08's explicit `read_only_reconstruction` fence.
+
+## M13 control and delivery boundary
+
+`AccountControlRuntime` contains `{ accountId, directory, signal, assertActive }`. `withAccountControl` requires trusted `control` authorization and runs under the exact account lane. It deliberately exposes neither the product database nor a generic journal executor. It performs no core work and can coordinate revocation while ordinary recovery is fenced. Its callback is trusted service code, never client/model input. It must use the directory only for its durable service barriers; it must not replace history, clear restore fences or open an independent product writer.
+
+M13 must persist and enforce grant revocation, mixed/unattributed outbox barriers and explicit queue-resume consent using this ordering seam. External provider revocation must be composed with the lane, rather than assumed serialized merely because `assertActive()` exists. There is no automatic prepared-intent execution under a reconnecting different grant in M12.
+
+Delivery remains paused for every request. The core always pulls with `mode: 'pull_only'`; no `ensureZone`, product upload or outbox clearing is introduced. Read-generated facts and older unattributed queues stay intact. M13 must add bounded quiescent delivery with current explicit policy, await `journal.recordUploadAcceptance` from the real transport's `onUpload`, and enforce `journal.beforeDelivery` plus queue-clear hooks. Do not infer acknowledgement from counts, revisions or an empty queue. M12 does not claim a complete remote write flow.
+
+## Bounds and verification
+
+The M08 request deadline, process/queue/handle bounds, page budgets and disk checks apply. Recovery SDK fetches have the same configured fetch-count limit and request abort signal, including an explicit deadline race around the fetch promise. The default maximum is 10,000 retained origin/operation slots; orphaned origin rows consume slots too. New protected request JSON is limited to 131,072 bytes. Full journal verification remains proportional to bounded retained history. No archival, distributed owner, automatic restore clearing or delivery retry worker is added.
+
+From the repository root:
+
+```sh
+bun build services/mcp/tests/operations-actor.test.ts --target=node --packages=external --outfile=services/mcp/.artifacts/operations-actor.test.mjs
+bun build services/mcp/tests/accounts.test.ts --target=node --packages=external --outfile=services/mcp/.artifacts/m12-accounts.test.mjs
+/tmp/node-v24.22.2-darwin-arm64/bin/node --test --test-concurrency=2 services/mcp/.artifacts/operations-actor.test.mjs services/mcp/.artifacts/m12-accounts.test.mjs
+```
+
+From `services/mcp`, run `bun run lint` and `bun run typecheck`.
+
+The real Node 24.22.2 suite passes 8 M12 cases and all 19 accepted M08 cases together. It deploys an actual temporary Snapback server, uses real full/read sessions, production SQLite and the existing journal/head adapters. Synthetic owners are isolated and all temporary state is removed. Cases cover a post-core/pre-capture restart, actual SIGKILL at that boundary, generation/origin persistence, receipt capture before resumed pull-derived facts, read-grant refusal without credential upgrade, old-backup/advanced-head refusal, missing latch/history and unavailable head, client/grant lineage, shared command/read/control ordering and admission before opening a replica. Delivery remains pending in these proofs.
+
+The initial red command built the same protected crash/restart test successfully, then failed with `crashed.runOperation is not a function`. The implemented path returns the durable original result with one effect after restart and actual process kill. Independent M04/M04R crash and restore matrices remain the foundation; M12 does not broaden their claims to Linux power loss, undisclosed coordinated rollback or complete delivery consent. No auth/core/journal/head/replica schema, public routing, packages, deployment or git index was changed by this increment.

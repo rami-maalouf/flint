@@ -7,8 +7,11 @@ import type { SqlDatabase, SqlExecutor } from '../../../../src/core/persistence/
 import { SyncTransportError, type SyncTransport, type WireSyncRecord } from '../../../../src/core/sync/transport';
 import type { AuthContext } from '../auth/context';
 import { createCorePorts, createSnapbackTransport, getSyncSummary, initializeProductDatabase, runSync } from '../core';
-import { timeZone, type Metadata } from '../tools/contracts';
+import { contracts, hasToolScope, timeZone, type Metadata } from '../tools/contracts';
+import type { JournalOperation, MutationRequest } from '../operations/journal';
 import { AccountReplica, privateDirectory, type ReplicaLimits } from './replica';
+import { AccountOperations, authorizeAccountControl, hasOperationAuthority, validateOperationPolicy,
+  type OperationEnvironment, type OperationPolicy } from './operations';
 
 export class AccountError extends Error {
   constructor(readonly code: 'INVALID_INPUT' | 'FORBIDDEN' | 'RECONNECT_REQUIRED' | 'SYNC_ATTENTION' | 'UNAVAILABLE' |
@@ -26,12 +29,15 @@ export type AccountOptions = Partial<ReplicaLimits> & {
   requestTimeoutMs?: number; pullTimeoutMs?: number; maxPullPages?: number; maxQueryPages?: number; idleMs?: number;
   // trusted integration point: recover retained journals and compare restore fencing before any core work.
   recover?: (context: RecoveryContext) => Promise<RecoveryStatus>;
+  operationPolicy?: OperationPolicy;
 };
 export type ReadOptions = { timeZone?: string; freshness?: 'require_sync' | 'allow_cached' };
 export type AccountRuntime = Readonly<Ports & { db: SqlDatabase; meta: Metadata;
   recovery: RecoveryStatus; signal: AbortSignal }>;
 type Entry = { lane: Promise<unknown>; pending: number; idleAt: number; replica?: AccountReplica };
-type Limits = Required<Omit<AccountOptions, 'recover' | 'fetch' | 'root' | 'backendUrl'>>;
+type Limits = Required<Omit<AccountOptions, 'recover' | 'operationPolicy' | 'fetch' | 'root' | 'backendUrl'>>;
+type LaneContext = { ctx: AuthContext; replica: AccountReplica; ports: Ports; signal: AbortSignal; authorize: () => Promise<void> };
+export type AccountControlRuntime = Readonly<{ accountId: string; directory: string; signal: AbortSignal; assertActive: () => Promise<void> }>;
 
 function stopped(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason;
@@ -88,6 +94,11 @@ export class AccountActors {
 
   constructor(private readonly options: AccountOptions) {
     this.options = Object.freeze({ ...options });
+    if (options.operationPolicy) {
+      validateOperationPolicy(options.operationPolicy);
+      if (options.recover) throw new Error('Choose the operation recovery policy or the legacy recovery hook.');
+      this.options = Object.freeze({ ...options, operationPolicy: Object.freeze({ ...options.operationPolicy }) });
+    }
     const url = new URL(options.backendUrl);
     if (url.username || url.password || url.search || url.hash ||
       (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) ||
@@ -149,6 +160,105 @@ export class AccountActors {
   }
 
   withAccount<T>(context: AuthContext, options: ReadOptions, work: (runtime: AccountRuntime) => Promise<T>): Promise<{ data: T; meta: Metadata }> {
+    return this.serve(context, options, false, async (lane, meta, recovery) => {
+      const capability = readDatabase(lane.replica.db, lane.signal);
+      await lane.replica.db.execAsync('PRAGMA query_only = ON');
+      try { return await work(Object.freeze({ ...lane.ports, db: capability.db, meta, recovery, signal: lane.signal })); }
+      finally { capability.expire(); await lane.replica.db.execAsync('PRAGMA query_only = OFF'); }
+    });
+  }
+
+  async runOperation(context: AuthContext, request: MutationRequest): Promise<{ data: JournalOperation; meta: Metadata }> {
+    if (!this.options.operationPolicy || !hasOperationAuthority(context) || request.clientId !== context.clientId ||
+      !['create_checkin', 'undo_checkin', 'claim_reward'].includes(request.tool) || !hasToolScope(contracts[request.tool], context.scopes)) {
+      throw new AccountError('FORBIDDEN', 'A matching current full operation grant is required.', false);
+    }
+    const parsed = contracts[request.tool].input.safeParse(request.input);
+    if (!parsed.success || Buffer.byteLength(JSON.stringify(request)) > 131_072) throw new AccountError('INVALID_INPUT', 'Invalid protected operation.', false);
+    const captured = Object.freeze(JSON.parse(JSON.stringify({ clientId: request.clientId, tool: request.tool, input: parsed.data })) as MutationRequest);
+    return this.serve(context, {}, true, async (_lane, _meta, _recovery, operations) => {
+      if (!operations) throw new AccountError('OPERATION_PENDING', 'Operation runtime is unavailable.');
+      return operations.run(captured);
+    });
+  }
+
+  async lookupOperation(context: AuthContext, operationId: string): Promise<{ data: JournalOperation | null; meta: Metadata }> {
+    if (!hasToolScope(contracts.get_operation, context.scopes)) {
+      throw new AccountError('FORBIDDEN', 'Operation lookup requires account read permission.', false);
+    }
+    const parsed = contracts.get_operation.input.safeParse({ operationId });
+    if (!parsed.success) throw new AccountError('INVALID_INPUT', 'Invalid operation id.', false);
+    return this.serve(context, {}, false, async (_lane, _meta, _recovery, operations) =>
+      operations ? operations.lookup(parsed.data.operationId) : null);
+  }
+
+  withAccountControl<T>(context: AuthContext, work: (runtime: AccountControlRuntime) => Promise<T>): Promise<T> {
+    return this.inLane(context, 'UTC', async lane => {
+      if (!this.options.operationPolicy) throw new AccountError('FORBIDDEN', 'Trusted account control policy is required.', false);
+      await authorizeAccountControl(this.options.operationPolicy, this.operationEnvironment(lane));
+      const result = await work(Object.freeze({ accountId: lane.ctx.accountId, directory: lane.replica.directory,
+        signal: lane.signal, assertActive: lane.authorize }));
+      await lane.authorize(); return result;
+    });
+  }
+
+  private operationEnvironment(lane: LaneContext): OperationEnvironment {
+    return Object.freeze({ db: lane.replica.db, directory: lane.replica.directory, context: lane.ctx,
+      signal: lane.signal, nowUtcMs: lane.ports.clock.nowUtcMs(), assertActive: lane.authorize,
+      fetch: this.options.fetch, checkDisk: () => lane.replica.checkDisk(), maxFetches: this.limits.maxQueryPages });
+  }
+
+  private async serve<T>(context: AuthContext, options: ReadOptions, createOperations: boolean,
+    work: (lane: LaneContext, meta: Metadata, recovery: RecoveryStatus, operations: AccountOperations | null) => Promise<T>): Promise<{ data: T; meta: Metadata }> {
+    const zone = timeZone.safeParse(options.timeZone ?? 'UTC');
+    if (!zone.success || (options.freshness !== undefined && !['require_sync', 'allow_cached'].includes(options.freshness))) {
+      throw new AccountError('INVALID_INPUT', 'Invalid account read options.', false);
+    }
+    return this.inLane(context, zone.data, async lane => {
+      const { replica, ctx, ports, signal, authorize } = lane;
+      const operations = this.options.operationPolicy
+        ? await AccountOperations.open(this.operationEnvironment(lane), this.options.operationPolicy, createOperations) : null;
+      try {
+        const recovered = operations ? await operations.recover() : await this.recover(replica, ctx, ports, signal, authorize);
+        stopped(signal);
+        await replica.boundProduct();
+        const initialized = await initializeProductDatabase(replica.db, ports.ids, ports.hashing);
+        if (!initialized.ok) throw new AccountError('UNAVAILABLE', 'Product replica initialization failed.');
+        await replica.db.runAsync('UPDATE app_settings SET icloud_sync_enabled = 1 WHERE id = 1');
+        await this.bindProduct(replica, ctx);
+        const status = await this.pull(replica, ctx, ports, signal, authorize);
+        await authorize(); replica.checkDisk();
+        const meta = await this.observe(replica, ports, status, options);
+        const recovery = Object.freeze({ ...recovered, deliveryPaused: true,
+          reconnectRequired: recovered.reconnectRequired || meta.syncStatus === 'reconnect_required' });
+        const data = await work(lane, meta, recovery, operations);
+        await authorize();
+        const finalMeta = createOperations ? await this.observe(replica, ports, status, { freshness: 'allow_cached' }, false) : meta;
+        return { data, meta: finalMeta };
+      } finally { await operations?.close(); }
+    });
+  }
+
+  private async observe(replica: AccountReplica, ports: Ports, status: string, options: ReadOptions, completedPull = true): Promise<Metadata> {
+    const summary = await getSyncSummary({ db: replica.db, clock: ports.clock });
+    if (!summary.ok) throw new AccountError('UNAVAILABLE', 'Replica admission could not be inspected.');
+    const deferred = (await replica.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_deferred'))!.count;
+    const state = (await replica.db.getFirstAsync<{ change_token: string | null }>('SELECT change_token FROM sync_state WHERE id = 1'))!;
+    const admission = { ...summary.value.incoming, deferred };
+    const clean = status === 'up_to_date' && Object.values(admission).every(value => value === 0);
+    const syncStatus: Metadata['syncStatus'] = clean ? 'up_to_date' : status === 'offline' ? 'offline'
+      : status === 'signed_out' ? 'reconnect_required' : status === 'idle' ? 'incomplete' : 'sync_attention';
+    if (clean && completedPull) replica.markHealthy(Date.now(), state.change_token);
+    if (!clean && (options.freshness !== 'allow_cached' || replica.lastHealthyPullAtUtc === null)) {
+      throw new AccountError(syncStatus === 'reconnect_required' ? 'RECONNECT_REQUIRED' : syncStatus === 'sync_attention'
+        ? 'SYNC_ATTENTION' : 'UNAVAILABLE', 'A complete account pull is required before this read.');
+    }
+    return Object.freeze({ observedAtUtc: Date.now(), lastCompletedPullAtUtc: replica.lastHealthyPullAtUtc,
+      backendRevision: state.change_token, syncStatus, pendingLocalDeliveries: summary.value.pendingChanges,
+      admission: Object.freeze(admission), usedCached: !clean });
+  }
+
+  private inLane<T>(context: AuthContext, zone: string, work: (lane: LaneContext) => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new AccountError('UNAVAILABLE', 'Account service is closing.'));
     if (this.outstanding >= this.limits.maxOutstanding) return Promise.reject(new AccountError('RATE_LIMITED', 'Account request budget exceeded.'));
     this.outstanding++;
@@ -159,10 +269,6 @@ export class AccountActors {
       if (ctx.backendUrl !== this.options.backendUrl || ctx.principal !== ctx.session.principal || !ctx.accountId || ctx.accountId.length > 200 ||
         !ctx.principal || ctx.principal.length > 500 || !ctx.clientId || !ctx.grantId) {
         throw new AccountError('FORBIDDEN', 'Account authority does not match this service.', false);
-      }
-      const zone = timeZone.safeParse(options.timeZone ?? 'UTC');
-      if (!zone.success || (options.freshness !== undefined && !['require_sync', 'allow_cached'].includes(options.freshness))) {
-        throw new AccountError('INVALID_INPUT', 'Invalid account read options.', false);
       }
       const authorize = async () => {
         stopped(controller.signal);
@@ -177,44 +283,9 @@ export class AccountActors {
         const replica = entry.replica;
         replica.assertBinding(ctx, this.options.backendUrl);
         replica.checkDisk();
-        const ports = immutablePorts(zone.data);
+        const ports = immutablePorts(zone);
         await this.bindProduct(replica, ctx, false);
-        const recovery = await this.recover(replica, ctx, ports, controller.signal, authorize);
-        stopped(controller.signal);
-        await replica.boundProduct();
-        const initialized = await initializeProductDatabase(replica.db, ports.ids, ports.hashing);
-        if (!initialized.ok) throw new AccountError('UNAVAILABLE', 'Product replica initialization failed.');
-        // this is a local enable bit, not a provider mutation or an outbox command.
-        await replica.db.runAsync('UPDATE app_settings SET icloud_sync_enabled = 1 WHERE id = 1');
-        await this.bindProduct(replica, ctx);
-        const status = await this.pull(replica, ctx, ports, controller.signal, authorize);
-        await authorize();
-        replica.checkDisk();
-        const summary = await getSyncSummary({ db: replica.db, clock: ports.clock });
-        if (!summary.ok) throw new AccountError('UNAVAILABLE', 'Replica admission could not be inspected.');
-        const deferred = (await replica.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_deferred'))!.count;
-        const state = (await replica.db.getFirstAsync<{ change_token: string | null }>('SELECT change_token FROM sync_state WHERE id = 1'))!;
-        const admission = { ...summary.value.incoming, deferred };
-        const clean = status === 'up_to_date' && Object.values(admission).every(value => value === 0);
-        const syncStatus: Metadata['syncStatus'] = clean ? 'up_to_date' : status === 'offline' ? 'offline'
-          : status === 'signed_out' ? 'reconnect_required' : status === 'idle' ? 'incomplete' : 'sync_attention';
-        if (clean) replica.markHealthy(Date.now(), state.change_token);
-        if (!clean && (options.freshness !== 'allow_cached' || replica.lastHealthyPullAtUtc === null)) {
-          throw new AccountError(syncStatus === 'reconnect_required' ? 'RECONNECT_REQUIRED' : syncStatus === 'sync_attention'
-            ? 'SYNC_ATTENTION' : 'UNAVAILABLE', 'A complete account pull is required before this read.');
-        }
-        const meta: Metadata = Object.freeze({ observedAtUtc: Date.now(), lastCompletedPullAtUtc: replica.lastHealthyPullAtUtc,
-          backendRevision: state.change_token, syncStatus, pendingLocalDeliveries: summary.value.pendingChanges,
-          admission: Object.freeze(admission), usedCached: !clean });
-        const capability = readDatabase(replica.db, controller.signal);
-        await replica.db.execAsync('PRAGMA query_only = ON');
-        try {
-          const data = await work(Object.freeze({ ...ports, db: capability.db, meta,
-            recovery: Object.freeze({ ...recovery, writeFenced: true, deliveryPaused: true,
-              reconnectRequired: recovery.reconnectRequired || syncStatus === 'reconnect_required' }), signal: controller.signal }));
-          await authorize();
-          return { data, meta };
-        } finally { capability.expire(); await replica.db.execAsync('PRAGMA query_only = OFF'); }
+        return work({ ctx, replica, ports, signal: controller.signal, authorize });
       });
       entry.lane = result.catch(() => undefined).finally(() => { entry.pending--; entry.idleAt = Date.now(); });
       return result;

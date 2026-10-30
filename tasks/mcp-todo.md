@@ -24,7 +24,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 
 ## Durable mutations
 
-- [ ] M12: implement durable operation journal, crash recovery and delivery evidence.
+- [x] M12: implement durable operation journal, crash recovery and delivery evidence.
 - [ ] M13: add scoped write sessions, revoke/commit ordering and a mixed-queue delivery barrier.
 - [ ] M14: deliver deliberate check-ins with stable operation IDs and frozen dates.
 - [ ] M15: deliver targeted undo of this service's actual created check-ins.

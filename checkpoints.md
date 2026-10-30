@@ -113,6 +113,12 @@
 - Added optional coordinator callbacks to the shared sync engine before provider creation, each upload batch and exact outbox deletion. Accepted uploads remain queued if evidence publication or current authorization refuses clearing. Existing mobile defaults are unchanged; pull-only never calls either callback.
 - Initial regressions demonstrated a refused connection still uploading two records and an ignored evidence gate clearing the queue. All 52 focused sync tests now pass. Independent review accepted the bounded seam without findings. Root validate passes 214 suites / 3,116 tests with every core file at 100 percent, including all engine branches. M13's grant/barrier implementation follows separately; the seam itself enables no public mutation or delivery.
 
+### M12 - protected account operation recovery
+
+- Integrated the real journal/recovery-head adapters into the owned account lane with durable generation and original-grant provenance, trusted latch/authorization/normalization, frozen core dispatch and receipt capture before any resumed pull or derived fact work. The core retains its own transaction, checked before work and immediately before commit. Read authority may compare current recovery metadata but cannot publish or execute prepared work.
+- Eight new actual SDK/server/SQLite tests and all nineteen M08 tests pass, including post-commit lost capture, actual SIGKILL, same-client retry, different client/grant refusal, old local restore against advanced head, missing history/latch and shared control ordering. Delivery remains parked; protected internal methods add no public mutation tool.
+- Independent review confirmed those recovery boundaries and found lookup admitted a write-only scope without the contract's read permission. The regression failed first; admission now checks `get_operation` before account acquisition for both known and unknown IDs, retaining original-tool permission checks. Parent reran all eight M12 tests; a fresh reviewer accepted the correction. Service lint/typecheck pass. M13 still owns revocation serialization, explicit mixed-queue resume and live delivery integration.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
