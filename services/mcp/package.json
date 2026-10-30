@@ -16,7 +16,8 @@
     "test:integration": "\"${MCP_NODE:-node}\" scripts/test.mjs integration",
     "test:protocol": "\"${MCP_NODE:-node}\" scripts/test.mjs protocol",
     "test:coverage": "MCP_TEST_COVERAGE=1 \"${MCP_NODE:-node}\" scripts/test.mjs all",
-    "build": "bun build src/core.ts --target=node --packages=external --outdir=dist --metafile=dist/metafile.json"
+    "build": "bun build src/core.ts src/main.ts src/startup.ts --target=node --packages=external --outdir=dist --metafile=dist/metafile.json",
+    "start": "\"${MCP_NODE:-node}\" dist/main.js"
   },
   "dependencies": {
     "@better-auth/cimd": "1.7.14",

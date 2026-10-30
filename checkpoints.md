@@ -102,6 +102,12 @@
 - Added pinned-action Linux service and macOS inherited workflows for frozen installs, generated API, service lint/types/build/coverage/audit and root validate/backend/native gates. The service job installs only its independent graph; the mobile graph and patched SDK remain isolated. Updated the existing EAS repository target to the actual renamed `rami-maalouf/flint` origin.
 - Official action revision lookups and checksum-verified actionlint 1.7.12 workflow validation pass. A fresh independent review accepted workflow semantics without findings. Shellcheck was disabled because the host's unrelated shim is not configured; actual GitHub execution remains pending the PR. No deployment or secret access is added. Remaining runtime rate controls and redacted diagnostics keep M21 open.
 
+### M09c/M21a - executable private Node service
+
+- Added strict private versioned configuration/external keys, process-wide and SQLite ownership, actual provider/vault/actor/HTTP composition, loopback-only startup and bounded signal-driven shutdown. Imports do not start listeners. Unknown schema, unsafe paths, missing keys and duplicate processes fail without resetting durable state.
+- Eleven real Node 24.22.2 startup tests pass, including actual built child processes across SIGKILL/restart and SIGTERM/SIGINT, encrypted custody persistence, fixed HTTPS metadata, anonymous auth challenges, traffic/header/deadline limits and drain behavior. Initial review reproduced a chunked GET bypass of the body limit. The regression failed first; GET/HEAD now reject body framing before SDK dispatch and close the connection. A fresh reviewer accepted the fix and independently verified immediate raw-HTTP refusal, normal GET/HEAD/zero-length and POST behavior.
+- Service build, lint and strict typecheck pass. `docs/mcp/runtime.md` records configuration, exact limits and lifecycle. Registration/login rate controls, write-policy composition, production deployment and remote client certification remain later gates; readiness is local service readiness rather than a claim about a particular upstream grant.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
