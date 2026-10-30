@@ -33,6 +33,11 @@
 - Two new behavioral regressions failed first because queued local records and subsequently generated reconciliation were uploaded. All 50 focused engine tests now pass. A real disposable Snapback read bearer bootstraps legacy check evidence, retains generated action/outbox work across repeat reads and attempts zero transport mutations; its direct mutation probe is refused. Both backend convergence tests pass.
 - Root validate passes 214 suites / 3,114 tests with 100 percent core coverage. Independent foundation review accepted the SQLite/pull-only boundary. Schema 12, native checksum gates, the SDK native patch and CloudKit reference behavior remain unchanged. Gate B is passed; account/runtime and durable-delivery integration are later tasks.
 
+### M04a - exact transport delivery evidence
+
+- The injectable Snapback transport can await a per-record delivery callback before the engine deletes acknowledged queue rows. It compares the actual returned stamp/digest/schema/tombstone to distinguish exact acceptance from a newer mutable record superseding the attempted version. Immutable facts cannot be labeled superseded.
+- The new real-backend regression failed first with no receipt evidence, then passed for exact acceptance, stale mutable delivery and connection revocation between records. Existing large Unicode/multipart transport behavior stays green. Callback failure leaves the engine's durable outbox available for retry. Independent journal review accepted this boundary with no blockers.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
