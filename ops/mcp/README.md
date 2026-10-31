@@ -1,6 +1,6 @@
-# MCP staging handoff - no activation
+# MCP deployment and staging handoff
 
-These are additive M23 artifacts. Nothing in this directory is installed or enabled by creating it. The existing Snapback 0.4.49 service on `127.0.0.1:4410`, Traefik bridge on `172.26.0.1:4411`, shared provider file, mobile schema 12 and native checksum gates remain authoritative. M24 backup/restore proof and M25 independent review precede M26 activation.
+These are the additive M23 deployment artifacts. Creating them alone does not install or enable anything. The reviewed release was activated separately on 2026-10-31 after paired restore and independent review; see the [actual activation record](../../docs/mcp/release.md#activation-record). Snapback 0.4.49 on `127.0.0.1:4410`, its bridge on `172.26.0.1:4411`, mobile schema 12 and native checksum gates remain authoritative.
 
 ## Topology and ownership
 
@@ -10,7 +10,7 @@ These are additive M23 artifacts. Nothing in this directory is installed or enab
 | Traefik bridge | `172.26.0.1:4414` | socket binds the currently observed `traefik` network gateway only |
 | Process | `habitmcp:habitmcp` | separate unprivileged user, no shared Snapback state |
 | State | `/var/lib/habit-system-mcp` | owned by `habitmcp`, mode 0700; no automatic creation by these units |
-| Config and keys | `/etc/habit-system-mcp/config.json`, `/etc/habit-system-mcp/keys.json` | private files owned by `habitmcp`, mode 0600, parent directory 0700; keys outside app state and backups |
+| Config and keys | `/etc/habit-system-mcp/config.json`, `/etc/habit-system-mcp/keys.json` | private files owned by `habitmcp`, mode 0600, parent directory 0700; keys outside app state and backed up separately |
 | Release | `/opt/habit-system-mcp/releases/<40-character-git-sha>` | immutable after review; unit instance pins this exact path |
 
 The fifteen-tool release uses config version 2: `version`, `publicOrigin`, `backendUrl`, `dataDirectory`, `keyFile`, `port`, plus `operations: { installationId, latchPath, backendDirectory }`. The public and backend origin are `https://habits.ramimaalouf.com`, state is `/var/lib/habit-system-mcp`, keys are `/etc/habit-system-mcp/keys.json`, and the port is `4413`. The external latch is `/etc/habit-system-mcp/restore-latch`; the accessible parent restore root `/var/lib` contains the separately owned backend deployment. Config version 1 deliberately exposes only ten reads and refuses active write grants from a version 2 deployment. The config parser requires private physical paths and rejects keys or a latch inside the applicable restore roots. The unit supplies only `MCP_CONFIG_PATH`; secrets are not environment variables or command arguments. Initial provisioning of a genuinely new installation is distinct from restoration. Never provision or clear a latch during restore.

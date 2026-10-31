@@ -39,9 +39,9 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [x] M21: bound resources and expose redacted diagnostics and health.
 - [x] M22: verify and document exact real-client compatibility.
 - [x] M23: deploy isolated Linux ARM64 staging and verify shared proxy routing.
-- [ ] M24: rehearse private off-host backup and isolated operation-safe restoration.
-- [ ] M25: complete inherited/service gates and independent final verification.
-- [ ] M26: activate reviewed release, demonstrate synthetic public flow, open/link PR and hand over.
+- [x] M24: rehearse private off-host backup and isolated operation-safe restoration.
+- [x] M25: complete inherited/service gates and independent final verification.
+- [x] M26: activate reviewed release, demonstrate synthetic public flow, open/link PR and hand over.
 
 ### M25 final review corrections
 
@@ -55,20 +55,22 @@ The completed independent review against `982edfe` requires the following correc
 - [x] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage (M25d).
 - [x] Give CI, startup and admission checkpoints distinct identifiers (`M05c`, `M09c`, `M21a`, `M21b`).
 - [x] Obtain complete actual Linux ARM64 service coverage with public CIMD and no skipped tests for the pre-epoch snapshot (M25a); rerun affected integration gates after these corrections.
-- [x] Verify current merged Flint source on Mac and Linux ARM64: 316 service checks with no skips, inherited gates, isolated audit and a clean reviewed release artifact (M25f).
+- [x] Verify final Flint application source on Mac and Linux ARM64: 319 service checks with no skips, inherited gates, isolated audit and a clean reviewed release artifact (M25h).
 
 ## Release acceptance
 
-- [ ] All 15 v1 tool contracts implemented with invocation-time scope enforcement.
-- [ ] Read grants cannot write, including during first sync and reconciliation.
-- [ ] Repeated/uncertain operations do not create duplicate effects after restart or tested restore.
-- [ ] An older backup missing a later operation is detected and write-fenced before a retry can duplicate it.
-- [ ] Coordinated rollback to matching older snapshots stays write-fenced without independent completeness evidence.
-- [ ] Revoked/mixed-grant outbox work cannot drain under a different credential without explicit owner re-consent.
-- [ ] Reward approval, local transaction checks and negative offline-convergence behavior match the product spec.
-- [ ] No account/session/private fixture leaked; phone and other services remain intact.
-- [ ] Service lint/typecheck/unit/integration/protocol/build and root validate/native/backend gates pass.
-- [ ] Advertised clients have actual connection evidence; unavailable clients are labeled unverified.
-- [ ] Backup, key recovery, rollback and pending-operation restoration demonstrated with synthetic data.
-- [ ] Independent reviewer has no unresolved blocking findings; evidence and PR are linked.
-- [ ] User sign-in, if still pending, is reported as pending without claiming their account is connected.
+- [x] All 15 v1 tool contracts implemented with invocation-time scope enforcement.
+- [x] Read grants cannot write, including during first sync and reconciliation.
+- [x] Repeated/uncertain operations do not create duplicate effects after restart or tested restore.
+- [x] An older backup missing a later operation is detected and write-fenced before a retry can duplicate it.
+- [x] Coordinated rollback to matching older snapshots stays write-fenced without independent completeness evidence.
+- [x] Revoked/mixed-grant outbox work cannot drain under a different credential without explicit owner re-consent.
+- [x] Reward approval, local transaction checks and negative offline-convergence behavior match the product spec.
+- [x] No account/session/private fixture leaked; phone and other services remain intact.
+- [x] Service lint/typecheck/unit/integration/protocol/build and root validate/native/backend gates pass.
+- [x] Advertised clients have actual connection evidence; unavailable clients are labeled unverified.
+- [x] Backup, key recovery, rollback and pending-operation restoration demonstrated with synthetic data.
+- [x] Independent reviewer has no unresolved blocking findings; evidence and PR are linked.
+- [x] User sign-in, if still pending, is reported as pending without claiming their account is connected.
+
+Final activation and evidence: [release](../docs/mcp/release.md), [verification](../docs/mcp/verification.md), and [paired restoration](../docs/mcp/paired-restore.md). Real ChatGPT/Claude and the user's own sign-in remain unverified. Automated production restoration stays disabled; the independently reviewed synthetic controller adapter does not prove the hardcoded production SSH/latch branch.

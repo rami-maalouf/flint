@@ -1,6 +1,22 @@
 # MCP activation and handover
 
-Status: **not activated**. M24's current-runtime restore rehearsals and M25's final independent verification remain prerequisites. The executable artifact and completed quality checks are recorded in [verification](verification.md). This file describes the owned activation sequence; it does not claim those operations have run.
+Status: **activated on 2026-10-31** at `https://habits.ramimaalouf.com/mcp`. The immutable application source is `22217f3c14c430fcc82457329b126a93ff847d38`; installed recovery tooling is `b88bb754b0d65f9bfaa3ca1d33e48d64031e04c9`. The current-runtime paired restore and final independent review preceded activation. Artifact hashes and quality gates are recorded in [verification](verification.md).
+
+## Activation record
+
+The complete pre-schema backend archive was encrypted and transferred to the private Mac backup destination. The reviewed additive recovery-head schema was deployed with the backend stopped under the shared recovery lock, then the backend restarted successfully. The existing daily timer keeps its schedule and now invokes the reviewed shared-lock native backup entry. Fresh MCP state, keys, config and the external ready latch were created with private ownership and durable writes. No existing account or phone credential was used.
+
+The exact ARM64 artifact is installed under its full source SHA and runs as `habitmcp`, with a 512 MB memory cap, one CPU, 128 tasks and 4,096 file descriptors. MCP listens only on `127.0.0.1:4413`; the bridge listens only on `172.26.0.1:4414`. The service and bridge socket are wanted by `multi-user.target`. A complete cold paired snapshot, including separate encrypted data and keys, was copied off-host and both ciphertext digests verified before the public synthetic write proof.
+
+The first public baseline exposed an earlier staging cleanup that had removed the existing Snapback router. Its three committed entries were restored before enabling MCP. Only the three named MCP entries were then added; every unrelated parsed provider entry was preserved. No shared Traefik restart occurred. Root-only release extraction permissions were corrected so the unprivileged service could execute Node and read its immutable code; file contents and reviewed hashes were unchanged.
+
+Public SDK 2.4.0 acceptance passed with fifteen advertised tools, read/write separation, stable check-in retry, targeted undo, approval with missing/forged CSRF refusal, claim replay, exact ledger receipt/reversal linkage, independent pull-only convergence, write-grant cutoff and a surviving independent read. Earned/spent/balance totals were 5/4/1. All synthetic session cleanup checks passed. Anonymous MCP returned 401 with its resource challenge, both metadata endpoints returned 200, foreign Origin returned 403, and the existing backend probe returned 401.
+
+Rollback removed only MCP routing and stopped only its service and bridge, retaining config, keys, latch and data. A non-author independently observed MCP inactive with no 4413/4414 listeners, the original backend and bridge active, the expected provider hash, public MCP 404 and backend 401. Reactivation used the same artifact and retained custody; all config/key/latch hashes matched. A fresh read of the same synthetic account passed and its temporary grant was revoked.
+
+Sanitized operational logs are in the ignored `.artifacts/fullstack/mcp-activation-20261031.2zfn0U/` directory. The private public-proof evidence SHA256 is `9bbc2895ac11a11af2f333f68b4a52966c84818b9089428815635099fe187940`; the paired production backup ciphertexts have SHA256 `7bdf5e6da903907a6fc836b62ba990023b75f9c99a995d66ca6965bac321a75f` (data) and `b6091c17f022de43d72f3f4a92a4afbc0924107495a5bbe2a3185b0628b91a89` (keys). Credentials, database contents and encryption identities remain private and untracked.
+
+The remaining sections are the repeatable activation and rollback procedure. The user's own sign-in and real ChatGPT/Claude connections remain pending. The synthetic paired restore proves its scoped controller adapter; automated production restoration remains disabled until the exact production SSH/latch branch is separately verified.
 
 ## Before activation
 
@@ -24,7 +40,7 @@ MCP_RELEASE_WRITE_PROOF=synthetic-account-only /path/to/node-24.22.2 \
   services/mcp/.artifacts/public-release-proof.mjs run
 ```
 
-The helper is restricted to `https://habits.ramimaalouf.com`, creates a new synthetic account and private local fixture, and never takes a real account credential. It checks all fifteen tools, read-authority refusal, a check-in and stable retry, targeted undo, exact-cost browser approval, claim replay, a second pull-only SQLite replica, and independent connection revocation. Its local guards have been checked; its public flow is pending activation. Preserve sanitized evidence and account credentials only in the private rehearsal directory. Do not commit them.
+The helper is restricted to `https://habits.ramimaalouf.com`, creates a new synthetic account and private local fixture, and never takes a real account credential. It checks the fifteen-tool catalog and exercises read-authority refusal, a check-in and stable retry, targeted undo, exact-cost browser approval, claim replay, a second pull-only SQLite replica, and independent connection revocation. Its public flow passed during the activation above. Preserve sanitized evidence and account credentials only in the private rehearsal directory. Do not commit them.
 
 ## Rollback rehearsal
 
@@ -38,4 +54,4 @@ After the activation record confirms success, configure a remote HTTP MCP connec
 
 The official SDK profiles and browser evidence are listed in [compatibility](compatibility.md). Real ChatGPT, Claude and the user's private account connection remain unverified until actually exercised. Refresh does not extend an expired upstream session; reconnect when required. Whole-VPS rollback outside the independent controller and guaranteed upstream logout during an outage remain outside the demonstrated guarantees.
 
-The release record must include the final source/operational commits, active artifact, backup digests, synthetic public result, rollback result, independent review and linked PR. Open the PR without merging it. No activation, rollback or private client connection is claimed by this runbook alone.
+The release record must include the final source/operational commits, active artifact, backup digests, synthetic public result, rollback result, independent review and linked PR. Open the PR without merging it. The activation record above supports activation and rollback; it makes no claim that the user's private client is connected.
