@@ -291,6 +291,11 @@
 - The frozen `982edfe` source plus the reviewed runner/startup overlays passes all 297 service checks on actual Linux ARM64 Node 24.22.2 with public CIMD enabled, zero failures/skips, a complete report and exit zero. Its audit records 96 valid coverage files, all 26 bundled test entries, the auth proof and six direct MCP service reports. The runner SHA256 is `50ba215398a965e92d5781692a1d3d09a9dee351adf9f0f8d0a60d0b5924fd0a`. Evidence is retained under `.artifacts/coverage-probe.4yUm6n/linux-evidence/`.
 - Startup capacity and slow-header cases use separate listeners so the parser proof is not rejected by still-closing capacity sockets. The unsafe-mode fixture explicitly sets its mode under umask 077. Thirteen startup checks pass on both platforms; Mac focused coverage passes fifteen checks. Fresh independent review accepted the three-file slice after checking the evidence, narrow exclusion and retained timeout assertions. New authorization-epoch changes are outside this snapshot and require their own integration gates. M25 remains open.
 
+### M25b - result-specific MCP text
+
+- Replaced the generic successful-call sentence with bounded summaries for all fifteen tools. Text reports returned entity IDs/counts, dates, reward cost and confirmation URL, operation state/delivery, and cached observation metadata. It omits private history notes and does not imply that a prepared or undelivered operation completed remotely. Structured results remain authoritative.
+- The actual SDK preview assertion failed before implementation. Four summary tests and both HTTP read tests pass, including modern/legacy protocols, insufficient funds, a usable confirmation URL, oversized-link fallback, negative balances, pending/no-op operations and private-note omission. The runtime SDK check also verifies operation ID, state and delivery text. Service lint/typecheck pass. Independent review found no issue in this bounded text correction; separate read-continuity and authorization corrections retain their own review gates.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

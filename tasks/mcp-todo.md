@@ -49,7 +49,7 @@ The completed independent review against `982edfe` requires the following correc
 
 - [ ] Reject restored OAuth, refresh, code and browser authority through an independent restore epoch; prove fresh degraded reads and retained write fences.
 - [ ] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history.
-- [ ] Return bounded, result-specific text alongside structured results for all fifteen tools.
+- [x] Return bounded, result-specific text alongside structured results for all fifteen tools (M25b).
 - [ ] Restore validated delivery-only snapshots while refusing missing initialized journals.
 - [ ] Measure retained-history admission near the operation bound and remove repeated full-history work safely.
 - [ ] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage.

@@ -30,6 +30,8 @@ Reads default to `freshness: "require_sync"`. Failure or incomplete/quarantined 
 
 Pages default to 50 and cannot exceed 100 items. Entire structured results cannot exceed 131072 UTF-8 bytes. Page builders shorten a page to its byte budget and provide a cursor; if even one item or a non-page result cannot fit, return a clear bounded-result `UNAVAILABLE` error. Never truncate JSON or silently omit records. Dates within one history day may span multiple pages; this is a row-based keyset API, separate from the phone's whole-day prefix query.
 
+Successful MCP text summarizes the returned entities, counts, logical dates, coin costs or operation and delivery states. It labels cached observations and queued deliveries. Preview text includes the human confirmation URL when it fits; an oversized URL remains intact in structured data with an explicit reference. Text is capped at 8192 UTF-8 bytes, omits private check-in notes and lists at most five example entries. Structured data remains authoritative for complete pages and continuation.
+
 Cursors are authenticated opaque tokens, bound to account, tool, filters and ordering. Keys survive restart. They are not portable between clients/accounts or filters. Continuation is a sequence of consistent individual reads, not a frozen historical snapshot: insertions before the cursor are seen on refresh, while later deletions disappear. Changing a row's ordering fields may move it across a cursor. Refresh from the first page to see concurrent changes. A cursor never weakens current scope or lifecycle checks.
 
 ## Dates and mutation intent

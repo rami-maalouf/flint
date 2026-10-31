@@ -8,6 +8,7 @@ import { publicError, ToolError } from './tools/errors';
 import { ReadTools, readToolNames, type ReadToolName } from './tools/reads';
 import { MutationTools, type MutationToolName } from './tools/mutations';
 import { RewardPreviewTools } from './rewards/tools';
+import { summarizeResult } from './tools/summaries';
 import { ServiceLimits, LimitedRequestError, type LimitKind } from './limits';
 import { recordDiagnostic, type DiagnosticEvent } from './diagnostics';
 
@@ -58,7 +59,7 @@ export function createHttpService({ authorization, reads, mutations, rewardPrevi
         }
         else throw new ToolError('NOT_FOUND', 'The requested tool is unavailable.');
         return server.projectCallToolResult({ structuredContent, content: [{ type: 'text',
-          text: `${name} returned the account observation and structured result.` }] }, catalog.find(tool => tool.name === name)?.outputSchema);
+          text: summarizeResult(name as keyof typeof contracts, structuredContent) }] }, catalog.find(tool => tool.name === name)?.outputSchema);
       } catch (cause) {
         const error = publicError(cause instanceof LimitedRequestError
           ? new ToolError('RATE_LIMITED', 'Request limit reached. Try again later.', true) : cause);

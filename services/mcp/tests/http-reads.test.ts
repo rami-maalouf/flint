@@ -137,6 +137,9 @@ test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and ret
       const preview = await client.callTool({ name: 'get_reward_claim_preview', arguments: previewInput });
       assert.equal(preview.isError, undefined, JSON.stringify(preview));
       const quote = (preview.structuredContent as { data: { confirmationToken: string; confirmationUrl: string; balance: number; balanceAfterClaim: number | null } }).data;
+      const previewText = preview.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      assert.ok(previewText.includes(quote.confirmationUrl));
+      assert.ok(previewText.includes('synthetic reward'));
       assert.equal(quote.balance, index === 0 ? 1 : 0);
       assert.equal(quote.balanceAfterClaim, index === 0 ? 0 : null);
       assert.equal(new URL(quote.confirmationUrl).origin, publicOrigin);

@@ -151,8 +151,12 @@ test('production v2 composes all 15 SDK tools, scoped grants, durable quotes, co
   error(await reader.client.callTool({ name: 'create_checkin', arguments: {
     operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }), 'FORBIDDEN');
   const operationId = randomUUID();
-  const created = data<Receipt>(await writer.client.callTool({ name: 'create_checkin', arguments: {
-    operationId, habitId: f.habitId, timeZone: 'UTC' } }));
+  const creation = await writer.client.callTool({ name: 'create_checkin', arguments: {
+    operationId, habitId: f.habitId, timeZone: 'UTC' } });
+  const created = data<Receipt>(creation);
+  const creationText = creation.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
+  assert.ok(creationText.includes(operationId)); assert.ok(creationText.includes(created.state));
+  assert.ok(creationText.includes(created.delivery));
   assert.equal(created.state, 'backend_acknowledged');
   const undone = data<Receipt>(await writer.client.callTool({ name: 'undo_checkin', arguments: {
     operationId: randomUUID(), originalOperationId: operationId } })); assert.equal(undone.state, 'backend_acknowledged');
