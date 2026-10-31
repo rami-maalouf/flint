@@ -35,7 +35,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 
 ## Release
 
-- [ ] M20: finish connections, revocation and explicit owner consent to resume paused deliveries.
+- [x] M20: finish connections, revocation and explicit owner consent to resume paused deliveries.
 - [ ] M21: bound resources and expose redacted diagnostics and health.
 - [ ] M22: verify and document exact real-client compatibility.
 - [ ] M23: deploy isolated Linux ARM64 staging and verify shared proxy routing.

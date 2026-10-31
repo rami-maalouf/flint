@@ -208,6 +208,12 @@
 - Source admission now decompresses a complete private size-bounded tar before checking its embedded Git commit and extracting validated paths. The raw historical header pipeline produces SIGPIPE 141, although the old comparison masked it; the record does not claim that the original full script rejected every valid archive. Actual isolated ARM64 admission reaches frozen install with the official Node archive and a Bun stop stub; wrong digest/commit/traversal are rejected.
 - Fresh independent review accepts the artifacts. Bash syntax, ShellCheck, YAML and isolated unit verification pass within their documented host limits. Full clean ARM64 build, target systemd verification, resource measurements, backup, public proxy/TLS and activation remain M23-M26 gates. No remote deployment change is included.
 
+### M20 - owner connection management and explicit pending-work consent
+
+- Added metadata-only owner connection GET and bounded Origin/CSRF-protected disconnect/resume POST. Forms bind the browser owner, session, grant, action and expiry. Resume requires explicit account-wide pending-work consent and an exact active full context; the decision rechecks identity inside the account lane. It cannot clear a restore latch or execute another grant's prepared intent.
+- Three actual HTTP/OAuth/Snapback/SQLite cases pass, including A's pending work, revocation from independent B, refused automatic draining and explicit B resume with exact journal/outbox evidence. Account/form/action/grant swaps, oversized/duplicate fields, read/expired authority and restore-latch refusal are covered. Independent route review accepted the slice; parent reran all three after plain-language display changes.
+- Inspected the actual current renderer in Chromium at 390 and 1024 pixels in both appearances, with 36 state/scroll captures. No horizontal overflow; resume/disconnect actions are 48/50 pixels tall with destructive action below resume. The page reports expiry and an authorized attempt honestly. Full interactive browser continuation and final process/operational verification remain release checks; automatic upstream session rotation is not implemented.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
