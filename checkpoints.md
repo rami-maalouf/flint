@@ -97,12 +97,12 @@
 - Two actual HTTP/provider/Snapback/SQLite tests pass with two accounts, both protocol families, 105-row history continuation, note omission, denied scopes, foreign IDs and honest cached/offline results. Every upstream read uses a read session and the observed read flow makes no backend mutation or authentication call.
 - Independent review found SDK argument validation bypassed the promised structured error envelope. A regression failed first; supported low-level SDK handlers now validate the same strict contracts inside the bounded application error boundary. A fresh reviewer accepted the fix under both protocol families. Service lint/typecheck pass. Provider revocation and executable startup findings remain separate gates before checkpoint R is closed.
 
-### M21b - isolated and inherited CI gates
+### M05c - isolated and inherited CI gates
 
 - Added pinned-action Linux service and macOS inherited workflows for frozen installs, generated API, service lint/types/build/coverage/audit and root validate/backend/native gates. The service job installs only its independent graph; the mobile graph and patched SDK remain isolated. Updated the existing EAS repository target to the actual renamed `rami-maalouf/flint` origin.
 - Official action revision lookups and checksum-verified actionlint 1.7.12 workflow validation pass. A fresh independent review accepted workflow semantics without findings. Shellcheck was disabled because the host's unrelated shim is not configured; actual GitHub execution remains pending the PR. No deployment or secret access is added. Remaining runtime rate controls and redacted diagnostics keep M21 open.
 
-### M09c/M21a - executable private Node service
+### M09c - executable private Node service
 
 - Added strict private versioned configuration/external keys, process-wide and SQLite ownership, actual provider/vault/actor/HTTP composition, loopback-only startup and bounded signal-driven shutdown. Imports do not start listeners. Unknown schema, unsafe paths, missing keys and duplicate processes fail without resetting durable state.
 - Eleven real Node 24.22.2 startup tests pass, including actual built child processes across SIGKILL/restart and SIGTERM/SIGINT, encrypted custody persistence, fixed HTTPS metadata, anonymous auth challenges, traffic/header/deadline limits and drain behavior. Initial review reproduced a chunked GET bypass of the body limit. The regression failed first; GET/HEAD now reject body framing before SDK dispatch and close the connection. A fresh reviewer accepted the fix and independently verified immediate raw-HTTP refusal, normal GET/HEAD/zero-length and POST behavior.
