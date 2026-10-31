@@ -2,7 +2,7 @@
 
 ## current full stack fork (2026-10-30)
 
-this repository preserves every branch, tag and commit from [habit-system](https://github.com/rami-maalouf/habit-system) through main `492592d`. its independent private remote is [habit-system-fullstack](https://github.com/rami-maalouf/habit-system-fullstack). the historical ripples fork record below remains intact.
+this repository preserves every branch, tag and commit from [habit-system](https://github.com/rami-maalouf/habit-system) through main `492592d`. its independent private remote was renamed to [flint](https://github.com/rami-maalouf/flint); the local directory and app remain `habit-system-fullstack`. the historical ripples fork record below remains intact.
 
 | identity | current value |
 | --- | --- |
