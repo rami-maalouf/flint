@@ -15,6 +15,8 @@ import { createAuthorizationService } from '../../src/auth/provider';
 import { CredentialVault } from '../../src/auth/vault';
 import { createCorePorts, createSnapbackTransport, initializeProductDatabase, NodeSqlDatabase, runSync } from '../../src/core';
 import { createHttpService } from '../../src/http';
+import type { ServiceLimits } from '../../src/limits';
+import type { DiagnosticEvent } from '../../src/diagnostics';
 import { FileRestoreLatch } from '../../src/operations/recovery-head';
 import { RewardQuoteStore } from '../../src/rewards/quotes';
 import { approvedClaimNormalizer, RewardPreviewTools } from '../../src/rewards/tools';
@@ -30,7 +32,7 @@ const scope = 'habits:read coins:read checkins:write rewards:claim offline_acces
 type Session = Extract<Awaited<ReturnType<typeof signup>>, { ok: true }>['session'];
 type Provider = ReturnType<typeof syntheticOAuthClient>;
 
-export async function fullService(t: TestContext) {
+export async function fullService(t: TestContext, controls: { limits?: ServiceLimits; diagnostics?: (event: DiagnosticEvent) => void } = {}) {
   assert.equal(process.version, 'v24.22.2');
   assert.equal(process.versions.bun, undefined);
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'habit-mcp-reward-http-')));
@@ -91,7 +93,7 @@ export async function fullService(t: TestContext) {
     secret: randomBytes(48).toString('hex') });
   let ownerBrowser: { fetch(request: Request): Promise<Response | null> } | null = null;
   const browser = { fetch: async (request: Request) => await ownerBrowser?.fetch(request) ?? confirmation.fetch(request) };
-  const http = createHttpService({ authorization, reads, mutations, rewardPreview, browser });
+  const http = createHttpService({ authorization, reads, mutations, rewardPreview, browser, ...controls });
   closers.unshift(() => http.close());
   dispatch = toNodeHandler(http);
 

@@ -191,6 +191,12 @@
 - Ten real Node tests pass, including actual HTTP 429, cancellation/release and capacity. Independent reviews reproduced accessor-based diagnostic leakage, UUID v7 refusal and a constructor getter that replaced a validated cap. Own-data snapshots/accessor refusal now cover diagnostics, options and overrides; UUID versions 1-8 share normalized buckets. Every regression failed before its correction, and fresh round-three review accepted the foundation.
 - Service lint/typecheck and the focused suite pass. Production HTTP admission, diagnostics and resource-load verification remain M21 integration work; this foundation alone does not close M21.
 
+### M21b - real HTTP admission and safe diagnostic events
+
+- Wired explicit login/consent, registration, authorization/browser and verified-grant tool admission into the fixed-origin HTTP path. Public refusals are fixed HTTP 429 with retry headers; tool refusals use the bounded `RATE_LIMITED` envelope. Every admission releases in `finally`, and diagnostic sink failures cannot change an accepted operation response.
+- The actual SDK/OAuth/Snapback/SQLite regression failed because a third call still succeeded under a two-call cap. It now verifies call, login and DCR limits plus omission of private arguments and credentials from diagnostic events. HTTP accepts only a caller-supplied validated event sink and performs no default logging.
+- Independent review accepted the scoped integration and reran limits, confirmed reward and default mutation HTTP cases, all passing on pinned Node. Service lint/typecheck pass. Process-level load, stalled clients and combined final gates remain open before M21 closure.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
