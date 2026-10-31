@@ -255,6 +255,12 @@
 - The final audit reproduced the newly published minimatch advisory in development dependencies. The isolated service now pins ESLint 10.14.0 / JavaScript rules 10.0.1, typescript-eslint 8.72.1 and minimatch 11.0.3. This removes the legacy default-export consumer while preserving runtime/mobile pins. The new lint rules remove one redundant initialization and explicitly recognize that the rollback aggregate already retains both failures.
 - Frozen install, lint, strict typecheck, three-entry production build and audit pass; audit reports no vulnerabilities across 135 packages. All 52 actual authorization, owner-binding and production SQLite cases pass after the lint-toolchain update. No root package, lock, patch, schema or native source changed.
 
+### M24a - encrypted cold snapshots and independent restore control
+
+- Added separate age 1.3.2 encrypted data/keys archives, verified manifests, a Mac-retained durable restore-intent log, external latch marking and new-target-only isolated restoration. Keys and controller state stay outside application/backend restore roots; no restore path clears or provisions the latch. Private off-host destination and manual seven-daily/four-weekly retention are explicit. Missing encryption/archive-validation tools fail instead of skipping.
+- Four independent review rounds drove process regressions for archive A versus active release B, recursive output overlap, complete store/WAL/key readback, failed or ambiguous stops, concurrent backup/restore and restart verification. A shared OS-released SQLite lock covers preflight, snapshot, every restart attempt and verification. A valid encrypted bundle can survive a restart failure, but the command returns failure and never announces ready. The final reviewer accepted the bounded tooling and reran all four actual Node/age process tests.
+- CI now installs checksum-verified age and pinned uv before the complete service suite. Shell syntax, ShellCheck, actionlint, service lint/typecheck and focused recovery tests pass. The prior complete service coverage run passed 293/293; the final narrow restart correction has its separate four-case green rerun. Actual Oracle systemd/off-host transfer and SDK paired restoration remain pending and keep M24 open. No production stop or restore has been performed by this tooling.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

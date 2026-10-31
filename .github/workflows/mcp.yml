@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - services/mcp/**
+      - ops/mcp/**
       - src/core/**
       - src/platform/backend/**
       - snapback/**
@@ -48,6 +49,22 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.3
+      - name: Install archive validation runtime
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          version: 0.13.6
+          enable-cache: false
+      - name: Verify the pinned backup encryption tools
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/mcp-age"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-linux-amd64.tar.gz \
+            --output "$RUNNER_TEMP/age.tar.gz"
+          bash ops/mcp/recovery/verify-age.sh linux-amd64 "$RUNNER_TEMP/age.tar.gz" "$RUNNER_TEMP/mcp-age"
+          printf 'MCP_AGE_BIN=%s\n' "$RUNNER_TEMP/mcp-age/age/age" >> "$GITHUB_ENV"
+          printf 'MCP_AGE_KEYGEN_BIN=%s\n' "$RUNNER_TEMP/mcp-age/age/age-keygen" >> "$GITHUB_ENV"
       - name: Install only the service dependency graph
         working-directory: services/mcp
         run: bun install --frozen-lockfile --ignore-scripts

@@ -1,0 +1,74 @@
+# M24 encrypted backup and restore controller
+
+This tooling is staged, not installed or activated. It protects the separate MCP service without changing Snapback 0.4.49, mobile schema 12, native checksum gates or the existing backup timer. The parent must review it, rehearse on Oracle with synthetic accounts, and independently review before production use.
+
+## Trust and storage boundaries
+
+The service data root is `/var/lib/habit-system-mcp`. A complete stopped copy includes provider, vault, quote, product, sidecar and journal SQLite files plus WAL/SHM sidecars, account replicas and pending outbox. When `--paired yes` is selected, the same stopped interval includes the complete Snapback root `/var/lib/habit-system-fullstack`. The backup command stops only `habit-system-mcp@<reviewed-sha>.service` and, for a paired snapshot only, `habit-system-fullstack.service`. It restarts exactly those initially active units after snapshot processing, including failure cleanup. It does not stop the Traefik bridges or other VPS services.
+
+The separate encrypted keys artifact holds `/etc/habit-system-mcp/config.json` and `keys.json`. It is not in the data archive. The external `restore-latch` is in neither archive. The age recipient is public on the VPS; the age identity stays on the Mac in `/Users/rami/Private/habit-system-mcp-age/`, mode 0700 with its identity file mode 0600, outside the checkout, app state and restore roots. Do not print, copy to the VPS, commit or include that identity in an archive. Protect the independent Mac controller log at `/Users/rami/Private/habit-system-mcp-controller/`, mode 0700, outside VPS and restored database snapshots.
+
+The chosen encrypted off-host destination is `/Users/rami/Private/habit-system-mcp-backups/`, with one private 0700 directory per snapshot. After copying `bundle.json` and both `.age` files from the VPS, verify SHA256 against `bundle.json` on the Mac before calling it off-host. Retain seven daily and four weekly **verified** snapshots, pruning older copies manually only after the newest complete transfer and a restore rehearsal. This policy is not automated replication or retention. Until a verified Mac copy exists, a VPS staging archive is not an off-host backup. No measured recovery time or recovery point objective is claimed.
+
+Before live use, the operator must arrange for `/run/habit-system-mcp-recovery` to exist as root-owned mode 0700, physically outside both backup roots. The staged `habit-system-mcp-recovery.tmpfiles.conf` provides the reviewed directory specification for installation; `/run` is ephemeral, so the directory must be recreated after reboot before recovery commands can run. The scripts fail closed when it is absent. `backup.mjs` and `mark-latch.mjs` share its mode 0600 `lock.sqlite` and hold a Node 24 SQLite `BEGIN EXCLUSIVE` transaction. Backup acquires it before preflight and releases it only after every restart attempt. Marking acquires the same lock before unit checks and releases it after the latch write. A competing process refuses without stopping or restarting anything. SQLite's process lock is released by the OS after SIGKILL; the retained lock file is not a stale ownership marker. Fixture tests use a private `--fixture-lock-dir` instead of the live path.
+
+## Pinned age setup
+
+Use the [maintained age v1.3.2 release](https://github.com/FiloSottile/age/releases/tag/v1.3.2) and its [README](https://github.com/FiloSottile/age). `verify-age.sh` accepts only the official Darwin ARM64 archive SHA256 `e2020b073c44f692685a24d6abc378817eb81ffaaf49fd0531ef8565f767f2f5`, Linux ARM64 SHA256 `6b8dc4333c53a5a57c9e5834e3a48f92605d7154014cd07269ff3327db5d37f4`, or Linux AMD64 SHA256 `cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10`, then checks both CLI versions. These hashes match the [official release asset digests](https://api.github.com/repos/FiloSottile/age/releases/tags/v1.3.2). It takes an existing empty private output directory and requires `uv` for its Python safety check. The test requires `MCP_AGE_BIN` and `MCP_AGE_KEYGEN_BIN` in CI; absence fails the test rather than skipping it.
+
+```sh
+ops/mcp/recovery/verify-age.sh darwin-arm64 /path/age-v1.3.2-darwin-arm64.tar.gz /private/empty-age-tools
+```
+
+## Backup API
+
+Run `backup.mjs` with pinned Node 24.22.2 after a reviewed M23 release has been installed. The output directory must already exist, be empty, owned by the invoking user and mode 0700. It must be physically outside both `/var/lib/habit-system-mcp` and `/var/lib/habit-system-fullstack`; the script checks this before any service stop. Preflight requires exactly the named MCP release active and all requested units active. It records all initially active units before stopping any, requires no MCP release active and, for a paired backup, the backend inactive before copying, and attempts to restart every initially active unit even if a stop reports failure after deactivation. The service and optional backend stay stopped while the full data and key snapshots are copied and encrypted. The script refuses symlinks, hardlinks, group-writable source directories, unsafe output directories and excessive entries/files. Its temporary plaintext tar files are private and removed on normal exit. Each encrypted artifact is fsynced, SHA256 recorded, and the outer `bundle.json` written last with file and parent fsync. After all restart attempts, while still holding the recovery lock, the script requires exactly the expected MCP release active and the paired backend active. Only then can it release the lock and report the snapshot ready. A zero exit from `systemctl start` alone does not establish restart success. Do not treat a script success message as proof of off-host transfer.
+
+```sh
+sudo /opt/habit-system-mcp/releases/<sha>/node/bin/node /opt/habit-system-mcp/recovery/backup.mjs \
+  --live yes --paired yes --release-sha <sha> \
+  --recipient <public-age-recipient> --age-bin /opt/habit-system-mcp/tools/age \
+  --output-dir /var/backups/habit-system-mcp/staging/<new-snapshot-directory>
+```
+
+For a service-only backup, omit `--paired yes`; it cannot establish a consistent paired backend point. The staging directory and script installation are operator actions after review. No command here creates a production user, directory, key or latch. Keep the existing complete Snapback backup and its retention separate. Do not use phone sessions, migration exports or real accounts as rehearsal fixtures.
+
+An abrupt process death can leave stopped units and private plaintext `.snapshot-*` scratch in the staging directory. The OS releases the recovery lock, but it does not restart services or erase scratch. Before handling that directory, the operator must verify no recovery process owns the lock, record the failed snapshot state, inspect the exact stopped units and incomplete output, and securely remove the scratch under the same private directory after review. A completed `bundle.json` and encrypted artifacts remain on disk if restart verification fails; the command exits nonzero and does not print a ready message. Preserve and assess that potentially valid artifact separately from the failed service restart. Never treat a partial encrypted artifact or a restarted unit alone as a completed backup.
+
+## Restore intent and isolated rehearsal
+
+Install `uv` on the Mac controller before isolated restore; the archive safety validator runs through `uv run --no-project python`.
+
+The Mac controller command first appends a JSON restore intent to `restore-intents.jsonl` and fsyncs both file and parent. The archive's `bundle.releaseSha` identifies the release that produced the snapshot. The separate mandatory `--current-release-sha` identifies the release serving now; the controller records both. Only after the durable intent does it SSH to Oracle with `BatchMode=yes` and run `mark-latch.mjs` under sudo. That remote command acquires the recovery lock, enumerates active `habit-system-mcp@*.service` units, requires exactly the named current release, stops it through systemd's bounded graceful shutdown, stops the named Snapback unit for a paired archive, and requires the backend to report inactive and no MCP release unit to remain active. A missing, different or ambiguous active unit, or a unit that remains active after stop, refuses the latch. The command then checks the installation binding and appends `restored` to `FileRestoreLatch` with file and directory fsync. After success the controller appends a second durable `latch_marked` receipt with the same intent ID. It never starts services or clears/provisions a latch. A failed remote mark leaves an intent without a receipt, and isolated restoration refuses it. Record the installation ID outside either database pair when first provisioned; do not derive a new one from a restored config.
+
+If SSH loses the response after the latch fsync but before the off-host receipt, the controller retains an intent without `latch_marked`. The VPS may already be write-fenced. Do not rerun the command expecting automatic recovery or invent a receipt: the repeated mark correctly refuses an already marked latch. Keep units stopped and writes fenced, inspect the latch and active-unit inventory read-only, preserve the controller log, and use a separately reviewed reconciliation procedure before any receipt or isolated restore is accepted.
+
+```sh
+/path/to/node-24.22.2 ops/mcp/recovery/restore-intent.mjs \
+  --controller-dir /Users/rami/Private/habit-system-mcp-controller \
+  --bundle /Users/rami/Private/habit-system-mcp-backups/<snapshot>/bundle.json \
+  --installation-id <original-id> --current-release-sha <currently-active-reviewed-sha>
+```
+
+After the intent succeeds, `restore-isolated.mjs` runs on the Mac with the off-host identity. It rechecks the remote latch, requires a matching controller-log entry, checks both encrypted file hashes, decrypts with age into a private temporary directory, validates tar paths/types/size and every file digest, and atomically creates a **new absent** isolated target. It refuses `/var/lib/habit-system-mcp`, `/var/lib/habit-system-fullstack`, `/etc/habit-system-mcp` and `/opt/habit-system-mcp` as targets or descendants. The restored `keys/` directory is separate from `state/`. Never point a production unit at the rehearsal target or copy it over live data. Transfer to an empty Oracle rehearsal root and test there only after another review.
+
+```sh
+/path/to/node-24.22.2 ops/mcp/recovery/restore-isolated.mjs --offhost yes \
+  --bundle /Users/rami/Private/habit-system-mcp-backups/<snapshot>/bundle.json \
+  --identity /Users/rami/Private/habit-system-mcp-age/identity.txt \
+  --age-bin /private/empty-age-tools/age/age \
+  --intent-log /Users/rami/Private/habit-system-mcp-controller/restore-intents.jsonl \
+  --installation-id <original-id> --target /Users/rami/Private/habit-system-mcp-rehearsals/<new-name>
+```
+
+The test-only `--fixture-root` mode requires `MCP_RECOVERY_FIXTURE=1` and a private `--fixture-lock-dir`; it exercises the same archive/controller/extraction code without SSH. Its optional private `--fixture-systemctl` binary exercises the same active-unit inventory, stop and recheck logic against an isolated fake. It cannot be used as a substitute for an Oracle rehearsal. Before real restoration, stop admission and service, preserve the original failed directories and uncertainty, and mark the latch **before** replacing any part of the MCP/backend pair. The current scripts deliberately never replace production paths. A later production restoration procedure must keep this ordering and receive its own independent review.
+
+## Fencing and limits
+
+`FileRestoreLatch` is the startup and per-publication gate. A marked, missing or malformed latch fences mutations even if an old MCP journal and backend recovery head match. This tooling has no clear, reprovision, resume or forced-write action. A restored deployment may offer only the runtime's separately validated degraded read path. Missing age identity, keys archive, journal sidecar, damaged ciphertext, untrusted tar entry or inconsistent manifest refuses extraction. An isolated archive copy does not establish complete operation history; actual journal ancestry and remote metadata still need the M04R runtime checks. Do not create a new journal or operation ID to hide uncertainty.
+
+The off-host log and latch are process/procedure controls, not an automatic monotonic witness of every operation. A privileged whole-VPS rollback that bypasses this controller can restore an old ready marker and matching databases without detection. A whole-VPS restore must be initiated by this independent controller before the VPS is exposed to writes. If that cannot be established, writes stay fenced. There is no implemented proof that complete history is independently reconstructable and no automatic unfence.
+
+## Synthetic evidence and pending gates
+
+`services/mcp/tests/backup-restore.test.ts` uses real Node 24.22.2 SQLite and real age 1.3.2. It starts with synthetic provider, vault, quotes, account replica, product, delivery, operation, journal and backend SQLite databases, keeps WAL sidecars open through the snapshot, advances local and backend databases after backup, records a controller intent, marks the real `FileRestoreLatch` format, decrypts the old matching pair and reads back every named store and pending operation while writes stay fenced. Wrong identity, damaged ciphertext and a second snapshot missing its operation journal each refuse an isolated target. An isolated systemd fake proves archive A can be restored while release B is active, and that an ambiguous or non-stopping MCP unit cannot precede a latch mark. The backup fixture refuses an output path under either root before any fake stop call; it also refuses an extra active MCP release and a stop that returns success while leaving one active. A stop that reports failure after deactivation triggers restart attempts for all initially active units. A start that exits zero but leaves MCP inactive, activates the wrong or an extra release, or leaves the paired backend inactive retains the encrypted artifact but exits nonzero without a ready message. Concurrent processes prove a second backup and restore marker cannot enter while backup holds the SQLite lock, and SIGKILL releases that OS lock. These prove local fixture and process logic, not Linux power-loss ordering, actual Oracle systemd stop/start, Snapback SDK convergence, public TLS routing, off-host transfer automation or production restore. The parent owns those rehearsals and the M25 review gate.
