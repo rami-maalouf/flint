@@ -108,6 +108,12 @@ Real ChatGPT and Claude application connections remain **unverified**. Published
 
 Unexpected lifecycle-coordinator failures are translated to a fixed service-unavailable API error without an attached cause before entering the provider's exception logger. Failed coordination still refuses cutoff and leaves the grant active when no commit occurred. The actual protocol regression first captured a raw coordinator message in provider logs, then passed after this boundary was added; all thirty authorization tests remain green. Raw messages, SQL payloads or credential material must never be attached to this public/provider error.
 
+### Live browser callback verification
+
+The later M22 Chromium walkthrough completed read sign-in, fresh write consent, the official SDK code exchange, an acknowledged check-in, browser reward approval, an acknowledged claim, disconnect, standalone owner sign-in and explicit resume against one live disposable synthetic service. This supersedes the earlier renderer-only limitation for that flow. It is still not a ChatGPT or Claude app connection.
+
+That walkthrough exposed a failure absent from HTTP-only tests: Chromium blocked the cross-origin client callback after consent because the page used `form-action 'self'`. Consent pages now add only the callback origin from the signed OAuth query after the maintained provider's prelogin validation. Other pages retain same-origin form targets; request-origin, CSRF, registered-redirect and PKCE checks remain in place. The thirty-case HTTP suite asserts this policy on actual consent pages, and the live browser callback then succeeded. This accounts for the [CSP form submission navigation check](https://www.w3.org/TR/CSP/#directive-form-action).
+
 ## Historical M01 feasibility proof
 
 M01, checked 2026-10-30. Gate A selects Better Auth 1.7.14 with the official MCP SDK v2 on Node 24.22.2 and `node:sqlite`. This is a disposable proof, not a deployed service or production authorization implementation.

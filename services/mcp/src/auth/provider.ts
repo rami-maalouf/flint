@@ -89,12 +89,12 @@ async function boundedBody(request: Request): Promise<string> {
     return Buffer.concat(chunks).toString('utf8');
   } finally { reader.releaseLock(); }
 }
-function security(response: Response): Response {
+function security(response: Response, formRedirect?: URL): Response {
   response.headers.set('cache-control', 'no-store');
   // chromium's no-referrer navigation policy makes form-post origin opaque; strict-origin retains csrf evidence without leaking query strings.
   response.headers.set('referrer-policy', 'strict-origin');
   response.headers.set('x-content-type-options', 'nosniff');
-  response.headers.set('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+  response.headers.set('content-security-policy', `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'${formRedirect ? ' ' + formRedirect.origin : ''}; frame-ancestors 'none'; base-uri 'none'`);
   return response;
 }
 function denied(status = 401): Response { return security(Response.json({ error: 'access_denied' }, { status })); }
@@ -348,6 +348,13 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const expires = String(Date.now() + 600_000);
       const response = html(renderAuthPage({ kind, clientName, scopes, oauthQuery: query,
         csrf: expires + ':' + signCsrf(cookie, query, expires), error }), error ? 401 : 200);
+      if (kind === 'consent') {
+        // query signature and the provider's prelogin check precede every page call.
+        // chromium also checks form-action on the final oauth callback redirect.
+        const callback = new URL(new URLSearchParams(query).get('redirect_uri')!);
+        if (!['https:', 'http:'].includes(callback.protocol) || callback.username || callback.password) return denied(400);
+        security(response, callback);
+      }
       response.headers.append('set-cookie', `${csrfCookie}=${cookie}; Path=/mcp; HttpOnly; SameSite=Lax; Max-Age=600${origin.startsWith('https:') ? '; Secure' : ''}`);
       return response;
     };

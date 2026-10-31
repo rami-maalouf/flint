@@ -214,6 +214,12 @@
 - Three actual HTTP/OAuth/Snapback/SQLite cases pass, including A's pending work, revocation from independent B, refused automatic draining and explicit B resume with exact journal/outbox evidence. Account/form/action/grant swaps, oversized/duplicate fields, read/expired authority and restore-latch refusal are covered. Independent route review accepted the slice; parent reran all three after plain-language display changes.
 - Inspected the actual current renderer in Chromium at 390 and 1024 pixels in both appearances, with 36 state/scroll captures. No horizontal overflow; resume/disconnect actions are 48/50 pixels tall with destructive action below resume. The page reports expiry and an authorized attempt honestly. Full interactive browser continuation and final process/operational verification remain release checks; automatic upstream session rotation is not implemented.
 
+### M22 - client compatibility and live browser callback
+
+- Recorded the official TypeScript SDK 2.4.0 current and legacy protocol evidence in `docs/mcp/compatibility.md`. Current protocol covers all fifteen tools, durable mutations and confirmed claims; older negotiated protocol covers reads and reward preview. ChatGPT/Claude application connections and ChatGPT private-key exchange remain explicitly unverified, rather than advertised compatibility.
+- The live T3 Chromium 152 walkthrough against a disposable real service reproduced a valid consent redirect blocked by `form-action 'self'`. HTTP regression also failed with that exact policy mismatch. Consent now permits only the signed, provider-validated callback origin; other pages retain same-origin form targets. Thirty actual authorization tests, lint/typecheck and fresh independent review pass.
+- Repeated the live browser flow successfully: read sign-in, fresh write credential proof, official SDK callback/token exchange and acknowledged check-in; exact-cost reward approval and acknowledged claim; disconnect, standalone owner sign-in and explicit resume. Phone/desktop light/dark consent captures and actual confirmation/control success captures are retained under `.artifacts/fullstack/mcp-live-browser/`. Synthetic credentials, codes and tokens are not tracked. Public TLS and the user's own private connection remain release checks.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

@@ -314,6 +314,9 @@ if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHI
     }
     const write = scope.includes('checkins:write') || scope.includes('rewards:claim');
     assert.ok(body.includes(write ? 'Confirm and allow' : 'Allow connection'));
+    assert.equal(response.headers.get('content-security-policy')?.split(';').map(value => value.trim())
+      .find(value => value.startsWith('form-action ')), `form-action 'self' ${new URL(provider.redirectUrl).origin}`,
+    'consent must permit the provider-validated callback after a Chromium form redirect');
     response = await browser.submit('/mcp/consent', { decision: accept ? 'allow' : 'deny', ...(write && accept ? account : {}),
       csrf: hidden(body, 'csrf'), oauth_query: hidden(body, 'oauth_query') });
     assert.equal(response.status, 303, await response.clone().text());
