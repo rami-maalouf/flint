@@ -1,3 +1,4 @@
+import { hkdfSync } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -5,12 +6,20 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { AccountActors } from './accounts/actor';
+import type { OperationPolicy } from './accounts/operations';
 import { createAuthorizationService } from './auth/provider';
 import { CredentialVault } from './auth/vault';
 import { assertPrivatePath, loadMcpKeys, McpRuntimeError, validateMcpConfig, type McpConfig } from './config';
 import { createHttpService } from './http';
+import { FileRestoreLatch, RecoveryFenceError, type RestoreLatch } from './operations/recovery-head';
+import { RewardQuoteStore } from './rewards/quotes';
+import { approvedClaimNormalizer, RewardPreviewTools } from './rewards/tools';
 import { CursorCodec } from './tools/cursors';
+import { MutationTools } from './tools/mutations';
+import { createMutationNormalizer } from './tools/normalize';
 import { ReadTools } from './tools/reads';
+import { createConnectionsHandler } from './web/connections';
+import { createRewardConfirmationHandler } from './web/reward-confirmation';
 
 export const runtimeLimits = Object.freeze({ maxHeaderBytes: 16_384, maxHeaders: 64, maxBodyBytes: 65_536,
   headersTimeoutMs: 5000, requestTimeoutMs: 10_000, exchangeTimeoutMs: 20_000, socketTimeoutMs: 20_000,
@@ -40,6 +49,22 @@ function privateFile(path: string): void {
     catch { throw new McpRuntimeError('UNSAFE_STORAGE'); }
   }
   assertPrivatePath(path);
+}
+
+function restoreLatch(config: Extract<McpConfig, { version: 2 }>): RestoreLatch {
+  const { latchPath, installationId, backendDirectory } = config.operations;
+  const latch = new FileRestoreLatch({ path: latchPath, installationId,
+    restoredDirectories: [config.dataDirectory, backendDirectory] });
+  return Object.freeze({ assertReady() {
+    try {
+      // check custody on every admission. a missing or unsafe marker fences writes, never repairs itself.
+      if (assertPrivatePath(latchPath).size > 4096) throw new Error();
+      latch.assertReady();
+    } catch {
+      // preserve the actor's restore reason and the validated public retryable-error contract.
+      throw Object.assign(new RecoveryFenceError('restore_latched'), { retryable: true });
+    }
+  } });
 }
 function acquireOwnership(directory: string): () => void {
   const stat = assertPrivatePath(directory, true);
@@ -113,7 +138,9 @@ export async function startMcpService(input: McpConfig, options: { allowTestPort
   function clearKeys() { keys.cursorKey.fill(0); for (const key of keys.vaultKeys.values()) key.fill(0); }
   try {
     release = acquireOwnership(config.dataDirectory);
-    for (const name of ['provider.sqlite', 'vault.sqlite']) databaseFiles(join(config.dataDirectory, name));
+    for (const name of ['provider.sqlite', 'vault.sqlite', ...(config.version === 2 ? ['quotes.sqlite'] : [])]) {
+      databaseFiles(join(config.dataDirectory, name));
+    }
     const accountRoot = join(config.dataDirectory, 'accounts');
     try { mkdirSync(accountRoot, { mode: 0o700 }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw new McpRuntimeError('UNSAFE_STORAGE'); }
@@ -121,13 +148,39 @@ export async function startMcpService(input: McpConfig, options: { allowTestPort
     const vault = new CredentialVault({ location: join(config.dataDirectory, 'vault.sqlite'),
       activeKeyVersion: keys.activeVaultKeyVersion, keys: keys.vaultKeys });
     dispose.unshift(() => vault.close());
-    const authorization = await createAuthorizationService({ publicOrigin: config.publicOrigin, backendUrl: config.backendUrl,
-      databasePath: join(config.dataDirectory, 'provider.sqlite'), secret: keys.providerSecret, vault });
-    dispose.unshift(() => authorization.close());
-    const accounts = new AccountActors({ root: accountRoot, backendUrl: config.backendUrl });
+    const latch = config.version === 2 ? restoreLatch(config) : undefined;
+    let quotes: RewardQuoteStore | undefined;
+    if (config.version === 2) {
+      const key = new Uint8Array(hkdfSync('sha256', keys.cursorKey, Buffer.alloc(0), 'mcp/reward-quotes/v1', 32));
+      try { quotes = new RewardQuoteStore({ location: join(config.dataDirectory, 'quotes.sqlite'), key, publicOrigin: config.publicOrigin }); }
+      finally { key.fill(0); }
+      dispose.unshift(() => quotes!.close());
+    }
+    let authorization: Awaited<ReturnType<typeof createAuthorizationService>>;
+    const operationPolicy: OperationPolicy | undefined = latch && quotes ? {
+      latch, normalize: createMutationNormalizer(approvedClaimNormalizer(quotes)),
+      authorize: async ({ context }) => { await context.assertActive(); },
+      delivery: { grantStatus: grantId => authorization.deliveryGrantStatus(grantId) },
+    } : undefined;
+    const accounts = new AccountActors({ root: accountRoot, backendUrl: config.backendUrl,
+      ...(operationPolicy ? { operationPolicy } : {}) });
     dispose.unshift(() => accounts.close());
+    authorization = await createAuthorizationService({ publicOrigin: config.publicOrigin, backendUrl: config.backendUrl,
+      databasePath: join(config.dataDirectory, 'provider.sqlite'), secret: keys.providerSecret, vault,
+      ...(operationPolicy ? { writeConnections: { revoke: (grant, commit) => accounts.revokeDeliveryGrant(grant, commit) } } : {}) });
+    // actor drain can still need provider metadata and quotes. keep both alive until account closure finishes.
+    dispose.splice(1, 0, () => authorization.close());
     const reads = new ReadTools({ accounts, cursors: new CursorCodec(keys.cursorKey) });
-    const http = createHttpService({ authorization, reads });
+    let writes: Pick<Parameters<typeof createHttpService>[0], 'mutations' | 'rewardPreview' | 'browser'> = {};
+    if (quotes) {
+      const confirmation = createRewardConfirmationHandler({ authorization, quotes,
+        publicOrigin: config.publicOrigin, secret: keys.providerSecret });
+      const connections = createConnectionsHandler({ authorization, accounts, publicOrigin: config.publicOrigin, secret: keys.providerSecret });
+      writes = { mutations: new MutationTools({ accounts, rewardClaims: true }), rewardPreview: new RewardPreviewTools({ accounts, quotes }),
+        browser: { fetch: async request => await connections.fetch(request) ?? confirmation.fetch(request) } };
+    }
+    const http = createHttpService({ authorization, reads, ...writes,
+      diagnostics: event => { process.stdout.write(JSON.stringify(event) + '\n'); } });
     dispose.unshift(() => http.close()); clearKeys();
     const fetch = async (request: Request): Promise<Response> => {
       if (shuttingDown) return Response.json({ error: 'temporarily_unavailable' }, { status: 503,
@@ -139,7 +192,9 @@ export async function startMcpService(input: McpConfig, options: { allowTestPort
         return Response.json({ error: 'access_denied' }, { status: 403 });
       }
       if (url.pathname === '/mcp/health' || url.pathname === '/mcp/ready') {
-        return Response.json({ status: url.pathname === '/mcp/health' ? 'ok' : 'ready' }, {
+        let restoreFenced = false;
+        if (latch) { try { await latch.assertReady(); } catch { restoreFenced = true; } }
+        return Response.json({ status: url.pathname === '/mcp/health' ? 'ok' : 'ready', ...(latch ? { restoreFenced } : {}) }, {
           status: request.method === 'GET' || request.method === 'HEAD' ? 200 : 405,
           headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
       }

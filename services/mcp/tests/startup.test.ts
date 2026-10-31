@@ -45,6 +45,36 @@ test('private versioned config and external keys load without creating or changi
   assert.deepEqual(readFileSync(f.keyFile), before);
 });
 
+test('version 2 has an explicit operations shape and an external private latch parent outside both restore roots', t => {
+  const f = fixture(); t.after(f.cleanup);
+  const backendDirectory = join(f.directory, 'backend'), external = join(f.directory, 'external');
+  mkdirSync(backendDirectory, { mode: 0o755 }); mkdirSync(external, { mode: 0o700 });
+  const operations = { installationId: 'synthetic-installation-v2', backendDirectory, latchPath: join(external, 'restore-latch') };
+  const config = { ...f.config, version: 2, operations };
+  f.saveConfig(config); assert.deepEqual(loadMcpConfig(f.configPath), config);
+  // absence or corrupt contents are runtime fences, never instructions to provision or repair a latch.
+  writeFileSync(operations.latchPath, 'synthetic-corrupt-latch', { mode: 0o600 });
+  assert.deepEqual(loadMcpConfig(f.configPath), config);
+  for (const changed of [
+    { version: 1 }, { operations: {} }, { operations: { ...operations, unknown: true } },
+    { operations: { ...operations, installationId: '' } }, { operations: { ...operations, installationId: 'bad\nvalue' } },
+    { operations: { ...operations, backendDirectory: 'relative' } }, { operations: { ...operations, latchPath: 'relative' } },
+    { operations: { ...operations, latchPath: join(f.dataDirectory, 'restore-latch') } },
+    { operations: { ...operations, latchPath: join(backendDirectory, 'restore-latch') } },
+  ]) {
+    f.saveConfig({ ...config, ...changed });
+    assert.throws(() => loadMcpConfig(f.configPath), { message: 'MCP configuration is invalid.' });
+  }
+  f.saveConfig(config); chmodSync(external, 0o755);
+  assert.throws(() => loadMcpConfig(f.configPath), { message: 'MCP storage must be private.' });
+  chmodSync(external, 0o700); chmodSync(backendDirectory, 0o777);
+  assert.throws(() => loadMcpConfig(f.configPath), { message: 'MCP storage must be private.' });
+  chmodSync(backendDirectory, 0o755);
+  const alias = join(f.directory, 'backend-alias'); symlinkSync(backendDirectory, alias);
+  f.saveConfig({ ...config, operations: { ...operations, backendDirectory: alias } });
+  assert.throws(() => loadMcpConfig(f.configPath), { message: 'MCP storage must be private.' });
+});
+
 test('config rejects unknown fields, unbounded input, unsafe URLs, paths, and production port zero', t => {
   const f = fixture(); t.after(f.cleanup);
   for (const changed of [

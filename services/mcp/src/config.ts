@@ -1,8 +1,9 @@
-import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, type Stats } from 'node:fs';
+import { accessSync, constants, closeSync, fstatSync, lstatSync, openSync, readSync, type Stats } from 'node:fs';
 import { dirname, isAbsolute, normalize, relative, sep } from 'node:path';
 
-export type McpConfig = Readonly<{ version: 1; publicOrigin: string; backendUrl: string;
-  dataDirectory: string; keyFile: string; port: number }>;
+type BaseConfig = { publicOrigin: string; backendUrl: string; dataDirectory: string; keyFile: string; port: number };
+export type McpOperationsConfig = Readonly<{ installationId: string; latchPath: string; backendDirectory: string }>;
+export type McpConfig = Readonly<BaseConfig & ({ version: 1 } | { version: 2; operations: McpOperationsConfig })>;
 export type McpKeys = Readonly<{ providerSecret: string; cursorKey: Uint8Array;
   activeVaultKeyVersion: string; vaultKeys: ReadonlyMap<string, Uint8Array> }>;
 type ErrorCode = 'CONFIG_INVALID' | 'KEY_FILE_INVALID' | 'UNSAFE_STORAGE' | 'ALREADY_RUNNING'
@@ -41,24 +42,47 @@ function privateStat(stat: Stats, directory: boolean): void {
   }
 }
 
+function trustedAncestors(path: string): void {
+  for (;;) {
+    const stat = lstatSync(path);
+    if (!stat.isDirectory() || ![0, process.getuid?.()].includes(stat.uid) ||
+      ((stat.mode & 0o022) !== 0 && !(stat.uid === 0 && (stat.mode & 0o1000) !== 0))) throw new Error();
+    const next = dirname(path);
+    if (next === path) break;
+    path = next;
+  }
+}
+
 // require physical absolute paths. only root-owned sticky temporary ancestors may be writable by others.
 export function assertPrivatePath(path: string, directory = false): Stats {
   try {
     if (!absolute(path)) throw new Error();
     const result = lstatSync(path);
     privateStat(result, directory);
-    let parent = dirname(path);
+    const parent = dirname(path);
     if (!directory) privateStat(lstatSync(parent), true);
-    for (;;) {
-      const stat = lstatSync(parent);
-      if (!stat.isDirectory() || ![0, process.getuid?.()].includes(stat.uid) ||
-        ((stat.mode & 0o022) !== 0 && !(stat.uid === 0 && (stat.mode & 0o1000) !== 0))) throw new Error();
-      const next = dirname(parent);
-      if (next === parent) break;
-      parent = next;
-    }
+    trustedAncestors(parent);
     return result;
   } catch { throw new McpRuntimeError('UNSAFE_STORAGE'); }
+}
+
+function outside(root: string, path: string): boolean {
+  const child = relative(root, path);
+  return child === '..' || child.startsWith('..' + sep) || isAbsolute(child);
+}
+function operationsConfig(input: unknown, dataDirectory: string): McpOperationsConfig {
+  if (!object(input, ['installationId', 'latchPath', 'backendDirectory']) ||
+    typeof input.installationId !== 'string' || input.installationId.length < 1 || input.installationId.length > 255 ||
+    !printable(input.installationId) || input.installationId.trim() !== input.installationId ||
+    !absolute(input.latchPath) || !absolute(input.backendDirectory) ||
+    !outside(dataDirectory, dirname(input.latchPath)) || !outside(input.backendDirectory, dirname(input.latchPath))) {
+    throw new McpRuntimeError('CONFIG_INVALID');
+  }
+  assertPrivatePath(dirname(input.latchPath), true);
+  // the backend may have a different service owner. validate an accessible physical parent restore root.
+  try { trustedAncestors(input.backendDirectory); accessSync(input.backendDirectory, constants.R_OK | constants.X_OK); }
+  catch { throw new McpRuntimeError('UNSAFE_STORAGE'); }
+  return Object.freeze({ ...input }) as McpOperationsConfig;
 }
 
 function readJson(path: string, maximum: number, invalid: 'CONFIG_INVALID' | 'KEY_FILE_INVALID'): unknown {
@@ -96,18 +120,17 @@ function readJson(path: string, maximum: number, invalid: 'CONFIG_INVALID' | 'KE
 }
 
 export function validateMcpConfig(input: unknown, options: { allowTestPort?: boolean } = {}): McpConfig {
-  if (!object(input, ['version', 'publicOrigin', 'backendUrl', 'dataDirectory', 'keyFile', 'port']) || input.version !== 1 ||
+  const names = ['version', 'publicOrigin', 'backendUrl', 'dataDirectory', 'keyFile', 'port'];
+  const version = input && typeof input === 'object' && 'version' in input ? input.version : undefined;
+  if ((version !== 1 && version !== 2) || !object(input, version === 2 ? [...names, 'operations'] : names) ||
     !origin(input.publicOrigin) || !origin(input.backendUrl) || !absolute(input.dataDirectory) || !absolute(input.keyFile) ||
     !Number.isSafeInteger(input.port) || (input.port as number) > 65535 ||
     (input.port as number) < (options.allowTestPort && process.env.NODE_TEST_CONTEXT ? 0 : 1)) {
     throw new McpRuntimeError('CONFIG_INVALID');
   }
-  const child = relative(input.dataDirectory, input.keyFile);
-  if (!child || (!child.startsWith('..' + sep) && child !== '..' && !isAbsolute(child))) {
-    throw new McpRuntimeError('CONFIG_INVALID');
-  }
+  if (!outside(input.dataDirectory, input.keyFile)) throw new McpRuntimeError('CONFIG_INVALID');
   assertPrivatePath(input.dataDirectory, true);
-  return Object.freeze({ ...input }) as McpConfig;
+  return Object.freeze({ ...input, ...(version === 2 ? { operations: operationsConfig(input.operations, input.dataDirectory) } : {}) }) as McpConfig;
 }
 
 export function loadMcpConfig(path = process.env.MCP_CONFIG_PATH): McpConfig {
