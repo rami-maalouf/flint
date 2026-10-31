@@ -46,6 +46,13 @@ export type SyncDeps = {
   transport: SyncTransport<WireSyncRecord>;
   // deterministic in tests; Math.random in the app
   random: () => number;
+  // pull-only retains reconciliation and queued facts without provider mutations.
+  mode?: 'bidirectional' | 'pull_only';
+  // optional coordinator gates; exact acceptance must persist before queue deletion.
+  delivery?: {
+    authorize: () => Promise<void>;
+    beforeQueueClear: (outboxIds: readonly number[]) => Promise<void>;
+  };
   // a coordinator generation guard; false cancels without retry metadata
   shouldContinue?: () => boolean;
 };
@@ -174,7 +181,11 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
     let applied = 0;
 
     try {
-      if (!preflight.state.zoneCreated) {
+      if (deps.mode !== 'pull_only') {
+        await deps.delivery?.authorize();
+        checkpoint(deps);
+      }
+      if (deps.mode !== 'pull_only' && !preflight.state.zoneCreated) {
         checkpoint(deps);
         await deps.transport.ensureZone();
         checkpoint(deps);
@@ -187,18 +198,22 @@ export function runSync(deps: SyncDeps): Promise<DomainResult<SyncOutcome>> {
 
       // upload in batches until the outbox drains; each batch clears only
       // its own rows, so an interrupted run never loses a mutation
-      for (;;) {
+      while (deps.mode !== 'pull_only') {
         checkpoint(deps);
         const batch = await deps.db.withTransactionAsync((tx) => collectUpload(tx));
         if (batch.outboxIds.length === 0) {
           break;
         }
+        await deps.delivery?.authorize();
+        checkpoint(deps);
         if (batch.records.length > 0) {
           checkpoint(deps);
           await deps.transport.upload(batch.records);
           checkpoint(deps);
           uploaded += batch.records.length;
         }
+        await deps.delivery?.beforeQueueClear(batch.outboxIds);
+        checkpoint(deps);
         await deps.db.withExclusiveTransactionAsync(async (tx) => {
           checkpoint(deps);
           await deleteOutboxRows(tx, batch.outboxIds);

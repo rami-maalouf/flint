@@ -7,10 +7,14 @@ import { captureSyncPage, SYNC_RECORD_BYTES } from '../../core/sync/sync-page.ts
 import { SyncTransportError, type SyncTransport, type WireSyncRecord } from '../../core/sync/transport.ts';
 
 export type BackendConnection = { client: Client; session: Session; isCurrent: () => boolean };
+export type UploadReceipt = { record: WireSyncRecord; digest: string;
+  disposition: 'accepted' | 'superseded'; remoteMutationStamp: string };
 type Options = {
   connection: () => Promise<BackendConnection>;
   bind: (session: Session) => Promise<void>;
   hash: (text: string) => Promise<string>;
+  // persist exact delivery evidence before the engine can consume its outbox rows.
+  onUpload?: (receipt: UploadReceipt) => Promise<void>;
 };
 
 function failure(): never { throw new SyncTransportError('failure', 'Sync could not finish. Your changes are still saved on this device.'); }
@@ -115,10 +119,21 @@ export function createSnapbackTransport(options: Options): SyncTransport<WireSyn
           }
           payload = '';
         }
-        await sent(client, api.uploadRecord, {
+        const uploaded = await sent(client, api.uploadRecord, {
           entityType: record.entityType, entityId: record.entityId, schemaVersion: record.schemaVersion,
           mutationStamp: record.mutationStamp, deleted: record.deleted, payload, body, digest,
         }, guard);
+        if (options.onUpload) {
+          if (!uploaded) failure();
+          const exact = uploaded.mutationStamp === record.mutationStamp && uploaded.digest === digest &&
+            uploaded.schemaVersion === record.schemaVersion && uploaded.deleted === record.deleted;
+          const superseded = record.entityType !== 'habit_action' && record.entityType !== 'ledger_entry' &&
+            uploaded.mutationStamp > record.mutationStamp;
+          if (!exact && !superseded) failure();
+          await options.onUpload({ record, digest, disposition: exact ? 'accepted' : 'superseded',
+            remoteMutationStamp: uploaded.mutationStamp });
+          guard();
+        }
       }
     }, shouldContinue),
     fetchChanges: (token, shouldContinue) => connected(async ({ client }, guard) => {

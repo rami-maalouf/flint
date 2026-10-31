@@ -1,0 +1,32 @@
+[Unit]
+Description=Habit System MCP service release %i
+After=network.target
+
+[Service]
+Type=simple
+User=habitmcp
+Group=habitmcp
+WorkingDirectory=/opt/habit-system-mcp/releases/%i
+Environment=NODE_ENV=production
+Environment=MCP_CONFIG_PATH=/etc/habit-system-mcp/config.json
+ExecStart=/opt/habit-system-mcp/releases/%i/node/bin/node /opt/habit-system-mcp/releases/%i/services/mcp/dist/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=128
+LimitNOFILE=4096
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/habit-system-mcp
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+# activation is a separate reviewed operation. this template has no install target.

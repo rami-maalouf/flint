@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { signup } from 'snapback4/auth';
 import { createClient } from 'snapback4/client';
 import { startDev } from 'snapback4/proof';
+import { api } from '../../snapback/generated/api.ts';
 import { createSnapbackTransport } from '../../src/platform/backend/transport.ts';
 
 test('the app transport survives retries and round-trips large Unicode records', { timeout: 120_000 }, async () => {
@@ -46,4 +47,42 @@ test('the app transport survives retries and round-trips large Unicode records',
     await client?.close();
     await host.stop();
   }
+});
+
+test('upload evidence distinguishes exact acceptance from superseded data before continuing', { timeout: 120_000 }, async () => {
+  const host = await startDev({ args: ['--memory', '--no-watch', '--unsafe-dev-doors'] });
+  let client;
+  try {
+    const account = await signup(host.url, `${randomUUID()}@example.test`, randomUUID());
+    assert.ok(account.ok);
+    client = createClient({ url: host.url, session: account.session });
+    const evidence = [];
+    let current = true, interrupt = false;
+    const transport = createSnapbackTransport({
+      connection: async () => ({ client, session: account.session, isCurrent: () => current }),
+      bind: async () => {}, hash: async value => createHash('sha256').update(value).digest('hex'),
+      onUpload: async receipt => { evidence.push(receipt); if (interrupt) current = false; },
+    });
+    await transport.ensureZone();
+    const first = { entityType: 'board', entityId: randomUUID(), schemaVersion: 2,
+      mutationStamp: '01790000000000-00001-device-a', deleted: false, fields: { title: 'Synthetic receipt' } };
+    await transport.upload([first]);
+    const received = await client.query(api.changes, { after: 0 });
+    assert.ok(!('denied' in received));
+    assert.deepEqual(evidence, [{ record: first, digest: received.data[0].digest,
+      disposition: 'accepted', remoteMutationStamp: first.mutationStamp }]);
+    const newer = { ...first, mutationStamp: '01790000000001-00001-device-a', fields: { title: 'Newer value' } };
+    await transport.upload([newer]);
+    await transport.upload([first]);
+    assert.equal(evidence.at(-1).disposition, 'superseded');
+    assert.equal(evidence.at(-1).remoteMutationStamp, newer.mutationStamp);
+    const interrupted = { ...first, entityId: randomUUID() }, unsent = { ...first, entityId: randomUUID() };
+    interrupt = true;
+    await assert.rejects(transport.upload([interrupted, unsent]), error => error.code === 'signed_out');
+    current = true;
+    const remote = await transport.fetchChanges(null);
+    assert.ok(remote.records.some(record => record.entityId === interrupted.entityId));
+    assert.ok(!remote.records.some(record => record.entityId === unsent.entityId));
+    assert.equal(evidence.at(-1).record.entityId, interrupted.entityId);
+  } finally { await client?.close(); await host.stop(); }
 });

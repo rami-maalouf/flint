@@ -1,0 +1,44 @@
+{
+  "name": "habit-system-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": "24.22.2"
+  },
+  "scripts": {
+    "proof:auth": "\"${MCP_PROOF_NODE:-node}\" --test proofs/auth.test.mjs",
+    "lint": "eslint src tests scripts proofs eslint.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:proof": "tsc --ignoreConfig --noEmit --allowJs --checkJs --module nodenext --target es2023 --skipLibCheck proofs/*.mjs --types node --allowImportingTsExtensions --strict false",
+    "test": "\"${MCP_NODE:-node}\" scripts/test.mjs unit",
+    "test:integration": "\"${MCP_NODE:-node}\" scripts/test.mjs integration",
+    "test:protocol": "\"${MCP_NODE:-node}\" scripts/test.mjs protocol",
+    "test:coverage": "MCP_TEST_COVERAGE=1 \"${MCP_NODE:-node}\" scripts/test.mjs all",
+    "build": "bun build src/core.ts src/main.ts src/startup.ts --target=node --packages=external --outdir=dist --metafile=dist/metafile.json",
+    "start": "\"${MCP_NODE:-node}\" dist/main.js"
+  },
+  "dependencies": {
+    "@better-auth/cimd": "1.7.14",
+    "@better-auth/mcp": "1.7.14",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "better-auth": "1.7.14",
+    "snapback4": "0.4.49",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@eslint/js": "10.0.1",
+    "@typescript-eslint/eslint-plugin": "8.72.1",
+    "@typescript-eslint/parser": "8.72.1",
+    "eslint": "10.14.0",
+    "globals": "16.5.0",
+    "typescript": "6.0.3"
+  },
+  "overrides": {
+    "minimatch": "11.0.3"
+  }
+}

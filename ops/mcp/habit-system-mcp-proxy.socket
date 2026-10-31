@@ -1,0 +1,10 @@
+[Unit]
+Description=Habit System MCP private Traefik bridge socket
+Requires=docker.service
+After=docker.service
+
+[Socket]
+ListenStream=172.26.0.1:4414
+FreeBind=false
+
+# activation is a separate reviewed operation. this socket has no install target.

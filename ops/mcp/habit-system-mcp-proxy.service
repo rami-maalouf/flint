@@ -1,0 +1,16 @@
+[Unit]
+Description=Habit System MCP private bridge to loopback
+Requires=habit-system-mcp-proxy.socket
+After=habit-system-mcp-proxy.socket
+
+[Service]
+Type=notify
+ExecStart=/lib/systemd/systemd-socket-proxyd --connections-max=128 127.0.0.1:4413
+DynamicUser=true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=32M
+CPUQuota=10%

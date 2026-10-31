@@ -19,6 +19,38 @@ mutation saveProfile(name: text <=120):
 
 invariant profiles.read only .owner = viewer
 
+table mcpRecoveryHeads:
+  owner: principal
+  generation: text 36..36
+  sequence: int 0..9007199254740991 default 0
+  headHash: text 64..64
+  previousHash: text 64..64
+  unique owner
+  immutable owner, generation
+  read <- .owner = viewer
+  insert <- .owner = viewer and .sequence = 0 and .headHash = '0000000000000000000000000000000000000000000000000000000000000000'
+  update (old, next) <- old.owner = viewer and next.owner = viewer and next.sequence > old.sequence and next.previousHash = old.headHash
+  online only
+
+query mcpRecoveryHead():
+  return mcpRecoveryHeads[viewer]
+
+mutation initializeMcpRecoveryHead(generation: text 36..36):
+  existing = mcpRecoveryHeads[viewer]
+  if existing != null:
+    require existing.generation = generation else MCP_GENERATION_CONFLICT
+    return existing
+  return insert mcpRecoveryHeads { owner: viewer, generation, headHash: '0000000000000000000000000000000000000000000000000000000000000000', previousHash: '0000000000000000000000000000000000000000000000000000000000000000' }
+
+mutation advanceMcpRecoveryHead(generation: text 36..36, expectedSequence: int 0..9007199254740990, expectedHash: text 64..64, nextHash: text 64..64):
+  head = mcpRecoveryHeads[viewer] ! else MCP_HEAD_REQUIRED
+  require head.generation = generation else MCP_GENERATION_CONFLICT
+  require head.sequence = expectedSequence and head.headHash = expectedHash else MCP_HEAD_CONFLICT
+  require nextHash != head.headHash else MCP_HEAD_CONFLICT
+  return update mcpRecoveryHeads[viewer] { sequence: head.sequence + 1, previousHash: head.headHash, headHash: nextHash }
+
+invariant mcpRecoveryHeads.read only .owner = viewer
+
 table records:
   owner: principal
   entityType: enum('board', 'activity_period', 'check_in', 'reminder', 'settings', 'reward', 'habit_action', 'ledger_entry')
