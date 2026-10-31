@@ -55,6 +55,7 @@ The completed independent review against `982edfe` requires the following correc
 - [x] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage (M25d).
 - [x] Give CI, startup and admission checkpoints distinct identifiers (`M05c`, `M09c`, `M21a`, `M21b`).
 - [x] Obtain complete actual Linux ARM64 service coverage with public CIMD and no skipped tests for the pre-epoch snapshot (M25a); rerun affected integration gates after these corrections.
+- [x] Verify current merged Flint source on Mac and Linux ARM64: 316 service checks with no skips, inherited gates, isolated audit and a clean reviewed release artifact (M25f).
 
 ## Release acceptance
 
