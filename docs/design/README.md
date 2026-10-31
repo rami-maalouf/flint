@@ -18,7 +18,7 @@ these are the habit-system design documents that the product spec (`SPEC-habit-s
 
 ## privacy
 
-these documents describe one person's routines, prayer times, sleep, and reward preferences. the repository is private today. before it becomes public, decide whether this folder stays, moves out, or is reduced to the spec alone.
+these historical documents describe one person's routines, prayer times, sleep, and reward preferences. they are retained from the already-public flint local history. rami authorized making flint public on 2026-10-30; the product spec remains the source of truth for application behavior.
 
 ## App specification correction (2026-09-08)
 

@@ -330,15 +330,15 @@ test('app configuration carries the fork identity and never the ripples identity
   const root = path.resolve(__dirname, '../../../..');
   const app = require(path.join(root, 'app.json')).expo;
   const pkg = require(path.join(root, 'package.json'));
-  assert.equal(pkg.name, 'habit-system-fullstack');
-  assert.equal(app.name, 'habit-system-fullstack');
+  assert.equal(pkg.name, 'flint');
+  assert.equal(app.name, 'Flint');
   assert.equal(app.slug, 'habit-system-fullstack');
   assert.equal(app.scheme, 'habitsystemfullstack');
   assert.equal(app.ios.bundleIdentifier, 'studio.orbitlabs.habitsystem.fullstack');
-  assert.equal(app.ios.infoPlist.CFBundleDisplayName, 'Habit System FS');
+  assert.equal(app.ios.infoPlist.CFBundleDisplayName, 'Flint');
   const widgets = app.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets')[1];
   assert.equal(widgets.groupIdentifier, 'group.studio.orbitlabs.habitsystem.fullstack');
-  assert.equal(widgets.widgets[0].displayName, 'Habit System FS');
+  assert.equal(widgets.widgets[0].displayName, 'Flint');
   assert.equal(widgets.widgets[0].name, 'HabitSystemFullStackBoards');
   assert.equal(widgets.widgets[0].description, 'Your boards with seven-day strips and quick check-in.');
   // the app group is duplicated as a typescript constant; it must not drift from the plugin-derived value
@@ -347,8 +347,8 @@ test('app configuration carries the fork identity and never the ripples identity
   const transportSource = require('node:fs').readFileSync(path.join(root, 'modules/ripples-apple/ios/CloudKitTransport.swift'), 'utf8');
   assert.match(transportSource, /static let zoneName = "habit-system-fullstack"/);
   const podspec = require('node:fs').readFileSync(path.join(root, 'modules/ripples-apple/ios/RipplesApple.podspec'), 'utf8');
-  assert.match(podspec, /s\.homepage\s*=\s*'https:\/\/github\.com\/rami-maalouf\/habit-system-fullstack'/);
-  assert.match(podspec, /git: 'https:\/\/github\.com\/rami-maalouf\/habit-system-fullstack\.git'/);
+  assert.match(podspec, /s\.homepage\s*=\s*'https:\/\/github\.com\/rami-maalouf\/flint'/);
+  assert.match(podspec, /git: 'https:\/\/github\.com\/rami-maalouf\/flint\.git'/);
   const widgetSource = require('node:fs').readFileSync(path.join(root, 'src/platform/widgets/ripples-boards-widget.tsx'), 'utf8');
   assert.match(widgetSource, /createWidget\('HabitSystemFullStackBoards'/);
   assert.doesNotMatch(widgetSource, /habittracker:\/\//);

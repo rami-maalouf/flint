@@ -506,7 +506,7 @@ describe('own export round trip', () => {
 
   it('names export files by their utc instant', () => {
     expect(exportFileName(Date.UTC(2026, 7, 30, 16, 4, 5))).toBe(
-      'habit-system-export-2026-08-30T16-04-05Z.json',
+      'flint-export-2026-08-30T16-04-05Z.json',
     );
   });
 });

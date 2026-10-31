@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "habit-system-fullstack",
+    "name": "Flint",
     "slug": "habit-system-fullstack",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
       "bundleIdentifier": "studio.orbitlabs.habitsystem.fullstack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleDisplayName": "Habit System FS"
+        "CFBundleDisplayName": "Flint"
       },
       "appleTeamId": "3V2UU7RRK9"
     },
@@ -52,7 +52,7 @@
           "widgets": [
             {
               "name": "HabitSystemFullStackBoards",
-              "displayName": "Habit System FS",
+              "displayName": "Flint",
               "description": "Your boards with seven-day strips and quick check-in.",
               "supportedFamilies": [
                 "systemSmall",

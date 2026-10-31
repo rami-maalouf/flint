@@ -68,7 +68,7 @@ export async function pickImportFile(): Promise<DomainResult<PickedImportFile | 
 export function cleanupStaleExports(): void {
   try {
     for (const entry of Paths.cache.list()) {
-      if (entry instanceof File && /^(?:habit-system|ripples)-export-.*\.json$/.test(entry.name)) {
+      if (entry instanceof File && /^(?:flint(?:-local)?|habit-system|ripples)-export-.*\.json$/.test(entry.name)) {
         entry.delete();
       }
     }

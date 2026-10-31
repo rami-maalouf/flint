@@ -1,8 +1,12 @@
-# Habit System Full Stack
+# Flint
 
-A private, local-first habit tracker for iOS, built with Expo and React Native. Habit System combines daily habits, same-day stacks, coins, and rewards you define. A fresh install starts empty.
+A private, local-first habit tracker for iOS, built with Expo and React Native. Flint combines daily habits, same-day stacks, coins, and rewards you define. A fresh install starts empty.
 
-This is a full-history fork of [Habit System](https://github.com/rami-maalouf/habit-system), originally Ripples. Snapback 4 adds private account sync while SQLite remains the local source of truth. [FORK.md](FORK.md) records the independent app and EAS identities. The backend runs at `https://habits.ramimaalouf.com` on Oracle.
+This is a full-history fork of [Flint Local](https://github.com/rami-maalouf/flint-local), originally Ripples. Snapback 4 adds private account sync while SQLite remains the local source of truth. [FORK.md](FORK.md) records the independent app and EAS identities. The backend runs at `https://habits.ramimaalouf.com`.
+
+The app's design direction is monochrome: black, white, and system Liquid Glass, with no fixed accent-color theme.
+
+For the local app with optional iCloud sync, see [Flint Local](https://github.com/rami-maalouf/flint-local). Both apps keep their existing installed identities and backup format so the rename preserves existing data.
 
 ## The app
 
@@ -22,9 +26,11 @@ The real app stores product data in SQLite inside its own iOS App Group. Widgets
 
 [SPEC-habit-system.md](SPEC-habit-system.md) defines the product changes to the inherited [native foundation](SPEC-native-foundation.md) and [Ripples product](SPEC-ripples-product.md) specifications. [tasks/todo.md](tasks/todo.md) tracks remaining work; [checkpoints.md](checkpoints.md) records validation and device evidence.
 
-The habit, stack, coin, reward, backup/restore, and miss-alert milestones are implemented and reviewed. The deterministic three-year sample dataset and isolated in-memory factory have passed automated and iOS simulator checks. Sample navigation, native sheets, editing, claims, disposal and real-data isolation have passed automated and iOS simulator checks. T24 cosmetics, regressions, production exports and native build checks pass, including a fresh simulator launch. The signed iPhone installation and exact provisioning/capability checks pass. First phone launch still needs the phone unlocked; live two-device sync remains open. The sample database scheduling change reduces measured iOS simulator startup from about 51 seconds to 20 seconds while preserving the exact generated data.
+The habit, stack, coin, reward, backup/restore, and miss-alert milestones are implemented and reviewed. Automated coverage includes local domain rules, native adapters, Snapback account isolation, and convergence between independent SQLite clients. See [checkpoints.md](checkpoints.md) for the exact checks and device evidence.
 
-The inherited CloudKit acceptance status above describes the original app. The new backend plan is [tasks/fullstack-plan.md](tasks/fullstack-plan.md); deployment, backups, restoration and capability limits are documented in [ops/README.md](ops/README.md). This repository does not claim an App Store release.
+A standalone iPhone preview is installed, and the phone's exported product data has been imported and independently matched against a private backend snapshot. The original app had unresolved iCloud sync, so additional cloud-only data remains unverified. The rename retains the same installed identity and account.
+
+The backend plan is [tasks/fullstack-plan.md](tasks/fullstack-plan.md); deployment, backups, restoration and capability limits are documented in [ops/README.md](ops/README.md). This repository does not claim an App Store release.
 
 ## Development
 

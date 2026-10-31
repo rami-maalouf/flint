@@ -12,6 +12,8 @@ Snapback 0.4.49 needs the pinned Bun patch under `patches/`: Expo defines `windo
 
 ## Product context (read before touching product code)
 
+The current product name is Flint; the repository is `rami-maalouf/flint`. Preserve the existing bundle IDs, App Groups, EAS slugs/project IDs, URL schemes, sync/account bindings, database names, and backup format during branding changes. The visual direction is monochrome black and white with system Liquid Glass, without a fixed accent-color theme.
+
 This repository is the habit-system fork of Ripples. Read in this order:
 
 1. `FORK.md` - origin, fork point, and the identifiers that must change before any build.

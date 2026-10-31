@@ -242,5 +242,5 @@ export function exportFileName(exportedAtUtc: number): string {
     .toISOString()
     .replace(/\.\d{3}Z$/, 'Z')
     .replace(/:/g, '-');
-  return `habit-system-export-${stamp}.json`;
+  return `flint-export-${stamp}.json`;
 }
