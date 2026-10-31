@@ -9,15 +9,16 @@ import { acquireRecoveryLock, releaseRecoveryLock } from './lock.mjs';
 process.umask(0o077);
 process.env.COPYFILE_DISABLE = '1';
 const args = options(process.argv.slice(2), ['--fixture-root', '--fixture-state-root', '--fixture-backend-root',
-  '--fixture-systemctl', '--fixture-lock-dir', '--live', '--paired', '--output-dir', '--recipient', '--age-bin', '--release-sha']);
+  '--fixture-live-layout', '--fixture-systemctl', '--fixture-lock-dir', '--live', '--paired', '--output-dir', '--recipient', '--age-bin', '--release-sha']);
 const fixture = args['--fixture-root'] !== undefined;
 const live = args['--live'] === 'yes';
 let temporary, active = [], produced = [], lock, restartContext, completedSnapshotId;
 try {
   if (fixture === live || (fixture && process.env.MCP_RECOVERY_FIXTURE !== '1')) fail('choose one authorized mode');
-  if (!fixture && (args['--fixture-state-root'] || args['--fixture-backend-root'] || args['--fixture-lock-dir'])) {
+  if (!fixture && (args['--fixture-state-root'] || args['--fixture-backend-root'] || args['--fixture-lock-dir'] || args['--fixture-live-layout'])) {
     fail('fixture options are test-only');
   }
+  if (args['--fixture-live-layout'] && args['--fixture-live-layout'] !== 'yes') fail('invalid fixture layout');
   lock = acquireRecoveryLock(fixture ? required(args['--fixture-lock-dir']) : '/run/habit-system-mcp-recovery');
   const releaseSha = required(args['--release-sha']);
   if (!/^[0-9a-f]{40}$/.test(releaseSha)) fail('invalid release sha');
@@ -32,10 +33,11 @@ try {
   const source = fixture ? privateDir(args['--fixture-root']) : null;
   if (live && process.getuid() !== 0) fail('live snapshot requires root');
   const state = fixture ? privateDir(args['--fixture-state-root'] ?? join(source, 'state')) : '/var/lib/habit-system-mcp';
-  const backend = fixture ? privateDir(args['--fixture-backend-root'] ?? join(source, 'backend')) : '/var/lib/habit-system-fullstack';
+  const backendContainer = fixture ? privateDir(args['--fixture-backend-root'] ?? join(source, 'backend')) : '/var/lib/habit-system-fullstack';
+  const backend = !fixture || args['--fixture-live-layout'] === 'yes' ? join(backendContainer, 'deployment') : backendContainer;
   const keyFile = fixture ? join(source, 'keys/keys.json') : '/etc/habit-system-mcp/keys.json';
   const configFile = fixture ? join(source, 'keys/config.json') : '/etc/habit-system-mcp/config.json';
-  if (!outside(state, output) || !outside(backend, output) || (fixture && !outside(source, output))) {
+  if (!outside(state, output) || !outside(backendContainer, output) || (fixture && !outside(source, output))) {
     fail('snapshot output overlaps application or backend state');
   }
   const systemctl = systemctlBinary(fixture, args['--fixture-systemctl']);

@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FileRestoreLatch } from '../src/operations/recovery-head';
+import { resolveBinary } from 'snapback4/bin-path';
 
 const scripts = fileURLToPath(new URL('../../../ops/mcp/recovery/', import.meta.url));
 const age = process.env.MCP_AGE_BIN ?? '/tmp/habit-mcp-age-1.3.2/darwin/age/age';
@@ -754,6 +755,63 @@ test('native snapback release store link and group writable descendants survive 
     assert.equal(readFileSync(join(restored, 'backend/releases/1/snapback/provenance.json'), 'utf8'), '{"synthetic":true}\n');
     assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
       restoredDirectories: [state, backend] }).assertReady());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('paired archive selects the native deployment below its live parent', () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-native-parent-layout-'));
+  try {
+    const source = join(root, 'source'), state = join(source, 'state');
+    const backendParent = join(root, 'backend'), deployment = join(backendParent, 'deployment');
+    const keys = join(source, 'keys'), offhost = join(root, 'offhost'), controller = join(root, 'controller');
+    for (const path of [source, state, backendParent, keys, offhost, controller]) mkdirSync(path, { mode: 0o700 });
+    const cli = resolveBinary();
+    assert.equal(run(cli, ['--version']), 'snapback4 0.4.49');
+    run(cli, ['deploy', deployment, '--schema', join(process.cwd(), 'snapback/schema.q')]);
+    const nativeLink = join(deployment, 'releases/1/.snapback4/store.sqlite');
+    assert.equal(readlinkSync(nativeLink), '../../../store.sqlite');
+    assert.ok([0o755, 0o775].includes(lstatSync(join(deployment, 'releases')).mode & 0o777));
+    for (const path of ['releases', 'releases/1', 'releases/1/snapback']) {
+      chmodSync(join(deployment, path), 0o775);
+    }
+    writeFileSync(join(keys, 'config.json'), '{"synthetic":true}', { mode: 0o600 });
+    writeFileSync(join(keys, 'keys.json'), '{"synthetic":true}', { mode: 0o600 });
+    const identity = join(controller, 'identity.txt');
+    run(keygen, ['-o', identity]);
+    const recipient = run(keygen, ['-y', identity]);
+    const sha = 'b'.repeat(40), installationId = 'native-parent-layout';
+    const latch = join(controller, 'restore-latch');
+    FileRestoreLatch.provisionFresh({ path: latch, installationId,
+      restoredDirectories: [state, backendParent] });
+    const forbiddenOutput = join(backendParent, 'forbidden-output');
+    mkdirSync(forbiddenOutput, { mode: 0o700 });
+    run(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+      '--fixture-backend-root', backendParent, '--fixture-live-layout', 'yes',
+      '--fixture-lock-dir', controller, '--output-dir', forbiddenOutput, '--recipient', recipient,
+      '--age-bin', age, '--release-sha', sha], 1);
+    assert.deepEqual(readdirSync(forbiddenOutput), []);
+    run(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+      '--fixture-backend-root', backendParent, '--fixture-live-layout', 'yes',
+      '--fixture-lock-dir', controller, '--output-dir', offhost, '--recipient', recipient,
+      '--age-bin', age, '--release-sha', sha]);
+    const bundle = join(offhost, 'bundle.json');
+    run(process.execPath, [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+      '--fixture-lock-dir', controller, '--controller-dir', controller, '--bundle', bundle,
+      '--installation-id', installationId, '--latch', latch]);
+    const restored = join(root, 'restored');
+    run(process.execPath, [join(scripts, 'restore-isolated.mjs'), '--fixture-root', source,
+      '--bundle', bundle, '--identity', identity, '--age-bin', age, '--target', restored,
+      '--latch', latch, '--installation-id', installationId,
+      '--intent-log', join(controller, 'restore-intents.jsonl')]);
+    const restoredLink = join(restored, 'backend/releases/1/.snapback4/store.sqlite');
+    assert.equal(readlinkSync(restoredLink), '../../../store.sqlite');
+    assert.equal(realpathSync(restoredLink), join(restored, 'backend/store.sqlite'));
+    assert.equal(existsSync(join(restored, 'backend/deployment')), false);
+    const sqlite = new DatabaseSync(restoredLink, { readOnly: true });
+    assert.ok(Number(sqlite.prepare('SELECT count(*) AS count FROM sqlite_schema').get()?.count) > 0);
+    sqlite.close();
+    assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
+      restoredDirectories: [state, backendParent] }).assertReady());
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

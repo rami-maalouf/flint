@@ -345,6 +345,19 @@
 - A private in-process rehearsal exercised the actual SDK, Snapback and production v2 composition through a fetch shim restricted to its synthetic local graph. It passed the complete flow, including exact earned/spent totals, check-in row counts, claim receipt identity and reversal linkage. An adversarial SDK response that pointed a claim receipt at a check-in ledger row reproduced a false positive before the final binding checks and is rejected afterward.
 - Fresh round-three review accepted the helper and activation runbook. Focused lint, service typecheck, bundle and local guard checks pass. The current committed native-backup integration separately passes all 319 Mac service tests with zero failures/skips and valid coverage. This is prepared tooling and local evidence only: M24's updated restore rehearsals, final independent verification, activation and the actual public flow remain pending.
 
+### M24e - paired live backup selects the native deployment
+
+- Metadata-only Oracle inspection confirmed that the native store and release graph live under `/var/lib/habit-system-fullstack/deployment`, while the parent also contains separate restore and runtime directories. A disposable real Snapback 0.4.49 parent-layout fixture reproduced the old backup refusing group-writable release directories and then the native store link.
+- Paired live backup now copies exactly `deployment` while retaining its whole parent as the output exclusion boundary. The encrypted layout stays `backend/store.sqlite` and `backend/releases/...`; the separate native tar still contains `deployment/`. No native link or permission exception was broadened. Fresh independent source review accepted the correction, then a second review accepted the consistent archive-scope wording.
+- All 13 focused Node 24.22.2/age 1.3.2 recovery tests pass after integration, including encrypted restoration and SQLite readback through the native link. Service lint, typecheck, Node syntax and diff checks pass. No production backup or deployment is claimed by this correction.
+- The extra exact-SSH clone rehearsal was deferred after the user asked to end the prolonged tooling cycle. No clone was launched; its source is preserved in ignored task artifacts. The original M24 paired off-host and write-fenced restoration proof remains required. Automated production restoration stays disabled pending separate operational verification of that branch; this supersedes the extra clone gate recorded in M24c.
+
+### M25h - final immutable Flint artifact and complete service coverage
+
+- Clean committed application source `22217f3c14c430fcc82457329b126a93ff847d38` passed frozen ARM64 install, API generation, lint, typecheck and build. Its release archive is `0ea44cbd24219f68413845dd31ebc1d8a50fee4b2eec1b18103f5f61105cdd91`, with the exact main, schema, provenance and source hashes recorded in `docs/mcp/verification.md`.
+- Final Mac and Linux Node 24.22.2 public-CIMD coverage each pass 319 tests with zero failures or skips. All 163 Linux raw JSON files parse, every committed test entry and the authorization proof is instrumented, six direct service reports remain, and all 1,105 committed source files are unchanged. The raw archive and evidence were copied byte-for-byte to Mac and independently parsed there.
+- These are staged application and test results. The current paired replay, final review disposition, production installation, public synthetic acceptance and rollback remain separately recorded operations. Earlier 36eb847 artifact hashes are historical, not the release to activate.
+
 ## Public repository visibility (2026-10-30)
 
 1. Rami authorized making `rami-maalouf/flint` public. Changed GitHub visibility and verified anonymous GitHub API access returns HTTP 200 with `private: false`.
