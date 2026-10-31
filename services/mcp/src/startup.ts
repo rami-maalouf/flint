@@ -1,4 +1,4 @@
-import { hkdfSync } from 'node:crypto';
+import { hkdfSync, randomUUID } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { AccountActors } from './accounts/actor';
 import type { OperationPolicy } from './accounts/operations';
+import { FileAuthorizationEpoch, type AuthorizationEpochSource } from './auth/epoch';
 import { createAuthorizationService } from './auth/provider';
 import { CredentialVault } from './auth/vault';
 import { assertPrivatePath, loadMcpKeys, McpRuntimeError, validateMcpConfig, type McpConfig } from './config';
@@ -165,8 +166,16 @@ export async function startMcpService(input: McpConfig, options: { allowTestPort
     const accounts = new AccountActors({ root: accountRoot, backendUrl: config.backendUrl,
       ...(operationPolicy ? { operationPolicy } : {}) });
     dispose.unshift(() => accounts.close());
+    const authorizationEpoch: AuthorizationEpochSource = config.version === 2
+      ? new FileAuthorizationEpoch({ path: config.operations.latchPath, installationId: config.operations.installationId,
+        restoredDirectories: [config.dataDirectory, config.operations.backendDirectory] })
+      : (() => {
+        const current = Object.freeze({ epoch: randomUUID(), mode: 'degraded_read' as const });
+        return Object.freeze({ current: async () => current });
+      })();
     authorization = await createAuthorizationService({ publicOrigin: config.publicOrigin, backendUrl: config.backendUrl,
       databasePath: join(config.dataDirectory, 'provider.sqlite'), secret: keys.providerSecret, vault,
+      authorizationEpoch,
       ...(operationPolicy ? { writeConnections: { revoke: (grant, commit) => accounts.revokeDeliveryGrant(grant, commit) } } : {}) });
     // actor drain can still need provider metadata and quotes. keep both alive until account closure finishes.
     dispose.splice(1, 0, () => authorization.close());

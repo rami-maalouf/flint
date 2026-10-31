@@ -28,6 +28,7 @@ import { MutationTools, mutationToolNames } from '../src/tools/mutations';
 import { createMutationNormalizer } from '../src/tools/normalize';
 import { ReadTools, readToolNames } from '../src/tools/reads';
 import { authorizeSynthetic, syntheticOAuthClient } from './helpers/oauth';
+import { syntheticAuthorizationEpoch } from './helpers/authorization-epoch';
 import { authorizeSyntheticWrite } from './helpers/write-oauth';
 
 test('real OAuth and HTTP MCP create a delivered check-in with exact journal evidence', { timeout: 120_000 }, async t => {
@@ -86,7 +87,8 @@ test('real OAuth and HTTP MCP create a delivered check-in with exact journal evi
       delivery: { grantStatus: grantId => authorization.deliveryGrantStatus(grantId) } } });
   closeAccounts = () => accounts.close();
   authorization = await createAuthorizationService({ publicOrigin, backendUrl, databasePath: join(directory, 'provider.sqlite'),
-    secret: randomBytes(48).toString('hex'), vault, identityOptions: { fetch: backendFetch }, allowTestLoopback: true,
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch(),
+    identityOptions: { fetch: backendFetch }, allowTestLoopback: true,
     writeConnections: { revoke: (grant, commit) => accounts.revokeDeliveryGrant(grant, commit) } });
   closeAuthorization = () => authorization.close();
   const reads = new ReadTools({ accounts, cursors: new CursorCodec(randomBytes(32)) });

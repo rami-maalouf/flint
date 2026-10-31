@@ -11,13 +11,14 @@ export type PrivateGrant = Readonly<{
   grantId: string; accountId: string; backendUrl: string; principal: string; userId: string;
   clientId: string; sessionId: string; operationLineageId: string; scopes: readonly string[];
   credentialScope: 'read' | 'full';
-  expiresAt: number; active: boolean;
+  authorizationEpoch: string | null; expiresAt: number; active: boolean;
 }>;
 type GrantRow = { id: string; account_id: string; backend: string; principal: string; user_id: string;
   client_id: string; session_id: string; lineage: string; scopes: string; credential_scope: 'read' | 'full';
+  authorization_epoch: string | null; retirement_uncertain: number; retirement_attempted_at: number | null;
   expires_at: number; active: number };
 type Pending = { session_id: string; account_id: string; backend: string; principal: string; user_id: string;
-  expires_at: number; consumed: number; credential_scope: 'read' };
+  expires_at: number; consumed: number; credential_scope: 'read'; authorization_epoch: string | null };
 
 export class AuthorizationDenied extends Error {
   constructor() { super('Authorization is unavailable. Connect this account again.'); this.name = 'AuthorizationDenied'; }
@@ -43,8 +44,11 @@ function unpack(row: GrantRow): PrivateGrant {
   } catch { /* invalid permission metadata cannot grant access, but custody remains revocable. */ }
   return Object.freeze({ grantId: row.id, accountId: row.account_id, backendUrl: row.backend, principal: row.principal,
     userId: row.user_id, clientId: row.client_id, sessionId: row.session_id, operationLineageId: row.lineage,
-    scopes: Object.freeze(scopes), credentialScope: row.credential_scope,
+    scopes: Object.freeze(scopes), credentialScope: row.credential_scope, authorizationEpoch: row.authorization_epoch,
     expiresAt: row.expires_at, active: row.active === 1 });
+}
+function validEpoch(epoch: string): boolean {
+  return typeof epoch === 'string' && epoch.length > 0 && epoch.length <= 256 && /^[\x21-\x7e]+$/.test(epoch);
 }
 
 // metadata owns no bearer material; custody and duplicate-bearer checks remain in the vault.
@@ -53,7 +57,8 @@ export class GrantStore {
     db.exec(`CREATE TABLE IF NOT EXISTS mcp_pending (
       session_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, backend TEXT NOT NULL, principal TEXT NOT NULL,
       user_id TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
-      credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope = 'read')) STRICT;
+      credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope = 'read'),
+      authorization_epoch TEXT) STRICT;
       CREATE TABLE IF NOT EXISTS mcp_lineages (
       account_id TEXT NOT NULL, client_id TEXT NOT NULL, lineage TEXT NOT NULL UNIQUE,
       PRIMARY KEY(account_id, client_id)) STRICT;
@@ -61,15 +66,19 @@ export class GrantStore {
       id TEXT PRIMARY KEY, account_id TEXT NOT NULL, backend TEXT NOT NULL, principal TEXT NOT NULL, user_id TEXT NOT NULL,
       client_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, lineage TEXT NOT NULL, scopes TEXT NOT NULL,
       credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope IN ('read', 'full')),
+      authorization_epoch TEXT, retirement_uncertain INTEGER NOT NULL DEFAULT 0 CHECK(retirement_uncertain IN (0,1)),
+      retirement_attempted_at INTEGER,
       expires_at INTEGER NOT NULL, active INTEGER NOT NULL CHECK(active IN (0,1))) STRICT;`);
-    const columns = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[])
-      .some(column => column.name === 'credential_scope');
-    const pendingNeedsMigration = !columns('mcp_pending');
-    const grantsNeedMigration = !columns('mcp_grants');
-    if (pendingNeedsMigration || grantsNeedMigration) {
+    const columns = (table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[])
+      .map(column => column.name));
+    const pendingColumns = columns('mcp_pending');
+    const grantColumns = columns('mcp_grants');
+    if (!pendingColumns.has('credential_scope') || !grantColumns.has('credential_scope') ||
+      !pendingColumns.has('authorization_epoch') || !grantColumns.has('authorization_epoch') ||
+      !grantColumns.has('retirement_uncertain') || !grantColumns.has('retirement_attempted_at')) {
       db.exec('BEGIN IMMEDIATE');
       try {
-        if (grantsNeedMigration) {
+        if (!grantColumns.has('credential_scope')) {
           const legacy = db.prepare('SELECT scopes FROM mcp_grants').all() as { scopes: string }[];
           if (legacy.some(row => {
             try {
@@ -79,7 +88,11 @@ export class GrantStore {
           })) throw new AuthorizationDenied();
           db.exec("ALTER TABLE mcp_grants ADD COLUMN credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope IN ('read', 'full'))");
         }
-        if (pendingNeedsMigration) db.exec("ALTER TABLE mcp_pending ADD COLUMN credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope = 'read')");
+        if (!pendingColumns.has('credential_scope')) db.exec("ALTER TABLE mcp_pending ADD COLUMN credential_scope TEXT NOT NULL DEFAULT 'read' CHECK(credential_scope = 'read')");
+        if (!pendingColumns.has('authorization_epoch')) db.exec('ALTER TABLE mcp_pending ADD COLUMN authorization_epoch TEXT');
+        if (!grantColumns.has('authorization_epoch')) db.exec('ALTER TABLE mcp_grants ADD COLUMN authorization_epoch TEXT');
+        if (!grantColumns.has('retirement_uncertain')) db.exec('ALTER TABLE mcp_grants ADD COLUMN retirement_uncertain INTEGER NOT NULL DEFAULT 0 CHECK(retirement_uncertain IN (0,1))');
+        if (!grantColumns.has('retirement_attempted_at')) db.exec('ALTER TABLE mcp_grants ADD COLUMN retirement_attempted_at INTEGER');
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     }
@@ -104,27 +117,31 @@ export class GrantStore {
       (!grant.scopes.includes('rewards:claim') || grant.scopes.includes('coins:read')) &&
       requestsWrite(grant.scopes) === (grant.credentialScope === 'full');
   }
-  pending(sessionId: string): boolean {
+  pending(sessionId: string, epoch: string): boolean {
     const row = this.db.prepare('SELECT * FROM mcp_pending WHERE session_id = ?').get(sessionId) as Pending | undefined;
-    if (!row || row.credential_scope !== 'read' || row.consumed || row.expires_at <= Date.now()) return false;
+    if (!validEpoch(epoch) || !row || row.authorization_epoch !== epoch || row.credential_scope !== 'read' ||
+      row.consumed || row.expires_at <= Date.now()) return false;
     try { this.vault.get(pendingBinding(row)); return true; } catch { return false; }
   }
-  stage(sessionId: string, userId: string, identity: VerifiedIdentity): void {
+  stage(sessionId: string, userId: string, identity: VerifiedIdentity, epoch: string): void {
+    if (!validEpoch(epoch)) throw new AuthorizationDenied();
     const expiresAt = Math.min(identity.session.expiresAt, identity.session.capExpiresAt ?? Infinity, Date.now() + 600_000);
     const row: Pending = { session_id: sessionId, user_id: userId, account_id: identity.accountId,
       backend: identity.backendUrl, principal: identity.principal, expires_at: expiresAt,
-      consumed: 0, credential_scope: 'read' };
+      consumed: 0, credential_scope: 'read', authorization_epoch: epoch };
     this.vault.put(pendingBinding(row), identity.session);
-    this.db.prepare("INSERT INTO mcp_pending (session_id, account_id, backend, principal, user_id, expires_at, consumed, credential_scope) VALUES (?, ?, ?, ?, ?, ?, 0, 'read')")
-      .run(sessionId, identity.accountId, identity.backendUrl, identity.principal, userId, expiresAt);
+    this.db.prepare("INSERT INTO mcp_pending (session_id, account_id, backend, principal, user_id, expires_at, consumed, credential_scope, authorization_epoch) VALUES (?, ?, ?, ?, ?, ?, 0, 'read', ?)")
+      .run(sessionId, identity.accountId, identity.backendUrl, identity.principal, userId, expiresAt, epoch);
   }
-  connect(sessionId: string, userId: string, clientId: string, scopes: string[], writeIdentity?: VerifiedWriteIdentity): PrivateGrant {
+  connect(sessionId: string, userId: string, clientId: string, scopes: string[], epoch: string,
+    writeIdentity?: VerifiedWriteIdentity): PrivateGrant {
+    if (!validEpoch(epoch)) throw new AuthorizationDenied();
     if (!scopes.length || scopes.some(scope => !this.allowedScopes.includes(scope)) ||
       (scopes.includes('rewards:claim') && !scopes.includes('coins:read')) || requestsWrite(scopes) !== !!writeIdentity) {
       throw new AuthorizationDenied();
     }
     const row = this.db.prepare('SELECT * FROM mcp_pending WHERE session_id = ?').get(sessionId) as Pending | undefined;
-    if (!row || row.user_id !== userId || !this.pending(sessionId)) throw new AuthorizationDenied();
+    if (!row || row.authorization_epoch !== epoch || row.user_id !== userId || !this.pending(sessionId, epoch)) throw new AuthorizationDenied();
     if (writeIdentity && (writeIdentity.accountId !== row.account_id || writeIdentity.backendUrl !== row.backend ||
       writeIdentity.principal !== row.principal || writeIdentity.session.scope !== 'full')) throw new AuthorizationDenied();
     const pendingSession = this.vault.get(pendingBinding(row));
@@ -142,12 +159,12 @@ export class GrantStore {
       .get(row.account_id, clientId) as { lineage: string }).lineage;
     const grant: PrivateGrant = { grantId, accountId: row.account_id, backendUrl: row.backend, principal: row.principal,
       userId, clientId, sessionId, operationLineageId, scopes, credentialScope: writeIdentity ? 'full' : 'read',
-      expiresAt: Math.min(session.expiresAt, session.capExpiresAt ?? Infinity), active: false };
+      authorizationEpoch: epoch, expiresAt: Math.min(session.expiresAt, session.capExpiresAt ?? Infinity), active: false };
     this.db.prepare(`INSERT INTO mcp_grants
-      (id, account_id, backend, principal, user_id, client_id, session_id, lineage, scopes, credential_scope, expires_at, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`)
+      (id, account_id, backend, principal, user_id, client_id, session_id, lineage, scopes, credential_scope, authorization_epoch, expires_at, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`)
       .run(grantId, grant.accountId, grant.backendUrl, grant.principal, userId, clientId, sessionId,
-        operationLineageId, JSON.stringify(scopes), grant.credentialScope, grant.expiresAt);
+        operationLineageId, JSON.stringify(scopes), grant.credentialScope, epoch, grant.expiresAt);
     try {
       this.vault.put(binding(grant), session);
       if (this.db.prepare('UPDATE mcp_grants SET active = 1 WHERE id = ? AND active = 0').run(grantId).changes !== 1) {
@@ -158,7 +175,7 @@ export class GrantStore {
       try { this.vault.revoke(binding(grant)); } catch { /* custody stays fenced by the inactive grant. */ }
       throw error;
     }
-    return this.active(grantId);
+    return this.active(grantId, epoch);
   }
   lookup(grantId: string): PrivateGrant | undefined {
     const row = this.db.prepare('SELECT * FROM mcp_grants WHERE id = ?').get(grantId) as GrantRow | undefined;
@@ -180,22 +197,27 @@ export class GrantStore {
     this.db.prepare('UPDATE mcp_pending SET consumed = 1 WHERE session_id = ?').run(sessionId);
     this.vault.revoke(pendingBinding(row));
   }
-  forSession(sessionId: string, clientId: string): PrivateGrant {
+  forSession(sessionId: string, clientId: string, epoch: string): PrivateGrant {
     const row = this.db.prepare('SELECT * FROM mcp_grants WHERE session_id = ? AND client_id = ?')
       .get(sessionId, clientId) as GrantRow | undefined;
     if (!row) throw new AuthorizationDenied();
-    return this.active(row.id);
+    return this.active(row.id, epoch);
   }
-  active(grantId: string): PrivateGrant {
+  active(grantId: string, epoch: string): PrivateGrant {
     const grant = this.lookup(grantId);
-    if (!grant?.active || !this.permissionsMatch(grant) || grant.expiresAt <= Date.now()) throw new AuthorizationDenied();
+    if (!validEpoch(epoch) || !grant?.active || grant.authorizationEpoch !== epoch ||
+      !this.permissionsMatch(grant) || grant.expiresAt <= Date.now()) throw new AuthorizationDenied();
     this.vault.get(binding(grant));
     return grant;
   }
   revoke(grantId: string): void {
     const grant = this.lookup(grantId);
     if (!grant) throw new AuthorizationDenied();
-    this.db.prepare('UPDATE mcp_grants SET active = 0 WHERE id = ?').run(grantId);
+    this.db.prepare('UPDATE mcp_grants SET active = 0, retirement_uncertain = 1 WHERE id = ?').run(grantId);
     this.vault.revoke(binding(grant));
+  }
+  retirementAttempted(grantId: string): void {
+    this.db.prepare('UPDATE mcp_grants SET retirement_attempted_at = ? WHERE id = ? AND retirement_uncertain = 1')
+      .run(Date.now(), grantId);
   }
 }

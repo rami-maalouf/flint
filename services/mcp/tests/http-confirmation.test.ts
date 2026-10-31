@@ -12,6 +12,7 @@ import { createAuthorizationService } from '../src/auth/provider';
 import { CredentialVault } from '../src/auth/vault';
 import { RewardQuoteStore } from '../src/rewards/quotes';
 import { createRewardConfirmationHandler } from '../src/web/reward-confirmation';
+import { syntheticAuthorizationEpoch } from './helpers/authorization-epoch';
 import { syntheticOAuthClient } from './helpers/oauth';
 import { authorizeSyntheticWrite } from './helpers/write-oauth';
 
@@ -46,7 +47,7 @@ test('authenticated reward confirmation requires same-account CSRF POST and neve
   const vault = new CredentialVault({ location: join(directory, 'vault.sqlite'), activeKeyVersion: 'v1', keys: new Map([['v1', randomBytes(32)]]) });
   closeVault = () => vault.close();
   const authorization = await createAuthorizationService({ publicOrigin, backendUrl, databasePath: join(directory, 'provider.sqlite'),
-    secret: randomBytes(48).toString('hex'), vault, allowTestLoopback: true,
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch(), allowTestLoopback: true,
     identityOptions: { fetch: (input, init) => {
       const request = new Request(input, init), url = new URL(request.url);
       assert.equal(url.origin, backendUrl); return fetch(host.url + url.pathname + url.search, request);

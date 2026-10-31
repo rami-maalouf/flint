@@ -25,6 +25,7 @@ import { MutationTools } from '../../src/tools/mutations';
 import { createMutationNormalizer } from '../../src/tools/normalize';
 import { ReadTools } from '../../src/tools/reads';
 import { createRewardConfirmationHandler } from '../../src/web/reward-confirmation';
+import { syntheticAuthorizationEpoch } from './authorization-epoch';
 import { syntheticOAuthClient } from './oauth';
 import { authorizeSyntheticWrite } from './write-oauth';
 
@@ -83,7 +84,8 @@ export async function fullService(t: TestContext, controls: { limits?: ServiceLi
       delivery: { grantStatus: grantId => authorization.deliveryGrantStatus(grantId) } } });
   closers.splice(1, 0, () => accounts.close());
   authorization = await createAuthorizationService({ publicOrigin, backendUrl, databasePath: join(directory, 'provider.sqlite'),
-    secret: randomBytes(48).toString('hex'), vault, identityOptions: { fetch: backendFetch }, allowTestLoopback: true,
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch(),
+    identityOptions: { fetch: backendFetch }, allowTestLoopback: true,
     writeConnections: { revoke: (grant, commit) => accounts.revokeDeliveryGrant(grant, commit) } });
   closers.splice(1, 0, () => authorization.close());
   const reads = new ReadTools({ accounts, cursors: new CursorCodec(randomBytes(32)) });

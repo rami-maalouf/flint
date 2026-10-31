@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test, type TestContext } from 'node:test';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { auth, Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { signup } from 'snapback4/auth';
 import { createClient } from 'snapback4/client';
 import { deploy, startServe } from 'snapback4/proof';
@@ -135,7 +135,17 @@ async function runtime(t: TestContext, initialLatch: 'fresh' | 'missing' = 'fres
       return { client, provider, browser };
     };
     const accountId = createHash('sha256').update(JSON.stringify([backendUrl, signed.session.principal])).digest('hex');
-    return { directory, config, keys, start, stop, connect, publicOrigin,
+    const deniedWriteConsent = async () => {
+      const provider = syntheticOAuthClient('degraded write refusal');
+      assert.equal(await auth(provider, { serverUrl: publicOrigin + '/mcp',
+        scope: 'habits:read checkins:write offline_access' }), 'REDIRECT');
+      let response = await fetch(provider.authorizationUrl(), { redirect: 'manual' }); assert.equal(response.status, 302);
+      response = await fetch(new URL(response.headers.get('location')!, publicOrigin), { redirect: 'manual' });
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: 'access_denied' });
+      assert.equal(provider.tokens(), undefined);
+    };
+    return { directory, config, keys, start, stop, connect, deniedWriteConsent, publicOrigin,
       habitId: board.value.boardId, rewardId: reward.value.rewardId,
       replica: accountDirectory(join(dataDirectory, 'accounts'), accountId),
       markRestored: () => new FileRestoreLatch(latchOptions).markRestored() };
@@ -221,43 +231,56 @@ test('production version 1 keeps exactly the ten read tools and cannot dispatch 
 test('missing or corrupt external latch keeps runtime writes fenced without provisioning while trusted reads serve', { timeout: 120_000 }, async t => {
   const f = await runtime(t, 'missing');
   assert.equal(existsSync(f.config.operations.latchPath), false);
-  const { client } = await f.connect();
+  const { client } = await f.connect(false);
   for (const marker of [null, 'synthetic-corrupt-latch']) {
     if (marker !== null) writeFileSync(f.config.operations.latchPath, marker, { mode: 0o600 });
     const ready = await fetch(f.publicOrigin + '/mcp/ready'); assert.equal(ready.status, 200);
     assert.deepEqual(await ready.json(), { status: 'ready', restoreFenced: true });
     data(await client.callTool({ name: 'list_habits', arguments: {} }));
     error(await client.callTool({ name: 'create_checkin', arguments: {
-      operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }), 'OPERATION_PENDING');
+      operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }), 'FORBIDDEN');
     assert.equal(existsSync(join(f.replica, 'journal.sqlite')), false);
     assert.equal(data<{ balance: number }>(await client.callTool({ name: 'get_coin_balance', arguments: {} })).balance, 4);
     if (marker === null) assert.equal(existsSync(f.config.operations.latchPath), false);
     else assert.equal(readFileSync(f.config.operations.latchPath, 'utf8'), marker);
   }
+  await f.deniedWriteConsent();
 });
 
 test('a restore mark after accepted writes fences further effects and owner resume while preserving trusted reads', { timeout: 120_000 }, async t => {
   const f = await runtime(t);
-  const { client, browser } = await f.connect(); assert.ok(browser);
+  const { client, browser, provider } = await f.connect(); assert.ok(browser);
   data(await client.callTool({ name: 'create_checkin', arguments: {
     operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }));
+  const connections = await fetch(f.publicOrigin + '/mcp/connections', { headers: { cookie: browser.cookieHeader() } });
+  assert.equal(connections.status, 200);
+  const form = /<form[^>]*data-action="resume"[^>]*>([\s\S]*?)<\/form>/.exec(await connections.text())?.[1]; assert.ok(form);
+  const oldCookie = browser.cookieHeader() + '; ' + connections.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
   f.markRestored(); const marked = readFileSync(f.config.operations.latchPath);
   const product = new DatabaseSync(join(f.replica, 'product.sqlite'), { readOnly: true });
   let before: unknown;
   try { before = product.prepare('SELECT COUNT(*) AS count FROM check_ins').get(); } finally { product.close(); }
   await f.stop(); await f.start();
-  data(await client.callTool({ name: 'list_habits', arguments: {} }));
-  error(await client.callTool({ name: 'create_checkin', arguments: {
-    operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }), 'OPERATION_PENDING');
+  const stale = await fetch(f.publicOrigin + '/mcp', { headers: { authorization: `Bearer ${provider.tokens()!.access_token}` } });
+  assert.equal(stale.status, 401);
+  await assert.rejects(client.callTool({ name: 'list_habits', arguments: {} }), error =>
+    (error as { data?: { status?: number } }).data?.status === 401);
+  const { client: fresh } = await f.connect(false);
+  assert.ok(data<{ items: { id: string }[] }>(await fresh.callTool({ name: 'list_habits', arguments: {} })).items
+    .some(item => item.id === f.habitId));
+  const status = data<{ writeFenced: boolean; deliveryPaused: boolean }>(await fresh.callTool({ name: 'get_sync_status', arguments: {} }));
+  assert.equal(status.writeFenced, true); assert.equal(status.deliveryPaused, true);
+  error(await fresh.callTool({ name: 'create_checkin', arguments: {
+    operationId: randomUUID(), habitId: f.habitId, timeZone: 'UTC' } }), 'FORBIDDEN');
   const after = new DatabaseSync(join(f.replica, 'product.sqlite'), { readOnly: true });
   try { assert.deepEqual(after.prepare('SELECT COUNT(*) AS count FROM check_ins').get(), before); } finally { after.close(); }
-  const shown = await fetch(f.publicOrigin + '/mcp/connections', { headers: { cookie: browser.cookieHeader() } });
-  assert.equal(shown.status, 200, await shown.clone().text());
-  const form = /<form[^>]*data-action="resume"[^>]*>([\s\S]*?)<\/form>/.exec(await shown.text())?.[1]; assert.ok(form);
+  const shown = await fetch(f.publicOrigin + '/mcp/connections', { redirect: 'manual', headers: { cookie: browser.cookieHeader() } });
+  assert.equal(shown.status, 303); assert.match(shown.headers.get('location')!, /\/mcp\/account\/sign-in\?/);
   const resume = await fetch(f.publicOrigin + '/mcp/connections', { method: 'POST',
-    headers: { cookie: browser.cookieHeader() + '; ' + shown.headers.getSetCookie().map(value => value.split(';')[0]).join('; '),
+    headers: { cookie: oldCookie,
       origin: f.publicOrigin, 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ action: 'resume', consent: 'all_pending', grant_id: hidden(form, 'grant_id'), csrf: hidden(form, 'csrf') }) });
-  assert.equal(resume.status, 409, await resume.clone().text());
+  assert.equal(resume.status, 403, await resume.clone().text());
+  await f.deniedWriteConsent();
   assert.deepEqual(readFileSync(f.config.operations.latchPath), marked);
 });

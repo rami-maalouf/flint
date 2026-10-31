@@ -43,6 +43,8 @@ Startup constructs `FileRestoreLatch` with `restoredDirectories: [dataDirectory,
 
 The latch adapter preserves `RecoveryFenceError` and its `restore_latched` reason for the actor's restored-read inspection. It adds retryability for the validated public `OPERATION_PENDING` error projection, without changing readiness or admitting an operation.
 
+Version 2 also binds OAuth and browser authority to the external marker's authorization epoch. Every supported restore appends a fresh independently retained intent UUID before replacing any state. Previously issued authority then requires fresh verified sign-in and consent. A restored installation can issue fresh read authority, while full consent and owner resume remain refused. A missing or corrupt marker provides only a process-bound read epoch. Version 1 has no external restore marker and therefore also uses process-bound read authority: restarting it requires fresh sign-in. Normal version 2 restarts with an intact marker preserve the issuing epoch. Runtime never derives a trusted epoch from restored provider or vault rows.
+
 The separate key file is UTF-8 JSON, at most 65,536 bytes, with this versioned shape. Angle-bracket values below are placeholders, not keys:
 
 ```json

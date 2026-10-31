@@ -1,4 +1,5 @@
-import { closeSync, constants, fsyncSync, fstatSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { closeSync, constants, fsyncSync, fstatSync, openSync, readSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import type { Client } from 'snapback4/client';
 
@@ -15,7 +16,7 @@ export type RecoveryRemote = {
 };
 export type RestoreLatch = { assertReady(): void | Promise<void> };
 type JournalReader = { head(): JournalHead; entryAt(sequence: number): ChainEntry | null };
-type LatchOptions = { path: string; installationId: string; restoredDirectories: readonly [string, string, ...string[]] };
+export type LatchOptions = { path: string; installationId: string; restoredDirectories: readonly [string, string, ...string[]] };
 type AdapterOptions = { owner: string; journal: JournalReader; remote: RecoveryRemote; latch: RestoreLatch;
   // use the same admitted grant/credential and account barrier for each outbound mutation.
   authorize(): Promise<void> };
@@ -71,7 +72,7 @@ export class FileRestoreLatch implements RestoreLatch {
   private readonly path: string;
   private readonly marker: string;
   constructor(options: LatchOptions) {
-    if (!options.installationId || options.installationId.length > 255 || options.restoredDirectories.length < 2) fence('restore_latched');
+    if (!isAbsolute(options.path) || !options.installationId || options.installationId.length > 255 || options.restoredDirectories.length < 2) fence('restore_latched');
     this.path = join(realpathSync(dirname(options.path)), basename(options.path));
     for (const root of options.restoredDirectories) {
       const inside = relative(realpathSync(root), this.path);
@@ -91,19 +92,48 @@ export class FileRestoreLatch implements RestoreLatch {
 
   assertReady(): void {
     try {
-      const fd = openSync(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const fd = openSync(this.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
-        const stat = fstatSync(fd);
-        if (!stat.isFile() || stat.size !== Buffer.byteLength(this.marker) || readFileSync(fd, 'utf8') !== this.marker) fence('restore_latched');
+        if (this.readMarker(fd) !== this.marker) fence('restore_latched');
       } finally { closeSync(fd); }
     } catch { fence('restore_latched'); }
+  }
+
+  private readMarker(fd: number): string {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1 || before.uid !== process.getuid?.() ||
+      (before.mode & 0o177) !== 0 || before.size < 1 || before.size > 4096) fence('restore_latched');
+    const buffer = Buffer.alloc(4097), length = readSync(fd, buffer, 0, buffer.length, 0);
+    const after = fstatSync(fd);
+    if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs ||
+      after.ctimeMs !== before.ctimeMs) fence('restore_latched');
+    const text = buffer.subarray(0, length).toString('utf8');
+    if (!text.startsWith(this.marker) || !Buffer.from(text).equals(buffer.subarray(0, length))) fence('restore_latched');
+    const suffix = text.slice(this.marker.length);
+    if (suffix !== '' && !/^(?:restored(?: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?\n)+$/.test(suffix)) fence('restore_latched');
+    return text;
+  }
+
+  readGeneration(): Readonly<{ generation: string; restored: boolean }> | null {
+    try {
+      const fd = openSync(this.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const text = this.readMarker(fd), restored = text !== this.marker;
+        if (restored && !text.includes('restored ')) return null;
+        return Object.freeze({ generation: sha256(text), restored });
+      } finally { closeSync(fd); }
+    } catch { return null; }
   }
 
   // stop admission first, durably append this before replacing either database directory.
   // a torn append also fails closed. no runtime api clears or reprovisions a latched file.
   markRestored(): void {
-    const fd = openSync(this.path, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW);
-    try { writeFileSync(fd, 'restored\n'); fsyncSync(fd); } finally { closeSync(fd); }
+    const fd = openSync(this.path, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW);
+    try {
+      const previous = this.readMarker(fd), marker = `restored ${randomUUID()}\n`;
+      if (Buffer.byteLength(previous + marker) > 4096) fence('restore_latched');
+      writeFileSync(fd, marker); fsyncSync(fd);
+    } finally { closeSync(fd); }
   }
 }
 

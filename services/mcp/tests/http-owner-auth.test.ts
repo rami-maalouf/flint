@@ -11,6 +11,7 @@ import { signup } from 'snapback4/auth';
 import { startDev } from 'snapback4/proof';
 import { createAuthorizationService } from '../src/auth/provider';
 import { CredentialVault } from '../src/auth/vault';
+import { syntheticAuthorizationEpoch } from './helpers/authorization-epoch';
 import { authorizeSynthetic, syntheticOAuthClient } from './helpers/oauth';
 import { authorizeSyntheticWrite } from './helpers/write-oauth';
 
@@ -43,7 +44,8 @@ test('owner sign-in and private grant selection use real HTTP, SDK, SQLite and S
     return fetch(host.url + url.pathname + url.search, request);
   };
   const service = await createAuthorizationService({ publicOrigin: origin, backendUrl, databasePath,
-    secret: randomBytes(48).toString('hex'), vault, allowTestLoopback: true, identityOptions: { fetch: backendFetch },
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch(),
+    allowTestLoopback: true, identityOptions: { fetch: backendFetch },
     writeConnections: { revoke: async (_grant, commit) => commit() } });
   dispatch = toNodeHandler({ fetch: request => service.handler(request) });
   t.after(async () => {

@@ -16,6 +16,7 @@ import type { CommandId } from '../../../src/core/domain/ids';
 import { AccountActors } from '../src/accounts/actor';
 import { createAuthorizationService } from '../src/auth/provider';
 import { CredentialVault } from '../src/auth/vault';
+import { syntheticAuthorizationEpoch } from './helpers/authorization-epoch';
 import { createCorePorts, initializeProductDatabase, NodeSqlDatabase, createSnapbackTransport, runSync } from '../src/core';
 import { createHttpService } from '../src/http';
 import { RewardQuoteStore } from '../src/rewards/quotes';
@@ -28,7 +29,8 @@ test('the loopback reverse proxy uses a fixed public origin without trusting for
   const directory = mkdtempSync(join(tmpdir(), 'habit-mcp-origin-'));
   const vault = new CredentialVault({ location: join(directory, 'vault.sqlite'), activeKeyVersion: 'v1', keys: new Map([['v1', randomBytes(32)]]) });
   const authorization = await createAuthorizationService({ publicOrigin: 'https://habits.example.test',
-    backendUrl: 'https://backend.example.test', databasePath: join(directory, 'provider.sqlite'), secret: randomBytes(48).toString('hex'), vault });
+    backendUrl: 'https://backend.example.test', databasePath: join(directory, 'provider.sqlite'),
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch() });
   const http = createHttpService({ authorization, reads: {} as ReadTools });
   t.after(async () => { await http.close(); await authorization.close(); vault.close(); rmSync(directory, { recursive: true, force: true }); });
   const metadata = await http.fetch(new Request('http://habits.example.test/.well-known/oauth-protected-resource/mcp',
@@ -84,7 +86,8 @@ test('real OAuth + HTTP MCP reads isolate two accounts, paginate history and ret
   const accounts = new AccountActors({ root: join(directory, 'accounts'), backendUrl, fetch: backendFetch });
   closeAccounts = () => accounts.close();
   const authorization = await createAuthorizationService({ publicOrigin, backendUrl, databasePath: join(directory, 'provider.sqlite'),
-    secret: randomBytes(48).toString('hex'), vault, identityOptions: { fetch: backendFetch }, allowTestLoopback: true });
+    secret: randomBytes(48).toString('hex'), vault, authorizationEpoch: syntheticAuthorizationEpoch(),
+    identityOptions: { fetch: backendFetch }, allowTestLoopback: true });
   closeAuthorization = () => authorization.close();
   const reads = new ReadTools({ accounts, cursors: new CursorCodec(randomBytes(32)) });
   const quotes = new RewardQuoteStore({ location: join(directory, 'quotes.sqlite'), key: randomBytes(32), publicOrigin });

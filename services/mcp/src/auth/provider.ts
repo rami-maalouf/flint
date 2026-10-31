@@ -13,7 +13,9 @@ import { fetchClientMetadataResource } from '@better-auth/cimd/node';
 import { mcp } from '@better-auth/mcp';
 import { getOAuthProviderApi, verifyOAuthQueryParams } from '@better-auth/oauth-provider';
 import { z } from 'zod';
+import { logout } from 'snapback4/auth';
 import type { AuthContext } from './context';
+import type { AuthorizationEpochSource } from './epoch';
 import { createIdentityBridge, createWriteIdentityBridge, type IdentityConfig } from './identity';
 import { CredentialVault } from './vault';
 import { AuthorizationDenied, authorizationScopes, binding, GrantStore, readScopes, requestsWrite, writeScopes, type PrivateGrant } from './grants';
@@ -27,6 +29,7 @@ export type AuthorizationConfig = {
   identityOptions?: Omit<IdentityConfig, 'backendUrl'>;
   allowTestLoopback?: boolean;
   accessTokenExpiresIn?: number;
+  authorizationEpoch: AuthorizationEpochSource;
   writeConnections?: Readonly<{ revoke: (grantMetadata: PrivateGrant, commitRevocation: () => Promise<void>) => Promise<void> }>;
 };
 export type BrowserSession = Readonly<{ accountId: string; principal: string; backendUrl: string; providerSessionId: string }>;
@@ -105,9 +108,25 @@ function html(body: string, status = 200): Response {
 // the caller mounts this fetch handler and owns both the listener and the vault lifetime.
 export async function createAuthorizationService(config: AuthorizationConfig) {
   if (!config || process.versions.node !== '24.22.2' || 'bun' in process.versions ||
-    typeof config.secret !== 'string' || config.secret.length < 32 || !(config.vault instanceof CredentialVault)) {
+    typeof config.secret !== 'string' || config.secret.length < 32 || !(config.vault instanceof CredentialVault) ||
+    typeof config.authorizationEpoch?.current !== 'function') {
     throw new Error('Authorization service configuration is invalid.');
   }
+  const currentEpoch = async () => {
+    try {
+      const state = await config.authorizationEpoch.current();
+      if (!state || typeof state.epoch !== 'string' || state.epoch.length < 1 || state.epoch.length > 256 ||
+        !/^[\x21-\x7e]+$/.test(state.epoch) || !['normal', 'degraded_read'].includes(state.mode)) {
+        throw new AuthorizationDenied();
+      }
+      return Object.freeze({ epoch: state.epoch, mode: state.mode });
+    } catch { throw new AuthorizationDenied(); }
+  };
+  const stillCurrent = async (expected: Awaited<ReturnType<typeof currentEpoch>>) => {
+    const state = await currentEpoch();
+    return state.epoch === expected.epoch && state.mode === expected.mode;
+  };
+  await currentEpoch();
   const origin = canonicalOrigin(config.publicOrigin, config.allowTestLoopback === true);
   const issuer = origin + basePath;
   const resource = origin + '/mcp';
@@ -122,11 +141,23 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     config.accessTokenExpiresIn < 1 || config.accessTokenExpiresIn > 900)) throw new Error('Access token lifetime configuration is invalid.');
   const db = privateDatabase(config.databasePath);
   const grants = new GrantStore(db, config.vault, allowedScopes);
+  db.exec(`CREATE TABLE IF NOT EXISTS mcp_authorized_sessions (
+    session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, authorization_epoch TEXT NOT NULL
+  ) STRICT;`);
+  const sessionIssuedIn = (sessionId: string, userId: string, epoch: string) => {
+    const row = db.prepare('SELECT user_id, authorization_epoch FROM mcp_authorized_sessions WHERE session_id = ?')
+      .get(sessionId) as { user_id: string; authorization_epoch: string } | undefined;
+    return row?.user_id === userId && row.authorization_epoch === epoch;
+  };
+  const stampSession = (sessionId: string, userId: string, epoch: string) => {
+    db.prepare('INSERT INTO mcp_authorized_sessions VALUES (?, ?, ?)').run(sessionId, userId, epoch);
+  };
   if (!config.writeConnections) {
     try {
       const activeWrite = db.prepare(`SELECT 1 FROM mcp_grants AS g WHERE g.active = 1 AND
         (g.credential_scope = 'full' OR EXISTS
-        (SELECT 1 FROM json_each(g.scopes) WHERE value IN (${writeScopes.map(() => '?').join(', ')}))) LIMIT 1`).get(...writeScopes);
+        (SELECT 1 FROM json_each(g.scopes) WHERE value IN (${writeScopes.map(() => '?').join(', ')}))) LIMIT 1`)
+        .get(...writeScopes);
       if (activeWrite) throw new Error('Active write grants require a write connection lifecycle.');
     } catch (error) { db.close(); throw error; }
   }
@@ -149,17 +180,35 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
   };
   const cutoffGrant = async (grant: PrivateGrant, deleteProviderSession: () => Promise<void>, beforeFence?: () => void) => {
     let commitPromise: Promise<void> | undefined;
-    await coordinateRevocation(grant, () => {
-      commitPromise ??= (async () => {
-        beforeFence?.();
-        grants.revoke(grant.grantId);
-        deletingSessions.add(grant.sessionId);
-        try { await deleteProviderSession(); } finally { deletingSessions.delete(grant.sessionId); }
-      })();
-      return commitPromise;
-    });
-    if (!commitPromise) throw new AuthorizationDenied();
-    await commitPromise;
+    let token: string | undefined;
+    let cutoff = false;
+    try {
+      await coordinateRevocation(grant, () => {
+        commitPromise ??= (async () => {
+          try { token = config.vault.get(binding(grant)).token; } catch { /* local cutoff still wins. */ }
+          beforeFence?.();
+          try { grants.revoke(grant.grantId); }
+          catch (error) {
+            cutoff = grants.lookup(grant.grantId)?.active === false;
+            throw error;
+          }
+          cutoff = true;
+          deletingSessions.add(grant.sessionId);
+          try { await deleteProviderSession(); } finally { deletingSessions.delete(grant.sessionId); }
+        })();
+        return commitPromise;
+      });
+      if (!commitPromise) throw new AuthorizationDenied();
+      await commitPromise;
+    } finally {
+      if (cutoff && token) {
+        try {
+          await logout(grant.backendUrl, token, (input, init) => (config.identityOptions?.fetch ?? fetch)(input,
+            { ...init, redirect: 'error', cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(5_000) }));
+        } catch { /* exact upstream retirement is best effort after local cutoff. */ }
+        try { grants.retirementAttempted(grant.grantId); } catch { /* uncertainty remains durable. */ }
+      }
+    }
   };
   const options: Parameters<typeof mcp>[0] = {
     loginPage: '/mcp/sign-in', consentPage: '/mcp/consent', resource,
@@ -169,16 +218,26 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     refreshTokenReuseInterval: 0,
     allowDynamicClientRegistration: true, allowUnauthenticatedClientRegistration: true, allowPublicClientPrelogin: true,
     clientRegistrationRequirePKCE: true, clientPrivileges: () => false,
-    postLogin: { page: '/mcp/sign-in', consentReferenceId: ({ session }) => session.id,
-      shouldRedirect: ({ session }) => !grants.pending(session.id) },
-    extensions: [{ claims: { accessToken: input => {
+    postLogin: { page: '/mcp/sign-in', consentReferenceId: async ({ user, session }) => {
+      const state = await currentEpoch();
+      if (!sessionIssuedIn(session.id, user.id, state.epoch)) throw new AuthorizationDenied();
+      return session.id;
+    }, shouldRedirect: async ({ user, session }) => {
+      const state = await currentEpoch();
+      if (!sessionIssuedIn(session.id, user.id, state.epoch)) throw new AuthorizationDenied();
+      return !grants.pending(session.id, state.epoch);
+    } },
+    extensions: [{ claims: { accessToken: async input => {
       try {
+        const state = await currentEpoch();
         if (!input.user || !input.sessionId || input.referenceId !== input.sessionId ||
           !input.resources?.includes(resource) || input.resources.some(value => value !== resource && value !== issuer + '/oauth2/userinfo')) {
           throw new AuthorizationDenied();
         }
-        const grant = grants.forSession(input.sessionId, input.client.clientId);
-        if (grant.userId !== input.user.id || input.scopes.some(scope => !grant.scopes.includes(scope))) throw new AuthorizationDenied();
+        const grant = grants.forSession(input.sessionId, input.client.clientId, state.epoch);
+        if (!sessionIssuedIn(input.sessionId, input.user.id, state.epoch) ||
+          (grant.credentialScope === 'full' && state.mode !== 'normal') ||
+          grant.userId !== input.user.id || input.scopes.some(scope => !grant.scopes.includes(scope))) throw new AuthorizationDenied();
         return { [grantClaim]: grant.grantId };
       } catch { throw new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'Reconnect this connection.' }); }
     } } }],
@@ -224,7 +283,9 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         }
         // authenticate once at the real endpoint, retaining assertion audience and replay checks.
         const client = await provider.authenticateClient({ requireCredentials: false });
-        if (grant && tokenClientId === client.clientId && grant.clientId === client.clientId) {
+        const state = await currentEpoch();
+        if (grant && grant.authorizationEpoch === state.epoch && tokenClientId === client.clientId &&
+          grant.clientId === client.clientId) {
           // exact grant fencing is idempotent; provider-wide refresh replay invalidation must never run here.
           await cutoffGrant(grant, async () => {
             const session = await ctx.context.adapter.findOne<{ token: string }>({
@@ -245,6 +306,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         method: 'POST', use: [originCheck(() => origin)],
         body: z.strictObject({ email: z.string().min(1).max(320), password: z.string().min(1).max(4096), oauth_query: z.string().max(12_000) }),
       }, async ctx => {
+        const issued = await currentEpoch();
         let verified;
         try { verified = await identity.login({ email: ctx.body.email, password: ctx.body.password }); }
         catch { throw new APIError('UNAUTHORIZED', { message: 'Sign-in was refused. Check your email and password.' }); }
@@ -260,7 +322,11 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         }
         const session = await ctx.context.internalAdapter.createSession(user.id);
         if (!session) throw new APIError('UNAUTHORIZED');
-        try { grants.stage(session.id, user.id, verified); }
+        try {
+          if (!await stillCurrent(issued)) throw new AuthorizationDenied();
+          stampSession(session.id, user.id, issued.epoch);
+          grants.stage(session.id, user.id, verified, issued.epoch);
+        }
         catch { await ctx.context.internalAdapter.deleteSession(session.token); throw new APIError('UNAUTHORIZED'); }
         const fullUser = await ctx.context.internalAdapter.findUserById(user.id);
         if (!fullUser) throw new APIError('UNAUTHORIZED');
@@ -271,6 +337,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         method: 'POST', use: [originCheck(() => origin)],
         body: z.strictObject({ email: z.string().min(1).max(320), password: z.string().min(1).max(4096) }),
       }, async ctx => {
+        const issued = await currentEpoch();
         let verified;
         try { verified = await identity.login({ email: ctx.body.email, password: ctx.body.password }); }
         catch { throw new APIError('UNAUTHORIZED', { message: 'Sign-in was refused. Check your email and password.' }); }
@@ -286,6 +353,10 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         }
         const session = await ctx.context.internalAdapter.createSession(user.id);
         if (!session) throw new APIError('UNAUTHORIZED');
+        try {
+          if (!await stillCurrent(issued)) throw new AuthorizationDenied();
+          stampSession(session.id, user.id, issued.epoch);
+        } catch { await ctx.context.internalAdapter.deleteSession(session.token); throw new APIError('UNAUTHORIZED'); }
         const fullUser = await ctx.context.internalAdapter.findUserById(user.id);
         if (!fullUser) { await ctx.context.internalAdapter.deleteSession(session.token); throw new APIError('UNAUTHORIZED'); }
         await setSessionCookie(ctx, { session, user: fullUser });
@@ -314,6 +385,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (grant) await cutoffGrant(grant, async () => undefined);
     }, after: async session => {
       if (!grants.lookupSession(session.id)) grants.discardPending(session.id);
+      db.prepare('DELETE FROM mcp_authorized_sessions WHERE session_id = ?').run(session.id);
     } } } },
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     advanced: { cookiePrefix: 'habit-mcp', useSecureCookies: origin.startsWith('https:'),
@@ -329,7 +401,11 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     const auth = betterAuth({ ...authOptions, plugins: [bridgePlugin, jwt(), mcp(options),
       cimd({ fetchClientMetadataResource, metadataProfile: 'mcp-2026-07-28' })] });
     const context = await auth.$context;
-    const providerSession = (request: Request) => auth.api.getSession({ headers: request.headers });
+    const providerSession = async (request: Request) => {
+      const session = await auth.api.getSession({ headers: request.headers });
+      const state = await currentEpoch();
+      return session && sessionIssuedIn(session.session.id, session.user.id, state.epoch) ? session : null;
+    };
     const browserSession = async (request: Request): Promise<BrowserSession | null> => {
       if (closed || new URL(request.url).origin !== origin) return null;
       const current = await providerSession(request);
@@ -429,6 +505,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
       if (scopes.some(scope => !allowedScopes.includes(scope)) ||
         (scopes.includes('rewards:claim') && !scopes.includes('coins:read'))) return denied(400);
+      const consentEpoch = await currentEpoch();
+      if (requestsWrite(scopes) && consentEpoch.mode !== 'normal') return denied(403);
       if (kind === 'consent' && !requestsWrite(scopes) && (form?.has('email') || form?.has('password'))) return denied(400);
       const client = await auth.api.getOAuthClientPublicPrelogin({ headers: new Headers({ origin }),
         body: { client_id: params.get('client_id') ?? '', oauth_query: query } });
@@ -456,7 +534,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (!current) return denied();
       const accept = form!.get('decision') === 'allow';
       if (!['allow', 'deny'].includes(form!.get('decision') ?? '')) return denied(400);
-      if (accept && !grants.pending(current.session.id)) return page(request, 'sign-in', name, scopes, query,
+      if (accept && !grants.pending(current.session.id, consentEpoch.epoch)) return page(request, 'sign-in', name, scopes, query,
         'Sign in again to create a separate connection.');
       let verifiedWrite;
       if (accept && requestsWrite(scopes)) {
@@ -471,7 +549,11 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       // consume synchronously before awaiting provider consent, so concurrent forms cannot share custody.
       let acceptedGrant: PrivateGrant | undefined;
       if (accept) {
-        try { acceptedGrant = grants.connect(current.session.id, current.user.id, params.get('client_id')!, scopes, verifiedWrite); }
+        try {
+          if (!await stillCurrent(consentEpoch)) throw new AuthorizationDenied();
+          acceptedGrant = grants.connect(current.session.id, current.user.id, params.get('client_id')!, scopes,
+            consentEpoch.epoch, verifiedWrite);
+        }
         catch { return page(request, 'sign-in', name, scopes, query, 'Sign in again to create a separate connection.'); }
       }
       const response = await auth.handler(new Request(issuer + '/oauth2/consent', { method: 'POST', headers,
@@ -493,17 +575,21 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (!token || token.length > 16_384) throw new AuthorizationDenied();
       const check = async () => {
         try {
+          const state = await currentEpoch();
           const claims = await auth.api.privateVerifyAccessToken({ body: { token } });
           const id = claims[grantClaim];
           const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
           if (typeof id !== 'string' || claims.iss !== issuer || !audience.includes(resource) ||
             audience.some(value => value !== resource && value !== issuer + '/oauth2/userinfo') || typeof claims.scope !== 'string' ||
             typeof claims.exp !== 'number' || claims.exp * 1000 <= Date.now()) throw new AuthorizationDenied();
-          const grant = grants.active(id);
+          const grant = grants.active(id, state.epoch);
+          if (state.mode !== 'normal' && grant.credentialScope === 'full') throw new AuthorizationDenied();
           if ((grant.credentialScope === 'full' || requestsWrite(grant.scopes)) && !config.writeConnections) throw new AuthorizationDenied();
           if (claims.sub !== grant.userId || claims.sid !== grant.sessionId || claims.client_id !== grant.clientId ||
             claims.scope.split(' ').some(scope => !grant.scopes.includes(scope))) throw new AuthorizationDenied();
-          return { grant, session: config.vault.get(binding(grant)), scopes: claims.scope.split(' '), expiresAt: claims.exp };
+          const session = config.vault.get(binding(grant));
+          if (!await stillCurrent(state)) throw new AuthorizationDenied();
+          return { grant, session, scopes: claims.scope.split(' '), expiresAt: claims.exp };
         } catch { throw new AuthorizationDenied(); }
       };
       const admitted = await check();
@@ -531,6 +617,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     const ownerConnections = async (request: Request): Promise<readonly Readonly<{ grantId: string; clientId: string;
       scopes: readonly string[]; active: boolean; credentialScope: 'read' | 'full'; expiresAt: number }>[]> => {
       const owner = await requireOwner(request);
+      const state = await currentEpoch();
       const listed = [];
       for (const grant of grants.forAccount(owner.accountId)) {
         let active: boolean;
@@ -538,7 +625,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
           active = grant.accountId === owner.accountId && grant.userId === owner.accountId &&
             grant.backendUrl === owner.backendUrl &&
             grant.principal === owner.principal && (grant.credentialScope === 'read' || !!config.writeConnections);
-          if (active) { grants.active(grant.grantId); active = await grantProviderSessionActive(grant); }
+          if (active && (state.mode !== 'normal' && grant.credentialScope === 'full')) active = false;
+          if (active) { grants.active(grant.grantId, state.epoch); active = await grantProviderSessionActive(grant); }
         } catch { active = false; }
         listed.push(Object.freeze({ grantId: grant.grantId, clientId: grant.clientId, scopes: grant.scopes,
           active, credentialScope: grant.credentialScope, expiresAt: grant.expiresAt }));
@@ -547,6 +635,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       if (stillOwner.accountId !== owner.accountId || stillOwner.providerSessionId !== owner.providerSessionId) {
         throw new AuthorizationDenied();
       }
+      if (!await stillCurrent(state)) throw new AuthorizationDenied();
       return Object.freeze(listed);
     };
     const ownerResumeContext = async (request: Request, grantId: string): Promise<AuthContext> => {
@@ -558,10 +647,12 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const owner = await requireOwner(request);
       const check = async (expected?: PrivateGrant) => {
         try {
+          const state = await currentEpoch();
+          if (state.mode !== 'normal') throw new AuthorizationDenied();
           const currentOwner = await requireOwner(request);
           if (currentOwner.accountId !== owner.accountId || currentOwner.providerSessionId !== owner.providerSessionId ||
             currentOwner.backendUrl !== owner.backendUrl || currentOwner.principal !== owner.principal) throw new AuthorizationDenied();
-          const grant = grants.active(grantId);
+          const grant = grants.active(grantId, state.epoch);
           if (!config.writeConnections || grant.credentialScope !== 'full' || grant.accountId !== owner.accountId ||
             grant.userId !== owner.accountId ||
             grant.backendUrl !== owner.backendUrl || grant.principal !== owner.principal ||
@@ -569,11 +660,14 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
           if (expected && (grant.clientId !== expected.clientId || grant.sessionId !== expected.sessionId ||
             grant.userId !== expected.userId ||
             grant.accountId !== expected.accountId || grant.expiresAt !== expected.expiresAt ||
+            grant.authorizationEpoch !== expected.authorizationEpoch ||
             grant.credentialScope !== expected.credentialScope ||
             grant.scopes.length !== expected.scopes.length || grant.scopes.some((scope, index) => scope !== expected.scopes[index]))) {
             throw new AuthorizationDenied();
           }
-          return { grant, session: config.vault.get(binding(grant)) };
+          const session = config.vault.get(binding(grant));
+          if (!await stillCurrent(state)) throw new AuthorizationDenied();
+          return { grant, session };
         } catch { throw new AuthorizationDenied(); }
       };
       const selected = await check();
@@ -585,8 +679,9 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     };
     const revokeGrant = async (input: { accountId: string; grantId: string }): Promise<void> => {
       if (closed) throw new AuthorizationDenied();
+      const state = await currentEpoch();
       const grant = grants.lookup(input.grantId);
-      if (!grant || grant.accountId !== input.accountId) throw new AuthorizationDenied();
+      if (!grant || grant.accountId !== input.accountId || grant.authorizationEpoch !== state.epoch) throw new AuthorizationDenied();
       await cutoffGrant(grant, async () => {
         const session = await context.adapter.findOne<{ token: string }>({ model: 'session', where: [{ field: 'id', value: grant.sessionId }] });
         if (session) await context.internalAdapter.deleteSession(session.token);
@@ -597,6 +692,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const url = new URL(request.url);
       if (url.origin !== origin || (request.headers.has('host') && request.headers.get('host') !== url.host)) return denied(400);
       try {
+        const state = await currentEpoch();
         if (url.pathname === ownerSignInPath) return await ownerBrowser(request);
         if (url.pathname === '/mcp/sign-in' || url.pathname === '/mcp/consent') {
           return await browser(request, url.pathname === '/mcp/sign-in' ? 'sign-in' : 'consent');
@@ -606,6 +702,10 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
         const discovery = request.method === 'GET' && (url.pathname.startsWith('/.well-known/') || url.pathname === issuer.replace(origin, '') + '/jwks');
         const allowed = ['/oauth2/authorize', '/oauth2/token', '/oauth2/register', '/oauth2/revoke'].map(path => basePath + path);
         if (!discovery && !allowed.includes(url.pathname)) return denied(404);
+        if (url.pathname === basePath + '/oauth2/authorize') {
+          const rawSession = await auth.api.getSession({ headers: request.headers });
+          if (rawSession && !sessionIssuedIn(rawSession.session.id, rawSession.user.id, state.epoch)) return denied();
+        }
         if (url.pathname === basePath + '/oauth2/token' || url.pathname === basePath + '/oauth2/revoke') {
           if (request.method !== 'POST') return denied(405);
           const raw = await boundedBody(request);
@@ -623,7 +723,8 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
               try {
                 if (!grant || record.clientId !== grant.clientId || body.client_id !== grant.clientId) throw new AuthorizationDenied();
                 if (record.revoked) throw new AuthorizationDenied();
-                grants.active(grant.grantId);
+                grants.active(grant.grantId, state.epoch);
+                if (state.mode !== 'normal' && grant.credentialScope === 'full') throw new AuthorizationDenied();
               } catch { return security(Response.json({ error: 'invalid_grant', error_description: 'Reconnect this connection.' }, { status: 400 })); }
             }
           }
@@ -674,12 +775,16 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       async deliveryGrantStatus(grantId: string): Promise<Readonly<{ accountId: string; clientId: string;
         active: boolean; scopes: readonly string[] }> | null> {
         if (closed) throw new AuthorizationDenied();
+        const state = await currentEpoch();
         const grant = grants.lookup(grantId);
         if (!grant) return null;
+        const active = grant.active && grant.authorizationEpoch === state.epoch && grants.permissionsMatch(grant) &&
+          (grant.credentialScope !== 'full' || !!config.writeConnections) &&
+          (state.mode === 'normal' || grant.credentialScope === 'read') &&
+          grant.expiresAt > Date.now() && await grantProviderSessionActive(grant);
+        if (!await stillCurrent(state)) throw new AuthorizationDenied();
         return Object.freeze({ accountId: grant.accountId, clientId: grant.clientId,
-          active: grant.active && grants.permissionsMatch(grant) &&
-            (grant.credentialScope !== 'full' || !!config.writeConnections) &&
-            grant.expiresAt > Date.now() && await grantProviderSessionActive(grant), scopes: grant.scopes });
+          active, scopes: grant.scopes });
       },
       revokeGrant,
       async close(): Promise<void> { if (!closed) { closed = true; db.close(); } },

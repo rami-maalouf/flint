@@ -22,6 +22,7 @@ import { GrantStore, authorizationScopes, writeScopes } from '../src/auth/grants
 import { CredentialVault } from '../src/auth/vault';
 import type { AuthContext } from '../src/auth/context';
 
+const testAuthorizationEpoch = { current: async () => ({ epoch: 'stable-http-auth-test-epoch', mode: 'normal' as const }) };
 type RestartInput = { publicOrigin: string; backendUrl: string; databasePath: string; secret: string;
   vaultPath: string; vaultKey: string; accessToken: string; writeConnections?: boolean };
 type CrashInput = { databasePath: string; vaultPath: string; vaultKey: string };
@@ -39,15 +40,17 @@ if (process.env.MCP_AUTH_GRANT_CRASH_CHILD === '1') {
     const account = { accountId: 'crash-account', backendUrl: 'https://snapback.synthetic.test', principal: 'crash-user' };
     const expiresAt = Date.now() + 600_000;
     grants.stage('crash-session', 'crash-user-id', { ...account,
-      session: { kind: 'user', principal: account.principal, token: 'read-crash-token', scope: 'read', expiresAt } });
-    grants.connect('crash-session', 'crash-user-id', 'crash-client', ['checkins:write'], { ...account,
+      session: { kind: 'user', principal: account.principal, token: 'read-crash-token', scope: 'read', expiresAt } },
+    'stable-http-auth-test-epoch');
+    grants.connect('crash-session', 'crash-user-id', 'crash-client', ['checkins:write'], 'stable-http-auth-test-epoch', { ...account,
       session: { kind: 'user', principal: account.principal, token: 'full-crash-token', scope: 'full', expiresAt } });
   });
 }
 if (process.env.MCP_AUTH_RESTART_CHILD === '1') {
   process.once('message', async (input: RestartInput) => {
     const vault = new CredentialVault({ location: input.vaultPath, activeKeyVersion: 'v1', keys: new Map([['v1', Buffer.from(input.vaultKey, 'hex')]]) });
-    const service = await createAuthorizationService({ ...input, vault, allowTestLoopback: true,
+    const service = await createAuthorizationService({ ...input, vault, authorizationEpoch: testAuthorizationEpoch,
+      allowTestLoopback: true,
       writeConnections: input.writeConnections ? { revoke: async (_grant, commit) => commit() } : undefined });
     try {
       const context = await service.authenticate(new Request(service.resource, { headers: { authorization: `Bearer ${input.accessToken}` } }));
@@ -124,11 +127,13 @@ if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHI
         grantId: 'old-grant', scope: 'read' }, { principal: 'old-user', kind: 'user', token: 'old-read-token',
         expiresAt, scope: 'read' });
       const grants = new GrantStore(database, vault);
-      assert.equal(grants.active('old-grant').credentialScope, 'read');
+      assert.throws(() => grants.active('old-grant', 'stable-http-auth-test-epoch'), /Authorization is unavailable/);
       assert.equal(database.prepare('SELECT credential_scope FROM mcp_pending WHERE session_id = ?').get('old-pending')?.credential_scope,
         'read');
       assert.equal(database.prepare('SELECT credential_scope FROM mcp_grants WHERE id = ?').get('old-grant')?.credential_scope,
         'read');
+      assert.equal(database.prepare('SELECT authorization_epoch FROM mcp_grants WHERE id = ?').get('old-grant')?.authorization_epoch,
+        null);
     } finally { database.close(); vault.close(); await rm(directory, { recursive: true, force: true }); }
   });
 
@@ -154,7 +159,8 @@ if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHI
         .get('malformed-grant') as { credential_scope: 'read' };
       const metadata = { grantId: 'malformed-grant', accountId: 'account', backendUrl: 'https://snapback.synthetic.test',
         principal: 'principal', userId: 'user', clientId: 'client', sessionId: 'session', operationLineageId: 'lineage',
-        scopes: ['habits:read'], credentialScope: stored.credential_scope, expiresAt, active: true };
+        scopes: ['habits:read'], credentialScope: stored.credential_scope, authorizationEpoch: 'stable-http-auth-test-epoch',
+        expiresAt, active: true };
       assert.equal(grants.permissionsMatch(metadata), false);
       malformedDatabase.prepare('UPDATE mcp_grants SET credential_scope = ? WHERE id = ?').run('read', 'malformed-grant');
       assert.throws(() => new GrantStore(malformedDatabase, vault), /Authorization is unavailable/);
@@ -224,7 +230,8 @@ if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHI
     return fetch(host.url + url.pathname + url.search, init);
   };
   const config = { publicOrigin: origin, backendUrl: 'https://snapback.synthetic.test', databasePath: join(directory, 'provider.sqlite'),
-    secret, vault, allowTestLoopback: true, identityOptions: { fetch: backendFetch } };
+    secret, vault, authorizationEpoch: testAuthorizationEpoch, allowTestLoopback: true,
+    identityOptions: { fetch: backendFetch } };
   const writeEvents: { phase: 'before' | 'after'; grantId: string; active: boolean; scope: string[] }[] = [];
   let failCoordination = false;
   let writeConnections: { revoke: (grant: { grantId: string; accountId: string; scopes: readonly string[] },
