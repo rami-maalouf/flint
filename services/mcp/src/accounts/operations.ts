@@ -67,15 +67,17 @@ function secureFile(path: string, create = false): void {
 }
 function schemaRows(schema: string): string[] { return schema.trim().split(';').map(sql => sql.trim()).filter(Boolean).sort(); }
 function inspectOrigins(state: DatabaseSync, view: DatabaseSync, limit: number, accountId: string): boolean {
-  const count = Number(state.prepare('SELECT count(*) AS n FROM operation_grants').get()!.n);
+  const origins = state.prepare('SELECT client_id, operation_id, grant_id, tool FROM operation_grants LIMIT ?').all(limit + 1);
   const operations = view.prepare('SELECT client_id, operation_id, fingerprint, intent, result, state, delivery FROM operations LIMIT ?').all(limit + 1);
-  if (count > limit || operations.length > limit) fence('Operation history exceeds its configured admission bound.');
+  if (origins.length > limit || operations.length > limit) fence('Operation history exceeds its configured admission bound.');
+  const originByKey = new Map(origins.map(origin => [JSON.stringify([origin.client_id, origin.operation_id]), origin]));
   let prepared = false;
   const rows = new Map<string, { encoded: string; state: string; result: string | null; delivery: string;
-    resultOk: boolean | null; tupleIds: number[] }>();
+    resultOk: boolean | null; tupleIds: number[]; tupleBytes: number }>();
   const tuples = new Map<number, { payloadHash: string; digest: string;
     record: Pick<WireSyncRecord, 'entityType' | 'mutationStamp'>;
-    storedDisposition: unknown; storedStamp: unknown; acceptedDisposition: 'accepted' | 'superseded' | null;
+    storedDisposition: unknown; storedStamp: unknown; captured: boolean;
+    acceptedDisposition: 'accepted' | 'superseded' | null;
     acceptedStamp: string | null }>();
   for (const operation of operations) {
     let intent: Record<string, unknown>, encoded: string;
@@ -87,14 +89,36 @@ function inspectOrigins(state: DatabaseSync, view: DatabaseSync, limit: number, 
       intent.operationId !== operation.operation_id || intent.fingerprint !== operation.fingerprint ||
       typeof intent.tool !== 'string' || !['prepared', 'rejected', 'completed_no_mutation', 'pending_sync',
         'backend_acknowledged'].includes(String(operation.state))) fence('Operation intent identity or state is inconsistent.');
-    const origin = state.prepare('SELECT grant_id, tool FROM operation_grants WHERE client_id = ? AND operation_id = ?')
-      .get(operation.client_id, operation.operation_id);
+    const key = JSON.stringify([operation.client_id, operation.operation_id]);
+    const origin = originByKey.get(key);
     if (!origin || origin.tool !== intent.tool || typeof origin.grant_id !== 'string' || !origin.grant_id) {
       fence('Operation grant provenance is missing or inconsistent.');
     }
-    rows.set(JSON.stringify([operation.client_id, operation.operation_id]), { encoded,
+    rows.set(key, { encoded,
       state: String(operation.state), result: operation.result === null ? null : String(operation.result),
-      delivery: String(operation.delivery), resultOk: null, tupleIds: [] });
+      delivery: String(operation.delivery), resultOk: null, tupleIds: [], tupleBytes: 0 });
+  }
+  // load tuple rows once, but only a later captured event can authorize acceptance.
+  for (const tuple of view.prepare('SELECT * FROM tuples ORDER BY client_id, operation_id, outbox_id').iterate()) {
+    const key = JSON.stringify([tuple.client_id, tuple.operation_id]), operation = rows.get(key);
+    const id = Number(tuple.outbox_id);
+    if (!operation || !Number.isSafeInteger(id) || id < 1 || typeof tuple.record !== 'string' ||
+      operation.tupleIds.length >= MAX_OPERATION_TUPLES || tuples.has(id)) {
+      fence('Captured operation tuple is missing, duplicated or exceeds its admission bound.');
+    }
+    operation.tupleBytes += Buffer.byteLength(tuple.record);
+    if (operation.tupleBytes > MAX_OPERATION_BYTES) fence('Captured operation tuple bytes exceed their admission bound.');
+    let identity: ReturnType<typeof wireIdentity>;
+    try { identity = wireIdentity(JSON.parse(tuple.record) as WireSyncRecord); }
+    catch { fence('Captured operation tuple payload is corrupt.'); }
+    if (identity.payloadHash !== tuple.payload_hash || identity.digest !== tuple.digest ||
+      identity.record.entityType !== tuple.entity_type || identity.record.entityId !== tuple.entity_id ||
+      identity.record.mutationStamp !== tuple.mutation_stamp) fence('Captured operation tuple payload or identity changed.');
+    operation.tupleIds.push(id);
+    tuples.set(id, { payloadHash: identity.payloadHash, digest: identity.digest,
+      record: { entityType: identity.record.entityType, mutationStamp: identity.record.mutationStamp },
+      storedDisposition: tuple.disposition, storedStamp: tuple.remote_stamp, captured: false,
+      acceptedDisposition: null, acceptedStamp: null });
   }
   const preparedEvents = new Set<string>();
   const capturedEvents = new Set<string>();
@@ -128,30 +152,15 @@ function inspectOrigins(state: DatabaseSync, view: DatabaseSync, limit: number, 
         if (canonicalJson(result) !== canonicalJson(event.result)) fence('Captured operation result differs from immutable evidence.');
       } catch { fence('Captured operation result is corrupt.'); }
       if (typeof result.ok !== 'boolean') fence('Captured operation result is invalid.');
-      const capturedRows = view.prepare('SELECT * FROM tuples WHERE client_id = ? AND operation_id = ? ORDER BY outbox_id LIMIT ?')
-        .all(event.clientId, event.operationId, MAX_OPERATION_TUPLES + 1);
-      if (capturedRows.length !== event.tuples.length) fence('Captured operation tuple count differs from immutable evidence.');
-      let bytes = 0;
-      for (const [index, tuple] of capturedRows.entries()) {
+      if (operation.tupleIds.length !== event.tuples.length) fence('Captured operation tuple count differs from immutable evidence.');
+      for (const [index, id] of operation.tupleIds.entries()) {
         const captured = event.tuples[index] as Record<string, unknown> | null;
-        if (!captured || typeof captured !== 'object' || captured.outboxId !== tuple.outbox_id ||
-          captured.payloadHash !== tuple.payload_hash || captured.digest !== tuple.digest ||
-          typeof tuple.record !== 'string' || !Number.isSafeInteger(tuple.outbox_id) || Number(tuple.outbox_id) < 1 ||
-          tuples.has(Number(tuple.outbox_id))) fence('Captured operation tuple differs from immutable evidence.');
-        bytes += Buffer.byteLength(tuple.record);
-        if (bytes > MAX_OPERATION_BYTES) fence('Captured operation tuple bytes exceed their admission bound.');
-        let identity: ReturnType<typeof wireIdentity>;
-        try { identity = wireIdentity(JSON.parse(tuple.record) as WireSyncRecord); }
-        catch { fence('Captured operation tuple payload is corrupt.'); }
-        if (identity.payloadHash !== tuple.payload_hash || identity.digest !== tuple.digest ||
-          identity.record.entityType !== tuple.entity_type || identity.record.entityId !== tuple.entity_id ||
-          identity.record.mutationStamp !== tuple.mutation_stamp) fence('Captured operation tuple payload or identity changed.');
-        const id = Number(tuple.outbox_id);
-        operation.tupleIds.push(id);
-        tuples.set(id, { payloadHash: identity.payloadHash, digest: identity.digest,
-          record: { entityType: identity.record.entityType, mutationStamp: identity.record.mutationStamp },
-          storedDisposition: tuple.disposition, storedStamp: tuple.remote_stamp,
-          acceptedDisposition: null, acceptedStamp: null });
+        const tuple = tuples.get(id)!;
+        if (!captured || typeof captured !== 'object' || captured.outboxId !== id ||
+          captured.payloadHash !== tuple.payloadHash || captured.digest !== tuple.digest) {
+          fence('Captured operation tuple differs from immutable evidence.');
+        }
+        tuple.captured = true;
       }
       operation.resultOk = result.ok;
       capturedEvents.add(key);
@@ -169,7 +178,7 @@ function inspectOrigins(state: DatabaseSync, view: DatabaseSync, limit: number, 
         if (!accepted || typeof accepted !== 'object' || !Number.isSafeInteger(accepted.outboxId) ||
           !['accepted', 'superseded'].includes(String(accepted.disposition))) fence('Acceptance tuple is invalid.');
         const tuple = tuples.get(Number(accepted.outboxId));
-        if (!tuple || tuple.acceptedDisposition !== null) fence('Acceptance has no pending captured tuple.');
+        if (!tuple || !tuple.captured || tuple.acceptedDisposition !== null) fence('Acceptance has no pending captured tuple.');
         const exact = tuple.payloadHash === event.payloadHash && tuple.digest === event.digest;
         const validAccepted = exact && event.disposition === 'accepted' &&
           event.remoteMutationStamp === tuple.record.mutationStamp;
@@ -196,9 +205,8 @@ function inspectOrigins(state: DatabaseSync, view: DatabaseSync, limit: number, 
   }
   for (const [key, operation] of rows) {
     if (!capturedEvents.has(key)) {
-      const [clientId, operationId] = JSON.parse(key) as [string, string];
       if (operation.state !== 'prepared' || operation.result !== null || operation.delivery !== 'unknown' ||
-        view.prepare('SELECT 1 FROM tuples WHERE client_id = ? AND operation_id = ? LIMIT 1').get(clientId, operationId)) {
+        operation.tupleIds.length !== 0) {
         fence('Prepared operation has no matching capture evidence.');
       }
       prepared = true;

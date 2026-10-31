@@ -315,6 +315,12 @@
 - Encrypted restore now accepts the validated pre-first-mutation delivery-only archive while preserving queued read-derived facts. It requires the released private schemas, matching identity/generation/provenance and anchor, empty operation origins, receipts and owner resumes. It neither creates a journal nor admits product reads. An initialized restored account without its journal stays fenced for reconciliation; complete retained journals use separate runtime ancestry/head checks.
 - Both original failures were reproduced. Nine actual Node 24.22.2/age 1.3.2 cases pass, including distinct epochs, lost replies, preserved queued rows and malformed SQLite variants. Fresh reviews accepted the code boundary and the final archive-versus-read wording after two documentation corrections. Service lint/typecheck and script checks pass. The exact production SSH/Oracle latch branch still requires its isolated real-manager rehearsal before M24 closes.
 
+### M25e - measured retained-history admission batching
+
+- Batched the bounded origin and tuple reads during immutable progression validation. Capture-before-acceptance ordering, exact tuple/disposition identity, orphan-origin accounting and before-pull corruption refusal remain enforced. Every read still verifies retained evidence; no actor cache, schema migration or timestamp trust was introduced.
+- A real Node SQLite/Snapback SDK/account-lane benchmark with 9,800 valid rejected operations measured cold/repeat/restart local admission falling from 632/582/586 ms to 284/251/252 ms, with upstream time measured separately. A fresh reviewer measured 311/264/261 ms and accepted batching as adequate within the 15-second request budget. The benchmark also changes retained evidence after a successful read and proves that the same actor fences its next read before pull.
+- The author ran 126 focused checks and the reviewer ran 46 benchmark/actor/delivery checks; lint/typecheck pass. The benchmark has no tuples and does not establish worst-case tuple-bearing latency. Full bounded scans remain documented; avoiding an unsafe validation cache preserves the established recovery contract. The real SDK benchmark is classified with integration tests.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

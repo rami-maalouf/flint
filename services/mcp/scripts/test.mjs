@@ -33,7 +33,7 @@ function runTests() {
   const files = readdirSync(resolve(service, 'tests'), { recursive: true }).map(String).filter(path => path.endsWith('.test.ts'));
   function group(file) {
     if (/(?:^|\/)(?:protocol|http|server)/.test(file)) return 'protocol';
-    if (/(?:^|\/)(?:operations|recovery-head|accounts|convergence|runtime-writes|resource-runtime|backup-restore)/.test(file)) return 'integration';
+    if (/(?:^|\/)(?:operations|recovery-head|accounts|convergence|runtime-writes|resource-runtime|backup-restore|history-performance)/.test(file)) return 'integration';
     return 'unit';
   }
   const selected = files.filter(file => suite === 'all' || group(file) === suite);

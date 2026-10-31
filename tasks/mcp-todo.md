@@ -51,7 +51,7 @@ The completed independent review against `982edfe` requires the following correc
 - [x] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history (M25c).
 - [x] Return bounded, result-specific text alongside structured results for all fifteen tools (M25b).
 - [x] Restore validated delivery-only snapshots while refusing missing initialized journals; archive admission does not admit a product read (M24c).
-- [ ] Measure retained-history admission near the operation bound and remove repeated full-history work safely.
+- [x] Measure retained-history admission near the operation bound and batch repeated provenance reads safely without weakening validation (M25e).
 - [x] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage (M25d).
 - [x] Give CI, startup and admission checkpoints distinct identifiers (`M05c`, `M09c`, `M21a`, `M21b`).
 - [x] Obtain complete actual Linux ARM64 service coverage with public CIMD and no skipped tests for the pre-epoch snapshot (M25a); rerun affected integration gates after these corrections.
