@@ -139,8 +139,13 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
   let closed = false;
   const deletingSessions = new Set<string>();
   const coordinateRevocation = async (grant: PrivateGrant, commitRevocation: () => Promise<void>) => {
-    if (config.writeConnections) await config.writeConnections.revoke(grant, commitRevocation);
-    else await commitRevocation();
+    try {
+      if (config.writeConnections) await config.writeConnections.revoke(grant, commitRevocation);
+      else await commitRevocation();
+    } catch {
+      // the provider logs unexpected exceptions. expose only a controlled failure at this boundary.
+      throw new APIError('SERVICE_UNAVAILABLE', { message: 'Account coordination is temporarily unavailable.' });
+    }
   };
   const cutoffGrant = async (grant: PrivateGrant, deleteProviderSession: () => Promise<void>, beforeFence?: () => void) => {
     let commitPromise: Promise<void> | undefined;

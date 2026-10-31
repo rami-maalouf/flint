@@ -773,16 +773,23 @@ if (!process.env.MCP_AUTH_RESTART_CHILD && !process.env.MCP_AUTH_GRANT_CRASH_CHI
   });
   await t.test('failed account coordination refuses revocation and cannot claim the connection ended', async () => {
     failCoordination = true;
-    const before = writeEvents.length;
-    await assert.rejects(service.revokeGrant(writeContext), /account lane unavailable/);
-    assert.deepEqual(writeEvents.slice(before).map(event => event.phase), ['before']);
-    assert.equal(service.lookupGrant(writeContext)!.active, true);
-    await writeContext.assertActive();
-    const failedProtocol = await postProtocol('revoke', { token: writer.tokens()!.refresh_token!,
-      token_type_hint: 'refresh_token', client_id: writer.clientInformation()!.client_id });
-    assert.notEqual(failedProtocol.status, 200);
-    assert.equal(service.lookupGrant(writeContext)!.active, true);
-    failCoordination = false;
+    try {
+      const before = writeEvents.length;
+      await assert.rejects(service.revokeGrant(writeContext), /Account coordination is temporarily unavailable/);
+      assert.deepEqual(writeEvents.slice(before).map(event => event.phase), ['before']);
+      assert.equal(service.lookupGrant(writeContext)!.active, true);
+      await writeContext.assertActive();
+      const logged: string[] = [], originalError = console.error;
+      let failedProtocol: Response;
+      try {
+        console.error = (...values: unknown[]) => { logged.push(values.map(value => value instanceof Error ? value.message : String(value)).join(' ')); };
+        failedProtocol = await postProtocol('revoke', { token: writer.tokens()!.refresh_token!,
+          token_type_hint: 'refresh_token', client_id: writer.clientInformation()!.client_id });
+      } finally { console.error = originalError; }
+      assert.ok(!logged.join('\n').includes('account lane unavailable'), 'provider logs must not include raw coordination failures');
+      assert.notEqual(failedProtocol.status, 200);
+      assert.equal(service.lookupGrant(writeContext)!.active, true);
+    } finally { failCoordination = false; }
   });
   await t.test('trusted and repeated protocol revocations coordinate before cutoff and preserve another full grant', async () => {
     const other = oauthClient('Second write grant');
