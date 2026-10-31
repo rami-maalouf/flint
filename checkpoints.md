@@ -327,6 +327,12 @@
 - Both Mac and actual Linux ARM64 service coverage pass 316 checks with zero failures/skips. Linux emits a valid report and all 148 retained raw JSON files parse; every committed test entry, the authorization proof and six direct MCP executable reports remain instrumented. The 220 audited committed input files remain unchanged after testing. This supersedes the earlier pre-epoch coverage limitation.
 - A clean ARM64 source-archive build passes frozen install, pinned API generation, lint, types and all production entry points. The release archive SHA256 is `594386f4c3efb82a470c59dd6234452b49bead288279cda43cc9423d548b09e6`; its main hash and evidence paths are recorded in `docs/mcp/verification.md`. M24's updated rehearsals, final helper verification and M26 activation remain separate gates. No production activation is claimed.
 
+### M24d - native and paired backup share one exclusion
+
+- Independent review reproduced the native backup restarting the backend while the real MCP recovery lock remained held. The scheduled and manual shell entry now dispatches to a pinned Node helper when any MCP installation marker is present; a missing runtime, helper or lock fails closed. The shared lock covers inspection, stop, archive, restart and state verification. The existing native archive format and timer schedule stay intact.
+- The backend is restarted only when it was initially active. Cleanup is armed before stopping, including a stop that deactivates the unit but reports failure; failed archive creation is removed, and a false-success start cannot report a completed backup. The pre-MCP path also verifies its final state.
+- Twelve actual Node SQLite/process recovery tests pass, including both lock directions, inactive backend, partial stop, tar failure and failed restart. A fresh non-author review reran all twelve and accepted the bounded change; ShellCheck, syntax and diff checks pass. Installation of the stable runtime link and versioned helper tree, ownership checks and the exact timer-path rehearsal remain required before live use.
+
 ## Public repository visibility (2026-10-30)
 
 1. Rami authorized making `rami-maalouf/flint` public. Changed GitHub visibility and verified anonymous GitHub API access returns HTTP 200 with `private: false`.

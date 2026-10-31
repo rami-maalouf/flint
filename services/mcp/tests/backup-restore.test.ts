@@ -291,6 +291,15 @@ esac
       await new Promise(resolve => setTimeout(resolve, 20));
     }
     assert.equal(existsSync(marker), true, 'first backup must hold the lock during stop');
+    const nativeOutput = join(root, 'native-output');
+    mkdirSync(nativeOutput, { mode: 0o700 });
+    const callsBeforeNative = readFileSync(calls, 'utf8');
+    const nativeWhileMcp = spawnSync(process.execPath, [join(scripts, 'native-backup.mjs'),
+      '--fixture-backend-root', backend, '--fixture-systemctl', fake, '--fixture-lock-dir', lockDir,
+      '--output-dir', nativeOutput], { env, encoding: 'utf8', timeout: 3000 });
+    assert.equal(nativeWhileMcp.status, 1);
+    assert.match(nativeWhileMcp.stderr, /recovery lock unavailable/);
+    assert.equal(readFileSync(calls, 'utf8'), callsBeforeNative);
     const second = spawnSync(process.execPath, backup(outputB), { env, encoding: 'utf8', timeout: 3000 });
     assert.equal(second.status, 1);
     assert.match(second.stderr, /recovery lock unavailable/);
@@ -326,6 +335,220 @@ esac
     writeFileSync(release, '');
     writeFileSync(releaseRestart, '');
     if (child) await childDone;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('native shell dispatch shares recovery lock and restores only an initially active backend', { timeout: 15_000 }, async () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-native-dispatch-'));
+  let holder: ReturnType<typeof spawn> | undefined;
+  try {
+    const backend = join(root, 'backend'), deployment = join(backend, 'deployment');
+    const lock = join(root, 'lock'), output = join(root, 'output'), inactiveOutput = join(root, 'inactive-output');
+    for (const path of [backend, deployment, lock, output, inactiveOutput]) mkdirSync(path, { mode: 0o700 });
+    writeFileSync(join(deployment, 'record.txt'), 'synthetic backend record', { mode: 0o600 });
+    const state = join(root, 'state'), calls = join(root, 'calls'), fake = join(root, 'systemctl');
+    writeFileSync(state, 'active\n'); writeFileSync(calls, '');
+    writeFileSync(fake, `#!/bin/sh
+printf '%s\\n' "$*" >> "$NATIVE_FAKE_CALLS"
+case "$1" in
+  show) cat "$NATIVE_FAKE_STATE" ;;
+  is-active) cat "$NATIVE_FAKE_STATE"; [ "$(cat "$NATIVE_FAKE_STATE")" = active ] ;;
+  stop) printf '%s\\n' inactive > "$NATIVE_FAKE_STATE";
+        [ "\${NATIVE_FAKE_STOP_FAIL:-}" != 1 ] ;;
+  start) if [ "\${NATIVE_FAKE_START_MODE:-}" != inactive ]; then printf '%s\\n' active > "$NATIVE_FAKE_STATE"; fi ;;
+esac
+`, { mode: 0o700 });
+    const helper = join(scripts, 'native-backup.mjs'), shell = join(scripts, '../../backup-oracle.sh');
+    const env = { MCP_NATIVE_FIXTURE_CONFIGURED: 'yes', MCP_NATIVE_FIXTURE_NODE: process.execPath,
+      MCP_NATIVE_FIXTURE_HELPER: helper, MCP_NATIVE_FIXTURE_BACKEND_ROOT: backend,
+      MCP_NATIVE_FIXTURE_SYSTEMCTL: fake, MCP_NATIVE_FIXTURE_LOCK_DIR: lock,
+      NATIVE_FAKE_STATE: state, NATIVE_FAKE_CALLS: calls };
+    const archived = run('sh', [shell, output], 0, env);
+    assert.match(archived, /habit-system-[0-9]{8}T[0-9]{6}Z\.tar\.gz$/);
+    assert.equal(run('tar', ['-xOzf', archived, 'deployment/record.txt']), 'synthetic backend record');
+    assert.equal(readFileSync(state, 'utf8'), 'active\n');
+    assert.match(readFileSync(calls, 'utf8'), /stop habit-system-fullstack\.service/);
+    assert.match(readFileSync(calls, 'utf8'), /start habit-system-fullstack\.service/);
+    const marker = join(root, 'held'), release = join(root, 'release');
+    const hold = `import { writeFileSync, existsSync } from 'node:fs';
+      import { acquireRecoveryLock } from '${pathToFileURL(join(scripts, 'lock.mjs')).href}';
+      acquireRecoveryLock('${lock}'); writeFileSync('${marker}', '');
+      while (!existsSync('${release}')) await new Promise(resolve => setTimeout(resolve, 20));`;
+    holder = spawn(process.execPath, ['--input-type=module', '-e', hold], { stdio: 'ignore' });
+    for (let i = 0; i < 150 && !existsSync(marker); i++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(existsSync(marker), true);
+    const before = readFileSync(calls, 'utf8');
+    const blocked = spawnSync('sh', [shell, inactiveOutput], { encoding: 'utf8', timeout: 3000,
+      env: { ...process.env, MCP_RECOVERY_FIXTURE: '1', ...env } });
+    assert.equal(blocked.status, 1);
+    assert.match(blocked.stderr, /recovery lock unavailable/);
+    assert.equal(readFileSync(calls, 'utf8'), before);
+    assert.equal(readFileSync(state, 'utf8'), 'active\n');
+    writeFileSync(release, '');
+    await new Promise(resolve => holder!.once('close', resolve)); holder = undefined;
+    const missingRuntime = spawnSync('sh', [shell, inactiveOutput], { encoding: 'utf8', timeout: 3000,
+      env: { ...process.env, MCP_RECOVERY_FIXTURE: '1', ...env, MCP_NATIVE_FIXTURE_NODE: join(root, 'missing-node') } });
+    assert.notEqual(missingRuntime.status, 0);
+    const missingHelper = spawnSync('sh', [shell, inactiveOutput], { encoding: 'utf8', timeout: 3000,
+      env: { ...process.env, MCP_RECOVERY_FIXTURE: '1', ...env, MCP_NATIVE_FIXTURE_HELPER: join(root, 'missing-helper') } });
+    assert.notEqual(missingHelper.status, 0);
+    const missingLock = spawnSync('sh', [shell, inactiveOutput], { encoding: 'utf8', timeout: 3000,
+      env: { ...process.env, MCP_RECOVERY_FIXTURE: '1', ...env, MCP_NATIVE_FIXTURE_LOCK_DIR: join(root, 'missing-lock') } });
+    assert.notEqual(missingLock.status, 0);
+    assert.equal(readFileSync(calls, 'utf8'), before);
+    writeFileSync(state, 'inactive\n'); writeFileSync(calls, '');
+    run('sh', [shell, inactiveOutput], 0, env);
+    assert.equal(readFileSync(state, 'utf8'), 'inactive\n');
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /stop |start /);
+  } finally {
+    if (holder) { holder.kill('SIGKILL'); await new Promise(resolve => holder!.once('close', resolve)); }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('native helper handles partial stop, tar failure and false-success restart without a ready claim', () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-native-cleanup-'));
+  try {
+    const backend = join(root, 'backend'), deployment = join(backend, 'deployment'), lock = join(root, 'lock');
+    for (const path of [backend, deployment, lock]) mkdirSync(path, { mode: 0o700 });
+    writeFileSync(join(deployment, 'record.txt'), 'synthetic', { mode: 0o600 });
+    const state = join(root, 'state'), calls = join(root, 'calls'), fake = join(root, 'systemctl');
+    writeFileSync(fake, `#!/bin/sh
+printf '%s\\n' "$*" >> "$NATIVE_FAKE_CALLS"
+case "$1" in
+  show) cat "$NATIVE_FAKE_STATE" ;;
+  is-active) cat "$NATIVE_FAKE_STATE" ;;
+  stop) printf '%s\\n' inactive > "$NATIVE_FAKE_STATE";
+        [ "\${NATIVE_FAKE_STOP_FAIL:-}" != 1 ] ;;
+  start) if [ "\${NATIVE_FAKE_START_MODE:-}" != inactive ]; then printf '%s\\n' active > "$NATIVE_FAKE_STATE"; fi ;;
+esac
+`, { mode: 0o700 });
+    const env = { NATIVE_FAKE_STATE: state, NATIVE_FAKE_CALLS: calls };
+    const invoke = (name: string, extra: string[] = [], overrides: Record<string, string> = {}) => {
+      const output = join(root, name); mkdirSync(output, { mode: 0o700 });
+      writeFileSync(state, 'active\n'); writeFileSync(calls, '');
+      const result = spawnSync(process.execPath, [join(scripts, 'native-backup.mjs'),
+        '--fixture-backend-root', backend, '--fixture-systemctl', fake, '--fixture-lock-dir', lock,
+        '--output-dir', output, ...extra], { encoding: 'utf8', timeout: 5000,
+        env: { ...process.env, MCP_RECOVERY_FIXTURE: '1', ...env, ...overrides } });
+      return { result, output, calls: readFileSync(calls, 'utf8'), state: readFileSync(state, 'utf8') };
+    };
+    const partial = invoke('partial', [], { NATIVE_FAKE_STOP_FAIL: '1' });
+    assert.equal(partial.result.status, 1);
+    assert.equal(partial.state, 'active\n');
+    assert.match(partial.calls, /start habit-system-fullstack\.service/);
+    assert.deepEqual(readdirSync(partial.output), []);
+    const badTar = join(root, 'bad-tar');
+    writeFileSync(badTar, '#!/bin/sh\nexit 9\n', { mode: 0o700 });
+    const failedTar = invoke('tar-failure', ['--fixture-tar', badTar]);
+    assert.equal(failedTar.result.status, 1);
+    assert.equal(failedTar.state, 'active\n');
+    assert.deepEqual(readdirSync(failedTar.output), []);
+    const falseStart = invoke('false-start', [], { NATIVE_FAKE_START_MODE: 'inactive' });
+    assert.equal(falseStart.result.status, 1);
+    assert.equal(falseStart.state, 'inactive\n');
+    assert.equal(falseStart.result.stdout.trim(), '');
+    assert.match(falseStart.result.stderr, /restart verification failed/);
+    assert.equal(readdirSync(falseStart.output).length, 1, 'valid archive remains for operator assessment');
+    const bin = join(root, 'legacy-bin'), legacyOutput = join(root, 'legacy-output');
+    mkdirSync(bin, { mode: 0o700 }); mkdirSync(legacyOutput, { mode: 0o700 });
+    writeFileSync(join(bin, 'systemctl'), readFileSync(fake), { mode: 0o700 });
+    writeFileSync(join(bin, 'tar'), '#!/bin/sh\nexit 9\n', { mode: 0o700 });
+    writeFileSync(state, 'active\n'); writeFileSync(calls, '');
+    const legacy = spawnSync('sh', [join(scripts, '../../backup-oracle.sh'), legacyOutput], {
+      encoding: 'utf8', timeout: 5000, env: { ...process.env, MCP_RECOVERY_FIXTURE: '1',
+        MCP_NATIVE_FIXTURE_CONFIGURED: 'no', ...env, NATIVE_FAKE_STOP_FAIL: '1',
+        PATH: `${bin}:${process.env.PATH}` } });
+    assert.notEqual(legacy.status, 0);
+    assert.equal(legacy.stdout.trim(), '');
+    assert.equal(readFileSync(state, 'utf8'), 'active\n');
+    assert.match(readFileSync(calls, 'utf8'), /start habit-system-fullstack\.service/);
+    assert.deepEqual(readdirSync(legacyOutput), []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('native cold archive excludes mcp backup and restore marker through its restart', { timeout: 15_000 }, async () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-native-holds-lock-'));
+  let child: ReturnType<typeof spawn> | undefined;
+  let done: Promise<number | null> | undefined;
+  const releaseTar = join(root, 'release-tar'), releaseStart = join(root, 'release-start');
+  try {
+    const backend = join(root, 'backend'), deployment = join(backend, 'deployment');
+    const source = join(root, 'source'), state = join(source, 'state'), keys = join(source, 'keys');
+    const lock = join(root, 'lock'), output = join(root, 'native-output'), mcpOutput = join(root, 'mcp-output');
+    const controller = join(root, 'controller');
+    for (const path of [backend, deployment, source, state, keys, lock, output, mcpOutput, controller]) {
+      mkdirSync(path, { mode: 0o700 });
+    }
+    writeFileSync(join(deployment, 'record.txt'), 'synthetic', { mode: 0o600 });
+    writeFileSync(join(keys, 'config.json'), '{}', { mode: 0o600 });
+    writeFileSync(join(keys, 'keys.json'), '{}', { mode: 0o600 });
+    const backendState = join(root, 'backend-state'), calls = join(root, 'calls'), fake = join(root, 'systemctl');
+    const startMarker = join(root, 'start-paused'), tarMarker = join(root, 'tar-paused');
+    writeFileSync(backendState, 'active\n'); writeFileSync(calls, '');
+    writeFileSync(fake, `#!/bin/sh
+printf '%s\\n' "$*" >> "$NATIVE_FAKE_CALLS"
+case "$1" in
+  show) cat "$NATIVE_FAKE_STATE" ;;
+  is-active) cat "$NATIVE_FAKE_STATE" ;;
+  list-units) : ;;
+  stop) printf '%s\\n' inactive > "$NATIVE_FAKE_STATE" ;;
+  start) : > "$NATIVE_FAKE_START_MARKER";
+         while [ ! -e "$NATIVE_FAKE_RELEASE_START" ]; do sleep 0.02; done;
+         printf '%s\\n' active > "$NATIVE_FAKE_STATE" ;;
+esac
+`, { mode: 0o700 });
+    const fakeTar = join(root, 'tar');
+    writeFileSync(fakeTar, `#!/bin/sh
+: > "$NATIVE_FAKE_TAR_MARKER"
+while [ ! -e "$NATIVE_FAKE_RELEASE_TAR" ]; do sleep 0.02; done
+exec /usr/bin/tar "$@"
+`, { mode: 0o700 });
+    const env = { ...process.env, MCP_RECOVERY_FIXTURE: '1', NATIVE_FAKE_CALLS: calls,
+      NATIVE_FAKE_STATE: backendState, NATIVE_FAKE_TAR_MARKER: tarMarker,
+      NATIVE_FAKE_RELEASE_TAR: releaseTar, NATIVE_FAKE_START_MARKER: startMarker,
+      NATIVE_FAKE_RELEASE_START: releaseStart };
+    const native = [join(scripts, 'native-backup.mjs'), '--fixture-backend-root', backend,
+      '--fixture-systemctl', fake, '--fixture-lock-dir', lock, '--fixture-tar', fakeTar, '--output-dir', output];
+    child = spawn(process.execPath, native, { env, stdio: 'ignore' });
+    done = new Promise(resolve => child!.once('close', resolve));
+    const identity = join(controller, 'identity.txt'); run(keygen, ['-o', identity]);
+    const recipient = run(keygen, ['-y', identity]);
+    const sha = 'a'.repeat(40), latch = join(controller, 'restore-latch');
+    FileRestoreLatch.provisionFresh({ path: latch, installationId: 'native-lock-installation',
+      restoredDirectories: [state, backend] });
+    const mcp = [join(scripts, 'backup.mjs'), '--fixture-root', source, '--fixture-systemctl', fake,
+      '--fixture-lock-dir', lock, '--output-dir', mcpOutput, '--recipient', recipient,
+      '--age-bin', age, '--release-sha', sha];
+    const mark = [join(scripts, 'mark-latch.mjs'), '--fixture-latch', latch,
+      '--fixture-systemctl', fake, '--fixture-lock-dir', lock, '--installation-id', 'native-lock-installation',
+      '--current-release-sha', sha];
+    const excluded = () => {
+      const before = readFileSync(calls, 'utf8');
+      const mcpAttempt = spawnSync(process.execPath, mcp, { env, encoding: 'utf8', timeout: 3000 });
+      assert.equal(mcpAttempt.status, 1); assert.match(mcpAttempt.stderr, /recovery lock unavailable/);
+      const markAttempt = spawnSync(process.execPath, mark, { env, encoding: 'utf8', timeout: 3000 });
+      assert.equal(markAttempt.status, 1); assert.match(markAttempt.stderr, /recovery lock unavailable/);
+      assert.equal(readFileSync(calls, 'utf8'), before);
+    };
+    for (let i = 0; i < 150 && !existsSync(tarMarker); i++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(existsSync(tarMarker), true);
+    excluded();
+    writeFileSync(releaseTar, '');
+    for (let i = 0; i < 150 && !existsSync(startMarker); i++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(existsSync(startMarker), true);
+    excluded();
+    writeFileSync(releaseStart, '');
+    assert.equal(await done, 0); child = undefined;
+    assert.equal(readFileSync(backendState, 'utf8'), 'active\n');
+    assert.equal(readdirSync(output).length, 1);
+    assert.deepEqual(readdirSync(mcpOutput), []);
+    new FileRestoreLatch({ path: latch, installationId: 'native-lock-installation',
+      restoredDirectories: [state, backend] }).assertReady();
+  } finally {
+    writeFileSync(releaseTar, ''); writeFileSync(releaseStart, '');
+    if (child) await done;
     rmSync(root, { recursive: true, force: true });
   }
 });
