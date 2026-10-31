@@ -220,6 +220,12 @@
 - The live T3 Chromium 152 walkthrough against a disposable real service reproduced a valid consent redirect blocked by `form-action 'self'`. HTTP regression also failed with that exact policy mismatch. Consent now permits only the signed, provider-validated callback origin; other pages retain same-origin form targets. Thirty actual authorization tests, lint/typecheck and fresh independent review pass.
 - Repeated the live browser flow successfully: read sign-in, fresh write credential proof, official SDK callback/token exchange and acknowledged check-in; exact-cost reward approval and acknowledged claim; disconnect, standalone owner sign-in and explicit resume. Phone/desktop light/dark consent captures and actual confirmation/control success captures are retained under `.artifacts/fullstack/mcp-live-browser/`. Synthetic credentials, codes and tokens are not tracked. Public TLS and the user's own private connection remain release checks.
 
+### M21d - real process load, streaming loss and resource refusal
+
+- Added five real Node executable/HTTP/SDK/Snapback/SQLite cases for malformed and oversized input, 64 occupied HTTP exchanges, slow trickles, dropped event-stream results, low-disk admission, a separately held SQLite lock, upstream pull deadlines and account drain during an accepted write. Same-ID replay after a dropped stream retains exactly one check-in. `docs/mcp/resource-validation.md` distinguishes controlled admission injection from exhausting a filesystem and actor drain from executable SIGTERM during that exact write window.
+- All five cases pass in author and independent runs, about 27.5 seconds on this Mac. Review found setup could leak a fixture before cleanup registration. Controlled wrong-directory execution reproduced one orphan before the fix and zero after; a fresh reviewer accepted the corrected independent cleanup. Service lint/typecheck and test grouping pass. Linux resource/proxy measurements and the combined executable SIGTERM/write rehearsal remain M23 release checks.
+- Inherited final preflight passes: root `bun run validate` reports 214 suites / 3,116 tests, with every core file at 100 percent for all four metrics; native passes 16 plugin / 195 Swift tests; backend passes 18 Node cases and two actual convergence/read-only cases. No mobile/native/schema change is part of this slice.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
