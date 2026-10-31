@@ -104,7 +104,7 @@ test('owner sign-in and private grant selection use real HTTP, SDK, SQLite and S
     const quote = `rq1.${randomUUID()}.${'a'.repeat(64)}`;
     const returnTo = `/mcp/reward-confirmation?token=${quote}`;
     const fields = await form(browser, returnTo);
-    assert.ok(fields.body.includes('Sign in to Habit System'));
+    assert.ok(fields.body.includes('Sign in to Flint'));
     const response = await browser.submit({ ...accounts[0]!, csrf: fields.csrf, return_to: fields.return_to });
     assert.equal(response.status, 303, await response.clone().text());
     assert.equal(response.headers.get('location'), returnTo);

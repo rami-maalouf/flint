@@ -333,6 +333,12 @@
 - The backend is restarted only when it was initially active. Cleanup is armed before stopping, including a stop that deactivates the unit but reports failure; failed archive creation is removed, and a false-success start cannot report a completed backup. The pre-MCP path also verifies its final state.
 - Twelve actual Node SQLite/process recovery tests pass, including both lock directions, inactive backend, partial stop, tar failure and failed restart. A fresh non-author review reran all twelve and accepted the bounded change; ShellCheck, syntax and diff checks pass. Installation of the stable runtime link and versioned helper tree, ownership checks and the exact timer-path rehearsal remain required before live use.
 
+### M25g - final Flint browser presentation
+
+- Applied the current merged Flint display name and monochrome direction to OAuth sign-in/consent, standalone owner sign-in and the shared confirmation/connections layout. Primary actions invert between light and dark appearances with an explicit contrasting foreground; semantic error colors remain readable.
+- The actual local browser reproduced the old name and green accent, and the updated owner HTTP expectation failed before the correction. All 38 focused real Node 24.22.2 HTTP regressions pass afterward; service lint/typecheck and diff checks pass.
+- Twenty-four actual local HTTP captures cover six states at 390 by 844 and 1024 by 844 in both appearances. T3 snapshots timed out twice, so an isolated Chromium context supplied the captures and viewport measurements. Mobile consent keeps its primary action visible; the lower disconnect action remains reachable by scrolling. A fresh independent reviewer inspected the code, captures and overflow checks and accepted the correction. The final ARM artifact must be rebuilt before this display change is claimed as deployed.
+
 ### M26a - reviewed synthetic public acceptance tooling
 
 - Prepared an explicit, fixed-origin acceptance helper that creates only a fresh synthetic account and private local evidence. It checks the fifteen-tool catalog, read/write separation, check-in replay, targeted undo, exact-cost approval and claim replay, second-replica convergence and independent connection revocation. Missing or forged approval CSRF is refused. Cleanup checks upstream logout responses and bearer cutoff, attempts every acquired cleanup independently and assigns success only afterward.
