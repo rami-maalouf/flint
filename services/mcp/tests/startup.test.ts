@@ -232,7 +232,7 @@ test('shutdown refuses an accepted exchange while draining the existing connecti
   await assert.rejects(http(service.address.port, '/mcp/health'));
 });
 
-test('slow headers expire and excess OS connections are dropped', { timeout: 12_000 }, async t => {
+test('excess OS connections are dropped without closing admitted sockets', { timeout: 12_000 }, async t => {
   const f = fixture(); t.after(f.cleanup);
   const service = await startMcpService({ ...f.config, port: 0 }, { allowTestPort: true }); t.after(() => service.close());
   const sockets: Socket[] = [];
@@ -244,11 +244,19 @@ test('slow headers expire and excess OS connections are dropped', { timeout: 12_
   excess.setTimeout(2000, () => excess.destroy(new Error('excess synthetic connection was not dropped')));
   await once(excess, 'close'); assert.ok(sockets.slice(0, -1).every(socket => !socket.destroyed));
   for (const socket of sockets) socket.destroy();
+});
+
+test('slow headers on an admitted connection expire with HTTP 408', { timeout: 12_000 }, async t => {
+  const f = fixture(); t.after(f.cleanup);
+  // a fresh listener isolates the parser deadline from asynchronous capacity-test socket closure.
+  const service = await startMcpService({ ...f.config, port: 0 }, { allowTestPort: true }); t.after(() => service.close());
+  const startedAt = performance.now();
   const slow = connect(service.address.port, '127.0.0.1'); t.after(() => slow.destroy());
   slow.setTimeout(8000, () => slow.destroy(new Error('slow synthetic header did not expire')));
   let reply = ''; slow.on('data', chunk => { reply += chunk; });
   slow.write('GET /mcp/health HTTP/1.1\r\nHost: habits.example.test\r\n');
   await once(slow, 'close'); assert.match(reply, /^HTTP\/1\.1 408 Request Timeout/);
+  assert.ok(performance.now() - startedAt >= runtimeLimits.headersTimeoutMs, '408 must follow the configured parser deadline');
 });
 
 test('unsafe durable files and invalid keys fail without binding or resetting state', async t => {
@@ -260,6 +268,7 @@ test('unsafe durable files and invalid keys fail without binding or resetting st
   f.saveKeys();
   const file = join(f.dataDirectory, 'provider.sqlite');
   writeFileSync(file, 'synthetic-retained-state', { mode: 0o644 });
+  chmodSync(file, 0o644);
   await assert.rejects(startMcpService({ ...f.config, port }), { message: 'MCP storage must be private.' });
   assert.equal(readFileSync(file, 'utf8'), 'synthetic-retained-state');
   await assert.rejects(http(port, '/mcp/health'));
