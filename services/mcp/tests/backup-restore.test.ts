@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -94,6 +95,35 @@ esac
     assert.equal(events.length, 2);
     assert.equal(events[0].releaseSha, a);
     assert.equal(events[0].currentReleaseSha, b);
+    const retryController = join(root, 'retry-controller'); mkdirSync(retryController, { mode: 0o700 });
+    const retryLatch = join(retryController, 'restore-latch'), retryId = 'retry-installation';
+    const retainedIntent = randomUUID();
+    FileRestoreLatch.provisionFresh({ path: retryLatch, installationId: retryId,
+      restoredDirectories: [state, backend] });
+    writeFileSync(join(retryController, 'restore-intents.jsonl'), JSON.stringify({ version: 1,
+      type: 'restore_intent', intentId: retainedIntent, installationId: retryId,
+      snapshotId: JSON.parse(readFileSync(bundle, 'utf8')).snapshotId, releaseSha: a,
+      currentReleaseSha: b, paired: true }) + '\n', { mode: 0o600 });
+    writeFileSync(active, `${unit(b)} loaded active running synthetic\n`);
+    writeFileSync(backendState, 'active\n');
+    run(process.execPath, [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+      '--fixture-systemctl', fake, '--fixture-lock-dir', lockDir, '--controller-dir', retryController,
+      '--bundle', bundle, '--installation-id', retryId, '--current-release-sha', b,
+      '--latch', retryLatch], 1, { ...environment, MCP_FAKE_CURRENT_UNIT: unit(b) });
+    assert.equal(readFileSync(active, 'utf8'), `${unit(b)} loaded active running synthetic\n`);
+    run(process.execPath, [join(scripts, 'mark-latch.mjs'), '--fixture-latch', retryLatch,
+      '--fixture-lock-dir', lockDir, '--fixture-systemctl', fake, '--installation-id', retryId,
+      '--current-release-sha', b, '--paired', 'yes', '--restore-intent-id', retainedIntent], 0,
+    { ...environment, MCP_FAKE_CURRENT_UNIT: unit(b) });
+    const markerBeforeRetry = readFileSync(retryLatch, 'utf8');
+    const retryArgs = [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+      '--fixture-systemctl', fake, '--fixture-lock-dir', lockDir, '--controller-dir', retryController,
+      '--bundle', bundle, '--installation-id', retryId, '--current-release-sha', b,
+      '--latch', retryLatch, '--retry-intent-id', retainedIntent];
+    run(process.execPath, retryArgs, 0, { ...environment, MCP_FAKE_CURRENT_UNIT: unit(b) });
+    assert.equal(readFileSync(retryLatch, 'utf8'), markerBeforeRetry);
+    assert.equal(readFileSync(join(retryController, 'restore-intents.jsonl'), 'utf8').trim().split('\n').length, 2);
+    run(process.execPath, retryArgs, 1, { ...environment, MCP_FAKE_CURRENT_UNIT: unit(b) });
     assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
       restoredDirectories: [state, backend] }).assertReady());
     const restored = join(root, 'restored-a');
@@ -103,6 +133,16 @@ esac
       '--intent-log', join(controller, 'restore-intents.jsonl')]);
     assert.equal(existsSync(join(restored, 'state')), true);
     assert.equal(existsSync(join(restored, 'backend')), true);
+    run(process.execPath, [join(scripts, 'mark-latch.mjs'), '--fixture-latch', latch,
+      '--fixture-lock-dir', lockDir, '--fixture-systemctl', fake, '--installation-id', installationId,
+      '--current-release-sha', b, '--paired', 'yes', '--restore-intent-id', randomUUID()], 0,
+    { ...environment, MCP_FAKE_CURRENT_UNIT: unit(b) });
+    const staleEpoch = join(root, 'stale-epoch');
+    run(process.execPath, [join(scripts, 'restore-isolated.mjs'), '--fixture-root', source,
+      '--bundle', bundle, '--identity', identity, '--age-bin', age, '--target', staleEpoch,
+      '--latch', latch, '--installation-id', installationId,
+      '--intent-log', join(controller, 'restore-intents.jsonl')], 1);
+    assert.equal(existsSync(staleEpoch), false);
     const secondController = join(root, 'ambiguous-controller'); mkdirSync(secondController, { mode: 0o700 });
     const secondLatch = join(secondController, 'restore-latch');
     FileRestoreLatch.provisionFresh({ path: secondLatch, installationId: 'ambiguous-installation',
@@ -315,7 +355,8 @@ setInterval(() => {}, 1000);
     const latch = join(controller, 'restore-latch'), installationId = 'killed-lock-installation';
     FileRestoreLatch.provisionFresh({ path: latch, installationId, restoredDirectories: [state, backend] });
     const markArgs = [join(scripts, 'mark-latch.mjs'), '--fixture-latch', latch,
-      '--fixture-lock-dir', lockDir, '--installation-id', installationId];
+      '--fixture-lock-dir', lockDir, '--installation-id', installationId,
+      '--restore-intent-id', randomUUID()];
     const blocked = spawnSync(process.execPath, markArgs, { encoding: 'utf8', timeout: 3000,
       env: { ...process.env, MCP_RECOVERY_FIXTURE: '1' } });
     assert.equal(blocked.status, 1);
@@ -490,6 +531,186 @@ test('native snapback release store link and group writable descendants survive 
     assert.equal(readFileSync(join(restored, 'backend/releases/1/snapback/provenance.json'), 'utf8'), '{"synthetic":true}\n');
     assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
       restoredDirectories: [state, backend] }).assertReady());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('restore marker binds each durable intent to a distinct issuing epoch', () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-intent-epoch-'));
+  try {
+    const state = join(root, 'state'), backend = join(root, 'backend'), controller = join(root, 'controller');
+    for (const path of [state, backend, controller]) mkdirSync(path, { mode: 0o700 });
+    const installationId = 'epoch-installation', latch = join(controller, 'restore-latch');
+    FileRestoreLatch.provisionFresh({ path: latch, installationId, restoredDirectories: [state, backend] });
+    const release = 'a'.repeat(40), unit = `habit-system-mcp@${release}.service`;
+    const active = join(root, 'active'), backendState = join(root, 'backend-state'), fake = join(root, 'systemctl');
+    writeFileSync(active, `${unit} loaded active running synthetic\n`);
+    writeFileSync(backendState, 'active\n');
+    writeFileSync(fake, `#!/bin/sh
+case "$1" in
+  list-units) cat "$MCP_FAKE_ACTIVE" ;;
+  stop) if [ "$2" = habit-system-fullstack.service ]; then printf '%s\\n' inactive > "$MCP_FAKE_BACKEND_STATE";
+        else : > "$MCP_FAKE_ACTIVE"; fi ;;
+  show) cat "$MCP_FAKE_BACKEND_STATE" ;;
+esac
+`, { mode: 0o700 });
+    const env = { MCP_FAKE_ACTIVE: active, MCP_FAKE_BACKEND_STATE: backendState };
+    const mark = (id: string) => [join(scripts, 'mark-latch.mjs'), '--fixture-latch', latch,
+      '--fixture-lock-dir', controller, '--fixture-systemctl', fake, '--current-release-sha', release,
+      '--paired', 'yes', '--installation-id', installationId, '--restore-intent-id', id];
+    const first = randomUUID();
+    run(process.execPath, mark(first), 0, env);
+    assert.equal(readFileSync(latch, 'utf8'), `${JSON.stringify({ installationId, version: 1 })}\nrestored ${first}\n`);
+    const epoch = new FileRestoreLatch({ path: latch, installationId, restoredDirectories: [state, backend] });
+    const firstGeneration = epoch.readGeneration();
+    assert.equal(firstGeneration?.restored, true);
+    const second = randomUUID();
+    run(process.execPath, mark(second), 0, env);
+    assert.equal(readFileSync(latch, 'utf8'), `${JSON.stringify({ installationId, version: 1 })}\nrestored ${first}\nrestored ${second}\n`);
+    assert.notEqual(epoch.readGeneration()?.generation, firstGeneration?.generation);
+    writeFileSync(active, `${unit} loaded active running synthetic\n`);
+    writeFileSync(backendState, 'active\n');
+    run(process.execPath, mark(second), 1, env);
+    assert.equal(readFileSync(latch, 'utf8').endsWith(`restored ${second}\n`), true);
+    run(process.execPath, mark(first), 1, env);
+    assert.equal(readFileSync(latch, 'utf8').endsWith(`restored ${second}\n`), true);
+    const legacy = join(controller, 'legacy-latch');
+    FileRestoreLatch.provisionFresh({ path: legacy, installationId, restoredDirectories: [state, backend] });
+    appendFileSync(legacy, 'restored\n');
+    const legacyMark = mark(randomUUID());
+    legacyMark[legacyMark.indexOf('--fixture-latch') + 1] = legacy;
+    run(process.execPath, legacyMark, 1, env);
+    assert.equal(readFileSync(active, 'utf8'), `${unit} loaded active running synthetic\n`);
+    assert.throws(() => epoch.assertReady());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('pre-first-mutation revoked delivery sidecar restores without inventing a journal', () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-delivery-only-'));
+  try {
+    const source = join(root, 'source'), state = join(source, 'state'), backend = join(source, 'backend');
+    const keys = join(source, 'keys'), offhost = join(root, 'offhost'), controller = join(root, 'controller');
+    const account = join(state, 'accounts/synthetic-account');
+    for (const path of [source, state, backend, keys, offhost, controller, join(state, 'accounts'), account]) {
+      mkdirSync(path, { mode: 0o700 });
+    }
+    const accountId = 'synthetic-account', backendUrl = 'https://synthetic.example', principal = 'synthetic-principal';
+    const generation = randomUUID();
+    const replica = new DatabaseSync(join(account, 'replica.sqlite'));
+    replica.exec(`CREATE TABLE binding (id INTEGER PRIMARY KEY CHECK (id = 1), account_id TEXT NOT NULL,
+      backend_url TEXT NOT NULL, principal TEXT NOT NULL, healthy_pull_at INTEGER, healthy_revision TEXT);
+      CREATE TABLE operation_provenance (id INTEGER PRIMARY KEY CHECK (id = 1),
+      state TEXT NOT NULL CHECK (state IN ('never', 'initialized', 'unknown'))); PRAGMA user_version = 2;`);
+    replica.prepare('INSERT INTO binding VALUES (1, ?, ?, ?, NULL, NULL)').run(accountId, backendUrl, principal);
+    replica.prepare("INSERT INTO operation_provenance VALUES (1, 'initialized')").run(); replica.close();
+    chmodSync(join(account, 'replica.sqlite'), 0o600);
+    const product = new DatabaseSync(join(account, 'product.sqlite'));
+    product.exec(`CREATE TABLE sync_account_bindings (provider TEXT PRIMARY KEY, account_digest TEXT NOT NULL);
+      CREATE TABLE command_receipts (command_id TEXT PRIMARY KEY);
+      CREATE TABLE mutation_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL, mutation_stamp TEXT NOT NULL, created_at INTEGER NOT NULL);`);
+    const digest = createHash('sha256').update(JSON.stringify([backendUrl, principal])).digest('hex');
+    product.prepare('INSERT INTO sync_account_bindings VALUES (?, ?)').run('snapback4', digest);
+    product.prepare('INSERT INTO mutation_outbox (entity_type, entity_id, mutation_stamp, created_at) VALUES (?, ?, ?, ?)')
+      .run('settings', 'synthetic-read-derived', 'synthetic-stamp', 42);
+    product.close(); chmodSync(join(account, 'product.sqlite'), 0o600);
+    const sidecar = new DatabaseSync(join(account, 'operations.sqlite'));
+    sidecar.exec(`CREATE TABLE runtime_meta (id INTEGER PRIMARY KEY CHECK (id = 1), account_id TEXT NOT NULL,
+      backend_url TEXT NOT NULL, principal TEXT NOT NULL, generation TEXT NOT NULL, journal_ready INTEGER NOT NULL);
+      CREATE TABLE operation_grants (client_id TEXT NOT NULL, operation_id TEXT NOT NULL, grant_id TEXT NOT NULL,
+      tool TEXT NOT NULL, PRIMARY KEY (client_id, operation_id));
+      CREATE TABLE delivery_anchor (id INTEGER PRIMARY KEY CHECK (id = 1), generation TEXT NOT NULL,
+      initialized INTEGER NOT NULL CHECK (initialized IN (0, 1))); PRAGMA user_version = 1;`);
+    sidecar.prepare('INSERT INTO runtime_meta VALUES (1, ?, ?, ?, ?, 0)').run(accountId, backendUrl, principal, generation);
+    sidecar.prepare('INSERT INTO delivery_anchor VALUES (1, ?, 1)').run(generation); sidecar.close();
+    chmodSync(join(account, 'operations.sqlite'), 0o600);
+    const delivery = new DatabaseSync(join(account, 'delivery.sqlite'));
+    delivery.exec(`CREATE TABLE delivery_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL,
+      account_id TEXT NOT NULL, backend_url TEXT NOT NULL, principal TEXT NOT NULL);
+      CREATE TABLE revoked_grants (grant_id TEXT PRIMARY KEY, client_id TEXT NOT NULL);
+      CREATE TABLE owner_resumes (outbox_id INTEGER PRIMARY KEY, grant_id TEXT NOT NULL);
+      CREATE TABLE account_pause (id INTEGER PRIMARY KEY CHECK (id = 1), paused INTEGER NOT NULL CHECK (paused IN (0, 1)));
+      PRAGMA user_version = 1;`);
+    delivery.prepare('INSERT INTO delivery_meta VALUES (1, 1, ?, ?, ?)').run(accountId, backendUrl, principal);
+    delivery.prepare('INSERT INTO revoked_grants VALUES (?, ?)').run('revoked-synthetic-grant', 'synthetic-client');
+    delivery.prepare('INSERT INTO account_pause VALUES (1, 0)').run(); delivery.close();
+    chmodSync(join(account, 'delivery.sqlite'), 0o600);
+    writeFileSync(join(keys, 'config.json'), '{"version":2}', { mode: 0o600 });
+    writeFileSync(join(keys, 'keys.json'), '{"synthetic":"key"}', { mode: 0o600 });
+    const identity = join(controller, 'identity.txt'); run(keygen, ['-o', identity]);
+    const recipient = run(keygen, ['-y', identity]);
+    const installationId = 'delivery-only-installation', latch = join(controller, 'restore-latch');
+    FileRestoreLatch.provisionFresh({ path: latch, installationId, restoredDirectories: [state, backend] });
+    run(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+      '--fixture-lock-dir', controller, '--output-dir', offhost, '--recipient', recipient,
+      '--age-bin', age, '--release-sha', 'a'.repeat(40)]);
+    const bundle = join(offhost, 'bundle.json');
+    run(process.execPath, [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+      '--fixture-lock-dir', controller, '--controller-dir', controller, '--bundle', bundle,
+      '--installation-id', installationId, '--latch', latch]);
+    const restored = join(root, 'restored');
+    run(process.execPath, [join(scripts, 'restore-isolated.mjs'), '--fixture-root', source,
+      '--bundle', bundle, '--identity', identity, '--age-bin', age, '--target', restored,
+      '--latch', latch, '--installation-id', installationId,
+      '--intent-log', join(controller, 'restore-intents.jsonl')]);
+    assert.equal(existsSync(join(restored, 'state/accounts/synthetic-account/journal.sqlite')), false);
+    const read = new DatabaseSync(join(restored, 'state/accounts/synthetic-account/operations.sqlite'), { readOnly: true });
+    assert.equal(read.prepare('SELECT journal_ready FROM runtime_meta WHERE id = 1').get()?.journal_ready, 0);
+    read.close();
+    const queued = new DatabaseSync(join(restored, 'state/accounts/synthetic-account/product.sqlite'), { readOnly: true });
+    assert.deepEqual(queued.prepare('SELECT id, entity_type, entity_id, mutation_stamp, created_at FROM mutation_outbox').all()
+      .map(row => ({ ...row })),
+      [{ id: 1, entity_type: 'settings', entity_id: 'synthetic-read-derived', mutation_stamp: 'synthetic-stamp', created_at: 42 }]);
+    queued.close();
+    assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
+      restoredDirectories: [state, backend] }).assertReady());
+    const execute = (file: string, sql: string) => {
+      const connection = new DatabaseSync(join(account, file));
+      try { connection.exec(sql); } finally { connection.close(); }
+    };
+    const sidecarPath = join(account, 'operations.sqlite'), journalPath = join(account, 'journal.sqlite');
+    const savedSidecar = join(root, 'saved-operations.sqlite');
+    const variants = [
+      { name: 'ready-journal-missing', change: () => execute('operations.sqlite', 'UPDATE runtime_meta SET journal_ready = 1'),
+        reset: () => execute('operations.sqlite', 'UPDATE runtime_meta SET journal_ready = 0') },
+      { name: 'unknown-generation', change: () => execute('operations.sqlite', "UPDATE runtime_meta SET generation = 'unknown'"),
+        reset: () => execute('operations.sqlite', `UPDATE runtime_meta SET generation = '${generation}'`) },
+      { name: 'origin-row', change: () => execute('operations.sqlite', "INSERT INTO operation_grants VALUES ('client', 'operation', 'grant', 'tool')"),
+        reset: () => execute('operations.sqlite', 'DELETE FROM operation_grants') },
+      { name: 'owner-resume', change: () => execute('delivery.sqlite', "INSERT INTO owner_resumes VALUES (1, 'grant')"),
+        reset: () => execute('delivery.sqlite', 'DELETE FROM owner_resumes') },
+      { name: 'delivery-identity', change: () => execute('delivery.sqlite', "UPDATE delivery_meta SET principal = 'other'"),
+        reset: () => execute('delivery.sqlite', `UPDATE delivery_meta SET principal = '${principal}'`) },
+      { name: 'product-receipt', change: () => execute('product.sqlite', "INSERT INTO command_receipts VALUES ('command')"),
+        reset: () => execute('product.sqlite', 'DELETE FROM command_receipts') },
+      { name: 'unknown-replica-provenance', change: () => execute('replica.sqlite', "UPDATE operation_provenance SET state = 'unknown'"),
+        reset: () => execute('replica.sqlite', "UPDATE operation_provenance SET state = 'initialized'") },
+      { name: 'journal-without-sidecar', change: () => {
+        renameSync(sidecarPath, savedSidecar); writeFileSync(journalPath, 'synthetic', { mode: 0o600 });
+      }, reset: () => { rmSync(journalPath); renameSync(savedSidecar, sidecarPath); } },
+    ];
+    for (const variant of variants) {
+      variant.change();
+      try {
+        const output = join(root, `${variant.name}-output`), ownController = join(root, `${variant.name}-controller`);
+        mkdirSync(output, { mode: 0o700 }); mkdirSync(ownController, { mode: 0o700 });
+        const ownLatch = join(ownController, 'restore-latch'), ownId = `delivery-${variant.name}`;
+        FileRestoreLatch.provisionFresh({ path: ownLatch, installationId: ownId,
+          restoredDirectories: [state, backend] });
+        run(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+          '--fixture-lock-dir', ownController, '--output-dir', output, '--recipient', recipient,
+          '--age-bin', age, '--release-sha', 'a'.repeat(40)]);
+        const ownBundle = join(output, 'bundle.json');
+        run(process.execPath, [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+          '--fixture-lock-dir', ownController, '--controller-dir', ownController, '--bundle', ownBundle,
+          '--installation-id', ownId, '--latch', ownLatch]);
+        const target = join(root, `${variant.name}-restored`);
+        run(process.execPath, [join(scripts, 'restore-isolated.mjs'), '--fixture-root', source,
+          '--bundle', ownBundle, '--identity', identity, '--age-bin', age, '--target', target,
+          '--latch', ownLatch, '--installation-id', ownId,
+          '--intent-log', join(ownController, 'restore-intents.jsonl')], 1);
+        assert.equal(existsSync(target), false, variant.name);
+      } finally { variant.reset(); }
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

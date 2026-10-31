@@ -309,6 +309,12 @@
 - Durable local grant cutoff precedes a bounded best-effort logout of its exact independent Snapback session. Uncertain retirement is recorded without credentials. Upstream failure cannot undo the local cutoff or invalidate another session. The strict startup requirement for a write lifecycle remains in force for every active write grant, including earlier epochs.
 - Focused auth checks pass 31/31, physical marker checks 4/4, runtime 4/4, recovery 19/19 and vault 28/28. Fresh independent security review verified the physical controls and full denial matrix; round two accepted the corrected strict-downgrade fixture and actual same-client replacement connection surviving four stale-token revocations. Service lint/typecheck pass. Controller quiescence and nonce publication before any root replacement remain mandatory; privileged rollback of that external control is outside the demonstrated guarantee. The complete combined protocol and later Linux release gates are tracked separately.
 
+### M24c - restore intent epochs and delivery-only archive admission
+
+- The off-host controller durably retains a unique intent UUID before marking the stopped installation. The live marker requires that UUID, appends it with fsync, and keeps every later restore distinct. Isolated extraction requires the latest matching controller receipt and nonce. A lost-response retry is restricted to the latest retained unresolved intent and rechecks stopped units; no automatic unfence is added.
+- Encrypted restore now accepts the validated pre-first-mutation delivery-only archive while preserving queued read-derived facts. It requires the released private schemas, matching identity/generation/provenance and anchor, empty operation origins, receipts and owner resumes. It neither creates a journal nor admits product reads. An initialized restored account without its journal stays fenced for reconciliation; complete retained journals use separate runtime ancestry/head checks.
+- Both original failures were reproduced. Nine actual Node 24.22.2/age 1.3.2 cases pass, including distinct epochs, lost replies, preserved queued rows and malformed SQLite variants. Fresh reviews accepted the code boundary and the final archive-versus-read wording after two documentation corrections. Service lint/typecheck and script checks pass. The exact production SSH/Oracle latch branch still requires its isolated real-manager rehearsal before M24 closes.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

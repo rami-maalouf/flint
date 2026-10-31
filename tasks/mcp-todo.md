@@ -50,7 +50,7 @@ The completed independent review against `982edfe` requires the following correc
 - [x] Reject restored OAuth, refresh, code and browser authority through an independent restore epoch; prove fresh degraded reads and retained write fences (M25d).
 - [x] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history (M25c).
 - [x] Return bounded, result-specific text alongside structured results for all fifteen tools (M25b).
-- [ ] Restore validated delivery-only snapshots while refusing missing initialized journals.
+- [x] Restore validated delivery-only snapshots while refusing missing initialized journals; archive admission does not admit a product read (M24c).
 - [ ] Measure retained-history admission near the operation bound and remove repeated full-history work safely.
 - [x] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage (M25d).
 - [x] Give CI, startup and admission checkpoints distinct identifiers (`M05c`, `M09c`, `M21a`, `M21b`).

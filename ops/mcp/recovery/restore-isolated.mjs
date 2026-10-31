@@ -3,7 +3,8 @@ import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, mkdt
   renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backendStoreLink, fail, hash, options, outside, privateDir, privateFile, required, run, verifyManifest } from './common.mjs';
+import { backendStoreLink, fail, hash, options, outside, parseRestoreLatch, privateDir, privateFile, required, run, verifyManifest } from './common.mjs';
+import { verifyEmptyDeliveryOnly } from './delivery-only.mjs';
 
 process.umask(0o077);
 const args = options(process.argv.slice(2), ['--fixture-root', '--offhost', '--bundle', '--identity', '--age-bin', '--target', '--latch', '--installation-id', '--intent-log']);
@@ -24,13 +25,11 @@ try {
   if (fixture && !outside(privateDir(args['--fixture-root']), target)) fail('target overlaps fixture source');
   const installationId = required(args['--installation-id']);
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(installationId)) fail('invalid installation id');
-  const marker = JSON.stringify({ installationId, version: 1 }) + '\nrestored\n';
   const latchContent = fixture ? readFileSync(privateFile(required(args['--latch']), true), 'utf8') :
     run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', 'oracle', 'sudo', '-n', 'cat',
       '/etc/habit-system-mcp/restore-latch'], 30_000, true);
-  if (latchContent !== marker) {
-    fail('durable restore latch required');
-  }
+  const latch = parseRestoreLatch(latchContent, installationId);
+  if (!latch.lastId) fail('durable restore latch required');
   const identity = privateFile(required(args['--identity']));
   if (!outside(target, identity)) fail('identity cannot be in restore target');
   const age = required(args['--age-bin']);
@@ -44,9 +43,11 @@ try {
   if (statSync(logPath).size > 16 * 1024 * 1024) fail('controller log exceeds bound');
   const events = readFileSync(logPath, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
   const matching = events.filter(event => event.version === 1 && event.installationId === installationId &&
-    event.snapshotId === bundle.snapshotId && event.releaseSha === bundle.releaseSha);
-  if (!matching.some((intent, index) => intent.type === 'restore_intent' &&
-    matching.some((mark, markIndex) => markIndex > index && mark.type === 'latch_marked' && mark.intentId === intent.intentId))) {
+    event.snapshotId === bundle.snapshotId && event.releaseSha === bundle.releaseSha &&
+    event.paired === bundle.paired && event.intentId === latch.lastId);
+  const lastEvent = events.filter(event => event.installationId === installationId).at(-1);
+  if (matching.length !== 2 || matching[0].type !== 'restore_intent' || matching[1].type !== 'latch_marked' ||
+    lastEvent?.type !== 'latch_marked' || lastEvent.intentId !== latch.lastId) {
     fail('matching completed off-host restore intent required');
   }
   temporary = mkdtempSync(join(dirname(target), '.restore-'));
@@ -73,7 +74,8 @@ try {
       if (!lstatSync(account).isDirectory()) fail('unsafe account entry');
       const sidecar = existsSync(join(account, 'operations.sqlite'));
       const journal = existsSync(join(account, 'journal.sqlite'));
-      if (sidecar !== journal) fail('incomplete operation history');
+      if (sidecar && !journal) verifyEmptyDeliveryOnly(account);
+      else if (sidecar !== journal || (!sidecar && existsSync(join(account, 'delivery.sqlite')))) fail('incomplete operation history');
     }
   }
   const syncTree = path => {

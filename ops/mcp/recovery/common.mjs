@@ -14,6 +14,30 @@ export function options(argv, allowed) {
   return result;
 }
 export function required(value) { if (!value) fail('missing required argument'); return value; }
+export function validRestoreIntentId(value) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) {
+    fail('invalid restore intent id');
+  }
+  return value;
+}
+export function parseRestoreLatch(content, installationId) {
+  if (typeof content !== 'string' || Buffer.byteLength(content) > 4096) fail('unsafe restore latch');
+  const header = JSON.stringify({ installationId, version: 1 }) + '\n';
+  if (!content.startsWith(header)) fail('restore latch installation mismatch');
+  const tail = content.slice(header.length);
+  const ids = [];
+  if (tail !== '') {
+    const lines = tail.split('\n');
+    if (lines.pop() !== '') fail('invalid restore latch records');
+    for (const line of lines) {
+      if (!line.startsWith('restored ')) fail('invalid restore latch records');
+      const id = validRestoreIntentId(line.slice('restored '.length));
+      if (ids.includes(id)) fail('duplicate restore intent id');
+      ids.push(id);
+    }
+  }
+  return { header, ids, lastId: ids.at(-1) ?? null };
+}
 export function physical(path) {
   if (!isAbsolute(path) || resolve(path) !== path) fail('absolute physical path required');
   const resolved = realpathSync(path);
