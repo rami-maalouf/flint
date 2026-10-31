@@ -296,6 +296,12 @@
 - Replaced the generic successful-call sentence with bounded summaries for all fifteen tools. Text reports returned entity IDs/counts, dates, reward cost and confirmation URL, operation state/delivery, and cached observation metadata. It omits private history notes and does not imply that a prepared or undelivered operation completed remotely. Structured results remain authoritative.
 - The actual SDK preview assertion failed before implementation. Four summary tests and both HTTP read tests pass, including modern/legacy protocols, insufficient funds, a usable confirmation URL, oversized-link fallback, negative balances, pending/no-op operations and private-note omission. The runtime SDK check also verifies operation ID, state and delivery text. Service lint/typecheck pass. Independent review found no issue in this bounded text correction; separate read-continuity and authorization corrections retain their own review gates.
 
+### M25c - pre-mutation cutoff preserves safe read continuity
+
+- A read grant cutoff before the first mutation creates delivery metadata without a journal. The account lane now recognizes only the validated delivery-only state: matching private schemas/identity/generation/anchor, empty admitted origins, receipts and owner resumes, and a null recovery head read through the exact current credential. It allows bounded pull-only observations while keeping writes and delivery fenced. Queued derived facts remain retained.
+- The real SDK/server/SQLite test reproduced the previous missing-journal refusal. Independent review then found that a lost product binding could be recreated; a second red test reproduced that loss. An initialized product must now retain its binding. Only a blank v0 product with no healthy pull may establish its first binding. Corrupt or lost initialized history and restored-latch ambiguity still fence before pull.
+- Thirty operation-actor and nineteen replica checks pass, along with all four runtime checks. A fresh round-two reviewer reran the eight-case continuity regression and accepted the correction; scoped lint/typecheck/diff checks pass. Backup restoration of this exact delivery-only shape remains its separately reviewed gate.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

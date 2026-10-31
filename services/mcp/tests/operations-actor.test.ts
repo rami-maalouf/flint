@@ -538,16 +538,33 @@ test('a fresh latched account reads twice while ambiguous legacy private metadat
   await cutoff.close();
 });
 
-test('a marked history with an incomplete sidecar cannot masquerade as a fresh latched read', async t => {
-  const h = await fixture(t), readCtx = h.context(h.read), fullCtx = h.context();
+test('delivery-only history permits a fresh read but fences corrupt or latched history', async t => {
+  const h = await fixture(t), readCtx = { ...h.context(h.read, randomUUID(), randomUUID()), scopes: ['habits:read'] as const },
+    revokedCtx = { ...h.context(), scopes: ['habits:read'] as const };
+  const emptyRoot = join(h.root, 'empty-product-replica'); mkdirSync(emptyRoot, { mode: 0o700 });
+  const emptyCutoff = h.actors({ delivery: { grantStatus: async () => null } }, { root: emptyRoot });
+  await emptyCutoff.revokeDeliveryGrant({ accountId: revokedCtx.accountId, principal: revokedCtx.principal,
+    backendUrl: revokedCtx.backendUrl, clientId: revokedCtx.clientId, grantId: revokedCtx.grantId }, async () => undefined);
+  await emptyCutoff.close();
+  const emptyPath = accountDirectory(emptyRoot, readCtx.accountId);
+  const emptyProduct = new DatabaseSync(join(emptyPath, 'product.sqlite'), { readOnly: true });
+  try {
+    assert.equal(emptyProduct.prepare('PRAGMA user_version').get()!.user_version, 0);
+    assert.equal(emptyProduct.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' LIMIT 1").get(), undefined);
+  } finally { emptyProduct.close(); }
+  const emptyReader = h.actors({ delivery: { grantStatus: async () => null } }, { root: emptyRoot });
+  const firstRead = await emptyReader.withAccount(readCtx, {}, async runtime => runtime.recovery);
+  assert.equal(firstRead.data.recoveryReason, 'delivery_only');
+  assert.equal(firstRead.data.writeFenced, true);
+  assert.equal(readdirSync(emptyPath).includes('journal.sqlite'), false);
+  await emptyReader.close();
   const fresh = h.actors();
   await fresh.withAccount(readCtx, {}, async runtime => runtime.recovery);
   await fresh.close();
-  h.latch.markRestored();
   const cutoff = h.actors({ delivery: { grantStatus: async () => null } });
   let commits = 0;
-  await cutoff.revokeDeliveryGrant({ accountId: fullCtx.accountId, principal: fullCtx.principal,
-    backendUrl: fullCtx.backendUrl, clientId: fullCtx.clientId, grantId: fullCtx.grantId }, async () => { commits++; });
+  await cutoff.revokeDeliveryGrant({ accountId: revokedCtx.accountId, principal: revokedCtx.principal,
+    backendUrl: revokedCtx.backendUrl, clientId: revokedCtx.clientId, grantId: revokedCtx.grantId }, async () => { commits++; });
   assert.equal(commits, 1);
   await cutoff.close();
   const sidecar = new DatabaseSync(join(h.path, 'operations.sqlite'), { readOnly: true });
@@ -559,6 +576,50 @@ test('a marked history with an incomplete sidecar cannot masquerade as a fresh l
     const head = await client.query(api.mcpRecoveryHead, {});
     assert.ok('data' in head && head.data === null);
   } finally { await client.close(); }
+  let normalPulls = 0;
+  const reconnected = h.actors({ delivery: { grantStatus: async () => null } }, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') normalPulls++;
+    return fetch(wire);
+  } });
+  const continued = await reconnected.withAccount(readCtx, {}, async runtime => ({
+    recovery: runtime.recovery,
+    count: Number((await runtime.db.getFirstAsync<{ n: number }>('SELECT count(*) AS n FROM check_ins'))!.n),
+  }));
+  assert.equal(continued.data.count, 0);
+  assert.equal(continued.data.recovery.writeFenced, true);
+  assert.equal(continued.data.recovery.deliveryPaused, true);
+  assert.ok(normalPulls > 0);
+  assert.equal(readdirSync(h.path).includes('journal.sqlite'), false);
+  await reconnected.close();
+  const deliveryCopy = join(h.root, 'delivery-only-copy'); cpSync(h.path, deliveryCopy, { recursive: true });
+  for (const [file, change, label] of [
+    ['operations.sqlite', "INSERT INTO operation_grants VALUES ('orphan-client', 'orphan-operation', 'orphan-grant', 'create_checkin')",
+      'an admitted operation origin'],
+    ['product.sqlite', "INSERT INTO command_receipts VALUES ('orphan-command', '{}', 1)", 'a product command receipt'],
+    ['operations.sqlite', "UPDATE runtime_meta SET journal_ready = 1", 'a journal-ready marker without its journal'],
+    ['operations.sqlite', "UPDATE delivery_anchor SET initialized = 0", 'an incomplete delivery anchor'],
+    ['delivery.sqlite', "INSERT INTO owner_resumes VALUES (1, 'orphan-grant')", 'an owner resume without a journal'],
+    ['delivery.sqlite', "UPDATE delivery_meta SET principal = 'wrong-owner'", 'a mismatched delivery identity'],
+    ['product.sqlite', "DELETE FROM sync_account_bindings WHERE provider = 'snapback4'", 'a previously healthy product binding'],
+  ] as const) {
+    await t.test(`delivery-only read refuses ${label} before pull`, async () => {
+      rmSync(h.path, { recursive: true }); cpSync(deliveryCopy, h.path, { recursive: true });
+      const changed = new DatabaseSync(join(h.path, file));
+      try { changed.exec(change); } finally { changed.close(); }
+      let pulls = 0;
+      const refused = h.actors({ delivery: { grantStatus: async () => null } }, { fetch: async (input, init) => {
+        const wire = new Request(input, init);
+        if (new URL(wire.url).pathname === '/q/changes') pulls++;
+        return fetch(wire);
+      } });
+      await assert.rejects(refused.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+      assert.equal(pulls, 0);
+      await refused.close();
+    });
+  }
+  rmSync(h.path, { recursive: true }); cpSync(deliveryCopy, h.path, { recursive: true });
+  h.latch.markRestored();
   let pulls = 0;
   const latched = h.actors({ delivery: { grantStatus: async () => null } }, { fetch: async (input, init) => {
     const wire = new Request(input, init);

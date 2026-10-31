@@ -290,6 +290,7 @@ export class AccountActors {
       const { replica, ctx, ports, signal, authorize } = lane;
       const policy = this.options.operationPolicy;
       let operations: AccountOperations | null = null;
+      let deliveryOnlyRead: RecoveryStatus | null = null;
       let fencedRead = false;
       if (policy) {
         if (!createOperations) {
@@ -300,7 +301,10 @@ export class AccountActors {
           }
         }
         if (!fencedRead) {
-          try { operations = await AccountOperations.open(this.operationEnvironment(lane), policy, createOperations); }
+          try {
+            if (!createOperations) deliveryOnlyRead = await AccountOperations.inspectDeliveryOnlyRead(this.operationEnvironment(lane), policy);
+            if (!deliveryOnlyRead) operations = await AccountOperations.open(this.operationEnvironment(lane), policy, createOperations);
+          }
           catch (cause) {
             if (createOperations || !(cause instanceof RecoveryFenceError) || cause.reason !== 'restore_latched') throw cause;
             fencedRead = true;
@@ -309,8 +313,9 @@ export class AccountActors {
       }
       try {
         const recovered = fencedRead && policy ? await AccountOperations.inspectFencedRead(this.operationEnvironment(lane), policy)
-          : operations ? await operations.recover() : await this.recover(replica, ctx, ports, signal, authorize);
+          : deliveryOnlyRead ?? (operations ? await operations.recover() : await this.recover(replica, ctx, ports, signal, authorize));
         stopped(signal);
+        if (deliveryOnlyRead) await this.assertDeliveryOnlyProductBinding(replica);
         await replica.boundProduct();
         const initialized = await initializeProductDatabase(replica.db, ports.ids, ports.hashing);
         if (!initialized.ok) throw new AccountError('UNAVAILABLE', 'Product replica initialization failed.');
@@ -429,6 +434,21 @@ export class AccountActors {
       if (row && row.account_digest !== digest) throw new AccountError('FORBIDDEN', 'Product account binding does not match.', false);
       if (!row && insert) await tx.runAsync('INSERT INTO sync_account_bindings (provider, account_digest) VALUES (?, ?)', ['snapback4', digest]);
     });
+  }
+
+  private async assertDeliveryOnlyProductBinding(replica: AccountReplica): Promise<void> {
+    const table = await replica.db.getFirstAsync("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'sync_account_bindings'");
+    if (table) {
+      if (!await replica.db.getFirstAsync("SELECT account_digest FROM sync_account_bindings WHERE provider = 'snapback4'")) {
+        throw new AccountError('OPERATION_PENDING', 'Retained product account binding is missing.');
+      }
+      return;
+    }
+    const schema = await replica.db.getFirstAsync("SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' LIMIT 1");
+    const version = await replica.db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    if (replica.lastHealthyPullAtUtc !== null || schema || version?.user_version !== 0) {
+      throw new AccountError('OPERATION_PENDING', 'Initialized product history has no account binding.');
+    }
   }
 
   private async pull(replica: AccountReplica, ctx: AuthContext, ports: Ports, requestSignal: AbortSignal,

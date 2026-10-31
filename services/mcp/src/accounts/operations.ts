@@ -280,6 +280,79 @@ export class AccountOperations {
   private constructor(private readonly env: OperationEnvironment, private readonly policy: OperationPolicy,
     private readonly state: DatabaseSync, private readonly client: Client, private readonly journalPath: string) {}
 
+  // a provider cutoff can create delivery provenance before the first protected operation.
+  // admit only that complete delivery-only state for an ordinary pull-only read.
+  static async inspectDeliveryOnlyRead(env: OperationEnvironment, policy: OperationPolicy): Promise<RecoveryStatus | null> {
+    const statePath = join(env.directory, 'operations.sqlite');
+    if (!existsSync(statePath) || existsSync(join(env.directory, 'journal.sqlite'))) return null;
+    active(env); await env.assertActive(); await policy.latch.assertReady();
+    if (!policy.delivery || env.history.operationHistoryState !== 'initialized') {
+      fence('Operation provenance marker and delivery-only sidecar disagree.');
+    }
+    secureFile(statePath);
+    const state = new DatabaseSync(statePath, { readOnly: true });
+    let barrier: DeliveryBarrier | undefined, client: Client | undefined;
+    try {
+      const meta = state.prepare('SELECT * FROM runtime_meta WHERE id = 1').get();
+      const actual = state.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' ORDER BY name").all()
+        .map(row => String(row.sql).trim()).sort();
+      if (state.prepare('PRAGMA user_version').get()?.user_version !== 1 ||
+        JSON.stringify(actual) !== JSON.stringify(schemaRows(sidecarSchema)) || !meta ||
+        meta.account_id !== env.context.accountId || meta.backend_url !== env.context.backendUrl ||
+        meta.principal !== env.context.principal || typeof meta.generation !== 'string' ||
+        !/^[0-9a-f-]{36}$/.test(meta.generation) || meta.journal_ready !== 0 ||
+        Number(state.prepare('SELECT count(*) AS n FROM runtime_meta').get()!.n) !== 1 ||
+        Number(state.prepare('SELECT count(*) AS n FROM operation_grants').get()!.n) !== 0) {
+        fence('Operation sidecar has no valid delivery-only provenance.');
+      }
+      const anchor = state.prepare('SELECT generation, initialized FROM delivery_anchor WHERE id = 1').get();
+      if (!anchor || anchor.generation !== meta.generation || anchor.initialized !== 1 ||
+        Number(state.prepare('SELECT count(*) AS n FROM delivery_anchor').get()!.n) !== 1 ||
+        !existsSync(join(env.directory, 'delivery.sqlite'))) {
+        fence('Delivery-only provenance marker or sidecar is incomplete.');
+      }
+      const receiptTable = await env.db.getFirstAsync("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'command_receipts'");
+      if (receiptTable && await env.db.getFirstAsync('SELECT command_id FROM command_receipts LIMIT 1')) {
+        fence('Product command receipts require retained operation history.');
+      }
+      secureFile(join(env.directory, 'delivery.sqlite'));
+      barrier = new DeliveryBarrier(env.directory, env.context, policy.delivery);
+      const delivery = new DatabaseSync(join(env.directory, 'delivery.sqlite'), { readOnly: true });
+      try {
+        if (Number(delivery.prepare('SELECT count(*) AS n FROM owner_resumes').get()!.n) !== 0) {
+          fence('Delivery-only history cannot contain an owner resume.');
+        }
+      } finally { delivery.close(); }
+      let fetches = 0;
+      client = createClient({ url: env.context.backendUrl, token: env.context.session.token,
+        readOnly: env.context.session.scope === 'read', fetch: async (input, init) => {
+          active(env); await env.assertActive(); env.checkDisk();
+          if (++fetches > env.maxFetches) fence('Operation recovery fetch budget exceeded.');
+          const request = new Request(input, init), path = new URL(request.url).pathname;
+          if (request.method !== 'GET' && !(request.method === 'POST' && path.startsWith('/q/'))) {
+            throw new OperationRuntimeError('FORBIDDEN', 'Delivery-only reads permit recovery queries only.');
+          }
+          const result = await bounded((env.fetch ?? fetch)(request,
+            { signal: AbortSignal.any([env.signal, request.signal]) }), env.signal);
+          active(env); return result;
+        } });
+      const remote = createSnapbackRecoveryRemote(client);
+      let head: JournalHead | null;
+      try { head = await remote.read(); }
+      catch { fence('Delivery-only read cannot verify the remote operation head.'); }
+      if (head !== null) fence('Remote operation history cannot reconstruct a missing local journal.');
+      active(env); await env.assertActive();
+      return Object.freeze({ writeFenced: true, deliveryPaused: true,
+        reconnectRequired: false, recoveryReason: 'delivery_only' });
+    } catch (cause) {
+      if (cause instanceof DeliveryBarrierError ||
+        (typeof cause === 'object' && cause !== null && 'code' in cause && String(cause.code).startsWith('ERR_SQLITE'))) {
+        fence('Delivery-only runtime storage or schema requires reconciliation.');
+      }
+      throw cause;
+    } finally { await client?.close(); barrier?.close(); state.close(); }
+  }
+
   static async open(env: OperationEnvironment, policy: OperationPolicy, create: boolean): Promise<AccountOperations | null> {
     const statePath = join(env.directory, 'operations.sqlite'), journalPath = join(env.directory, 'journal.sqlite');
     const stateExists = existsSync(statePath), journalExists = existsSync(journalPath);

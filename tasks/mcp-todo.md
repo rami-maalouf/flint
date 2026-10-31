@@ -48,7 +48,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 The completed independent review against `982edfe` requires the following corrections before activation. Its outage lookup suggestion was rejected by independent validation: the published default-read contract requires a completed pull and head comparison.
 
 - [ ] Reject restored OAuth, refresh, code and browser authority through an independent restore epoch; prove fresh degraded reads and retained write fences.
-- [ ] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history.
+- [x] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history (M25c).
 - [x] Return bounded, result-specific text alongside structured results for all fifteen tools (M25b).
 - [ ] Restore validated delivery-only snapshots while refusing missing initialized journals.
 - [ ] Measure retained-history admission near the operation bound and remove repeated full-history work safely.
