@@ -38,7 +38,7 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [x] M20: finish connections, revocation and explicit owner consent to resume paused deliveries.
 - [x] M21: bound resources and expose redacted diagnostics and health.
 - [x] M22: verify and document exact real-client compatibility.
-- [ ] M23: deploy isolated Linux ARM64 staging and verify shared proxy routing.
+- [x] M23: deploy isolated Linux ARM64 staging and verify shared proxy routing.
 - [ ] M24: rehearse private off-host backup and isolated operation-safe restoration.
 - [ ] M25: complete inherited/service gates and independent final verification.
 - [ ] M26: activate reviewed release, demonstrate synthetic public flow, open/link PR and hand over.

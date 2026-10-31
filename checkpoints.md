@@ -273,6 +273,12 @@
 - No proof test or test seam changed. The dependency-light recovery latch retains its local genesis constant; bounded queue/page optimization suggestions were left out to preserve their verified ordering and byte-budget behavior. The SQLite adapter's caller-ownership contract remains documented. Redundant local narrative comments were removed.
 - Complete service coverage again passes 293 tests with no failures or skips after these changes and the final backup restart correction. Service and root lint/typecheck pass; the production build has 125 modules and audit reports no vulnerabilities. The actual Snapback paired archive rehearsal separately exposed a generated-layout incompatibility before encryption; that backup correction and its proof remain required before M24 completion.
 
+### M23d - service-user and public proxy acceptance
+
+- Ran the reviewed ARM64 release under the isolated `habitmcp` service user and actual hardened systemd template, with private staging config/state/keys and an independently retained fresh installation binding. The conditional shared Traefik route preserved the existing router and backend. Public TLS passed saved discovery/challenge, Origin rejection, selector-free routing, actual SDK 2.4.0 / protocol 2026-07-28 authorization, all fifteen tools, a synchronized read and structured read-grant write refusal.
+- The final marked-response fixture preserved the actual authenticated MCP response: first byte at 52 ms, all 54,621 bytes at 3,057 ms after a three-second hold. Cancellation closed downstream then upstream before release, and subsequent health/read recovered. A zero-hold negative fixture was rejected. Delayed request-body evidence is recorded separately; the public proof does not claim a held Snapback response. The separate private Linux rehearsal covers that boundary.
+- Fresh independent public-proxy round-two review accepted the helper, documentation and saved Oracle evidence. Read-only cleanup verification found provider semantics equal to the original backup, no temporary units/config or listeners on 4413-4415, and unchanged active backend/bridge PIDs on 4410/4411. Root and service lint/typecheck passed. M23 is complete; encrypted paired restore, final review and production activation remain separate open gates. Reproduction and limits are in `docs/mcp/proxy-staging.md`.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
