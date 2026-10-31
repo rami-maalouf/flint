@@ -261,6 +261,12 @@
 - Four independent review rounds drove process regressions for archive A versus active release B, recursive output overlap, complete store/WAL/key readback, failed or ambiguous stops, concurrent backup/restore and restart verification. A shared OS-released SQLite lock covers preflight, snapshot, every restart attempt and verification. A valid encrypted bundle can survive a restart failure, but the command returns failure and never announces ready. The final reviewer accepted the bounded tooling and reran all four actual Node/age process tests.
 - CI now installs checksum-verified age and pinned uv before the complete service suite. Shell syntax, ShellCheck, actionlint, service lint/typecheck and focused recovery tests pass. The prior complete service coverage run passed 293/293; the final narrow restart correction has its separate four-case green rerun. Actual Oracle systemd/off-host transfer and SDK paired restoration remain pending and keep M24 open. No production stop or restore has been performed by this tooling.
 
+### M23c - asserted Linux ARM64 process rehearsal
+
+- Added an explicit real Linux helper and replay guide for the reviewed b3f05d2 executable. It verifies expected main/schema/release/source identities and provenance before creating a private synthetic SDK/Snapback graph under a 512 MB/one CPU transient unit. All fifteen tool names, validated loopback TLS, bounded load, busy SQLite, upstream cancellation and a separate 16 MB tmpfs refusal are exercised.
+- The actual main received SIGTERM after a check-in committed while its upload response was held. The corrected run asserts pending journal state at signal, acknowledged SDK response, successful unit exit, acknowledged journal after stop and exact operation/check-in IDs with one effect after restart. It passed with no cleanup errors, peak RSS 145,932,288 bytes and 54 file descriptors. The original stopped synthetic graph is preserved for paired restoration; the corrected run removed its own fixture.
+- Fresh independent review accepted the corrected helper and read actual Oracle evidence and archive/main/schema hashes. No transient test unit, owned mount or 4450-4455 listener remains; existing 4410/4411 returned their expected unauthenticated 401. Service/root lint and typecheck pass. The report distinguishes this private TLS rehearsal from the separate public proxy/service-user and backup gates.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
