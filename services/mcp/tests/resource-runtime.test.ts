@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { pathToFileURL } from 'node:url';
 import { createBoard } from '../../../src/core/domain/commands';
 import type { CommandId } from '../../../src/core/domain/ids';
 import { AccountActors } from '../src/accounts/actor';
@@ -40,7 +41,7 @@ function exchange(port: number, path: string, options: { method?: string; header
   });
 }
 
-async function runtime(t: import('node:test').TestContext) {
+async function runtime(t: import('node:test').TestContext, signalAcknowledgement = false) {
   assert.equal(process.version, 'v24.22.2');
   assert.equal(process.versions.bun, undefined);
   const createdDirectory = mkdtempSync(join(tmpdir(), 'mcp-resource-'));
@@ -68,7 +69,12 @@ async function runtime(t: import('node:test').TestContext) {
   const build = spawnSync('bun', ['build', 'src/main.ts', '--target=node', '--packages=external', `--outfile=${executable}`],
     { cwd: serviceDirectory, encoding: 'utf8', timeout: 20_000 });
   assert.equal(build.status, 0, build.stderr);
-  const child = spawn(node, [executable], { cwd: serviceDirectory,
+  const wrapper = `const { runMcpMain } = await import(${JSON.stringify(pathToFileURL(executable).href)});
+    await runMcpMain();
+    process.on('SIGTERM', () => process.stdout.write('MCP_TEST_SIGNAL_ACK\\n'));
+    process.stdout.write('MCP_TEST_WRAPPER_READY\\n');`;
+  const args = signalAcknowledgement ? ['--input-type=module', '-e', wrapper, 'resource-wrapper'] : [executable];
+  const child = spawn(node, args, { cwd: serviceDirectory,
     env: { PATH: process.env.PATH, MCP_CONFIG_PATH: configPath }, stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = new Promise<number | null>(resolve => child.once('exit', resolve));
   cleanups.push(async () => {
@@ -77,14 +83,25 @@ async function runtime(t: import('node:test').TestContext) {
   let output = '';
   child.stdout!.on('data', chunk => { output += chunk; });
   child.stderr!.on('data', chunk => { output += chunk; });
-  const deadline = Date.now() + 8000;
-  while (!output.includes('MCP service ready.') && Date.now() < deadline) {
-    assert.equal(child.exitCode, null, output);
-    await new Promise(resolve => setTimeout(resolve, 25));
-  }
+  const awaitOutput = (marker: string) => new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout!.off('data', check); child.stderr!.off('data', check);
+      child.off('exit', fail);
+    };
+    const check = () => { if (output.includes(marker)) { cleanup(); resolve(); } };
+    const fail = () => { cleanup(); reject(new Error(`Synthetic child exited before ${marker}: ${output}`)); };
+    timer = setTimeout(() => { cleanup(); reject(new Error(`Synthetic child did not emit ${marker}: ${output}`)); }, 8000);
+    child.stdout!.on('data', check); child.stderr!.on('data', check);
+    child.once('exit', fail);
+    if (child.exitCode !== null || child.signalCode !== null) fail();
+    else check();
+  });
+  await awaitOutput(signalAcknowledgement ? 'MCP_TEST_WRAPPER_READY' : 'MCP service ready.');
   assert.match(output, /MCP service ready\./);
   assert.equal((await exchange(port, '/mcp/health')).status, 200);
-  return { child, exited, output: () => output, port, keys, keyFile, dataDirectory };
+  return { child, exited, output: () => output, awaitOutput, port, keys, keyFile, dataDirectory };
 }
 
 function partial(port: number, declaredBytes: number): ClientRequest {
@@ -120,7 +137,7 @@ test('real executable rejects adversarial bodies, bounds partial HTTP load, and 
 });
 
 test('a slow body is closed by the request deadline and SIGTERM drains accepted work', { timeout: 35_000 }, async t => {
-  const h = await runtime(t);
+  const h = await runtime(t, true);
   const slow = partial(h.port, 128); t.after(() => slow.destroy());
   const started = Date.now();
   const settled = new Promise<number | null>(resolve => {
@@ -138,6 +155,7 @@ test('a slow body is closed by the request deadline and SIGTERM drains accepted 
   const admitted = once(accepted, 'continue'); accepted.flushHeaders(); await admitted;
   const response = new Promise<number>(resolve => accepted.once('response', incoming => { incoming.resume(); resolve(incoming.statusCode!); }));
   h.child.kill('SIGTERM');
+  await h.awaitOutput('MCP_TEST_SIGNAL_ACK');
   accepted.end('{}');
   assert.equal(await response, 503);
   assert.equal(await h.exited, 0);

@@ -244,6 +244,11 @@
 - A fresh independent runtime reviewer accepted all five implementation files and reran 12 startup plus four real SDK/Snapback/Node HTTP write cases. Check-in/undo, approved claim across restart, key/origin mismatch refusal, grant cutoff, downgrade refusal and the intact missing/corrupt/restored-latch cases pass. The parent combined coverage run also passed those sixteen cases; its separate resource-test signal race is being corrected rather than waived. Later actor review corrections and the 46-case affected rerun preserve runtime assertions.
 - Production build and owned-file lint pass. `docs/mcp/runtime.md` and the service README document exact config, lifecycle, scopes and limits. The full Linux runtime, paired encrypted restore, public TLS and activation remain release gates, not claims made by local composition.
 
+### M21f - synchronize the executable shutdown proof
+
+- The combined service coverage run reproduced a test race: 290 of 291 passed, while the partial-body SIGTERM case received 400 before the production signal handler ran. A test-only wrapper now imports the actual built entry, installs its acknowledgement after the production handler, and waits for that cutoff before sending the body. The assertion still requires 503, clean exit and a stopped listener; production code is unchanged.
+- All five resource cases pass normally and under Node coverage. A fresh independent reviewer accepted the synchronization, reran the focused case, and also accepted the policy-free provenance guard. Full service coverage is rerun after the remaining recovery test additions.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)
