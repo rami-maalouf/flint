@@ -3,7 +3,7 @@ import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, mkdt
   renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fail, hash, options, outside, privateDir, privateFile, required, run, verifyManifest } from './common.mjs';
+import { backendStoreLink, fail, hash, options, outside, privateDir, privateFile, required, run, verifyManifest } from './common.mjs';
 
 process.umask(0o077);
 const args = options(process.argv.slice(2), ['--fixture-root', '--offhost', '--bundle', '--identity', '--age-bin', '--target', '--latch', '--installation-id', '--intent-log']);
@@ -59,8 +59,8 @@ try {
     const tar = join(temporary, `${kind}.tar`), output = kind === 'data' ? ready : join(ready, 'keys');
     run(age, ['-d', '-i', identity, '-o', tar, encrypted], 300_000);
     mkdirSync(output, { mode: 0o700, recursive: true });
-    run('uv', ['run', '--no-project', 'python', fileURLToPath(new URL('./safe-tar.py', import.meta.url)), tar, output], 300_000);
-    const manifest = verifyManifest(output);
+    run('uv', ['run', '--no-project', 'python', fileURLToPath(new URL('./safe-tar.py', import.meta.url)), tar, output, kind], 300_000);
+    const manifest = verifyManifest(output, kind === 'data' && bundle.paired);
     if (manifest.snapshotId !== bundle.snapshotId || manifest.releaseSha !== bundle.releaseSha ||
       (kind === 'data' && manifest.paired !== bundle.paired)) fail('archive provenance mismatch');
   }
@@ -81,6 +81,9 @@ try {
       const child = join(path, name), stat = lstatSync(child);
       if (stat.isDirectory()) syncTree(child);
       else if (stat.isFile()) { const fd = openSync(child, constants.O_RDONLY); try { fsyncSync(fd); } finally { closeSync(fd); } }
+      else if (stat.isSymbolicLink() && child.startsWith(join(ready, 'backend') + '/') && bundle.paired) {
+        backendStoreLink(join(ready, 'backend'), child.slice(join(ready, 'backend').length + 1));
+      }
       else fail('unsafe restored file');
     }
     const fd = openSync(path, constants.O_RDONLY); try { fsyncSync(fd); } finally { closeSync(fd); }

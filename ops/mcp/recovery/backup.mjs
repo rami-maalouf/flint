@@ -48,7 +48,7 @@ try {
   mkdirSync(data, { mode: 0o700 }); mkdirSync(keys, { mode: 0o700 });
   const id = randomUUID();
   const entries = copyTree(state, join(data, 'state')).map(row => ({ ...row, path: `state/${row.path}` }));
-  if (paired) entries.push(...copyTree(backend, join(data, 'backend')).map(row => ({ ...row, path: `backend/${row.path}` })));
+  if (paired) entries.push(...copyTree(backend, join(data, 'backend'), true).map(row => ({ ...row, path: `backend/${row.path}` })));
   writeFileSync(join(data, 'manifest.json'), JSON.stringify({ version: 1, snapshotId: id, releaseSha,
     paired, files: entries.sort((a, b) => a.path.localeCompare(b.path)) }), { mode: 0o600 });
   const keyEntries = [copySingle(configFile, join(keys, 'config.json')), copySingle(keyFile, join(keys, 'keys.json'))];

@@ -279,6 +279,12 @@
 - The final marked-response fixture preserved the actual authenticated MCP response: first byte at 52 ms, all 54,621 bytes at 3,057 ms after a three-second hold. Cancellation closed downstream then upstream before release, and subsequent health/read recovered. A zero-hold negative fixture was rejected. Delayed request-body evidence is recorded separately; the public proof does not claim a held Snapback response. The separate private Linux rehearsal covers that boundary.
 - Fresh independent public-proxy round-two review accepted the helper, documentation and saved Oracle evidence. Read-only cleanup verification found provider semantics equal to the original backup, no temporary units/config or listeners on 4413-4415, and unchanged active backend/bridge PIDs on 4410/4411. Root and service lint/typecheck passed. M23 is complete; encrypted paired restore, final review and production activation remain separate open gates. Reproduction and limits are in `docs/mcp/proxy-staging.md`.
 
+### M24b - native Snapback deployment archive compatibility
+
+- The first actual paired SDK rehearsal stopped before encryption because Snapback 0.4.49 generates group-writable release directories and an internal `releases/<n>/.snapback4/store.sqlite -> ../../../store.sqlite` link. The backup tools now admit only that link with its regular target and digest verified, beneath a private same-owner backend root. Group-write admission is restricted to `releases`, `releases/<positive-number>` and `releases/<positive-number>/snapback`; unrelated paths, other links and hardlinks remain refused.
+- Seven real Node 24.22.2/age 1.3.2 tests pass, including the native layout round trip and hostile link/directory cases. Review round five reproduced an overly broad directory exception; the author reproduced backup and archive admission before narrowing it. Fresh round-six review accepts the exact correction. A separate reviewer also restored a disposable actual Snapback deployment and read the same synthetic profile through its SDK.
+- Service lint/typecheck, syntax and diff checks pass; parent ShellCheck with its explicitly configured version passes. This is archive compatibility evidence, not the full paired Oracle/off-host restoration gate. The actual pending-operation/key-recovery/controller rehearsal remains open under M24.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

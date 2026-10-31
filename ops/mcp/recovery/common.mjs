@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync,
-  copyFileSync, mkdirSync } from 'node:fs';
+import { closeSync, constants, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync,
+  chmodSync, copyFileSync, mkdirSync, symlinkSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export function fail(message) { throw new Error(message); }
@@ -64,8 +64,25 @@ export function appendDurable(path, data) {
     writeFileSync(fd, data); fsyncSync(fd);
   } finally { closeSync(fd); }
 }
-export function copyTree(source, destination) {
+export function backendStoreLink(backendRoot, name) {
+  if (!/^releases\/[1-9][0-9]*\/\.snapback4\/store\.sqlite$/.test(name) || name.length > 160) fail('unsafe source link');
+  const path = join(backendRoot, name);
+  if (readlinkSync(path) !== '../../../store.sqlite') fail('unsafe source link');
+  const root = lstatSync(backendRoot), link = lstatSync(path), targetPath = join(backendRoot, 'store.sqlite');
+  const target = lstatSync(targetPath);
+  if (!root.isDirectory() || (root.mode & 0o777) !== 0o700 || !link.isSymbolicLink() ||
+    !target.isFile() || target.nlink !== 1 || target.size > 512 * 1024 ** 2 ||
+    link.uid !== root.uid || link.gid !== root.gid || target.uid !== root.uid || target.gid !== root.gid ||
+    realpathSync(path) !== targetPath) fail('unsafe source link');
+  return { target: '../../../store.sqlite', bytes: target.size, sha256: hash(targetPath) };
+}
+export function nativeReleaseDirectory(name) {
+  return name === 'releases' ||
+    (name.length <= 160 && /^releases\/[1-9][0-9]*(?:\/snapback)?$/.test(name));
+}
+export function copyTree(source, destination, backend = false) {
   privateDir(source, true);
+  const owner = lstatSync(source);
   mkdirSync(destination, { mode: 0o700 });
   const manifest = [];
   let total = 0;
@@ -74,9 +91,11 @@ export function copyTree(source, destination) {
       if (entry === '.' || entry === '..') fail('unsafe entry');
       const src = join(from, entry), dst = join(to, entry), name = prefix ? `${prefix}/${entry}` : entry;
       const stat = lstatSync(src);
+      if (stat.uid !== owner.uid || stat.gid !== owner.gid) fail('source owner mismatch');
       if (stat.isDirectory()) {
-        if ((stat.mode & 0o022) !== 0) fail('writable source directory');
-        mkdirSync(dst, { mode: 0o700 }); visit(src, dst, name);
+        if ((stat.mode & 0o002) !== 0 ||
+          ((stat.mode & 0o020) !== 0 && !(backend && nativeReleaseDirectory(name)))) fail('writable source directory');
+        mkdirSync(dst, { mode: 0o700 }); visit(src, dst, name); chmodSync(dst, stat.mode & 0o777);
       } else if (stat.isFile() && stat.nlink === 1 && stat.size <= 512 * 1024 ** 2) {
         total += stat.size;
         if (total > 4 * 1024 ** 3 || manifest.length >= 100_000) fail('snapshot exceeds bound');
@@ -84,10 +103,20 @@ export function copyTree(source, destination) {
         const copied = lstatSync(dst);
         if (!copied.isFile() || copied.size !== stat.size) fail('source changed during snapshot');
         manifest.push({ path: name, bytes: copied.size, sha256: hash(dst) });
+      } else if (backend && stat.isSymbolicLink()) {
+        const row = backendStoreLink(source, name);
+        symlinkSync(row.target, dst);
+        manifest.push({ path: name, type: 'symlink', ...row });
       } else fail('unsafe source entry');
     }
   };
   visit(source, destination, '');
+  if (backend) {
+    const store = manifest.find(row => row.path === 'store.sqlite');
+    for (const row of manifest.filter(row => row.type === 'symlink')) {
+      if (!store || store.bytes !== row.bytes || store.sha256 !== row.sha256) fail('backend store changed during snapshot');
+    }
+  }
   return manifest;
 }
 export function copySingle(source, destination) {
@@ -95,7 +124,7 @@ export function copySingle(source, destination) {
   copyFileSync(source, destination, constants.COPYFILE_EXCL);
   return { path: basename(destination), bytes: statSync(destination).size, sha256: hash(destination) };
 }
-export function verifyManifest(root) {
+export function verifyManifest(root, backend = false) {
   const manifestPath = join(root, 'manifest.json');
   if (statSync(manifestPath).size > 16 * 1024 * 1024) fail('archive manifest exceeds bound');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -105,12 +134,27 @@ export function verifyManifest(root) {
     for (const name of readdirSync(dir).sort()) {
       if (prefix === '' && name === 'manifest.json') continue;
       const path = join(dir, name), rel = prefix ? `${prefix}/${name}` : name, stat = lstatSync(path);
-      if (stat.isDirectory()) visit(path, rel);
+      if (stat.isDirectory()) {
+        if (stat.uid !== lstatSync(root).uid || stat.gid !== lstatSync(root).gid ||
+          (stat.mode & 0o002) !== 0 ||
+          ((stat.mode & 0o020) !== 0 &&
+            !(backend && rel.startsWith('backend/') && nativeReleaseDirectory(rel.slice('backend/'.length))))) {
+          fail('unsafe restored directory');
+        }
+        visit(path, rel);
+      }
       else if (stat.isFile() && stat.nlink === 1) actual.push({ path: rel, bytes: stat.size, sha256: hash(path) });
+      else if (backend && stat.isSymbolicLink() && rel.startsWith('backend/')) {
+        actual.push({ path: rel, type: 'symlink', ...backendStoreLink(join(root, 'backend'), rel.slice('backend/'.length)) });
+      }
       else fail('unsafe restored entry');
     }
   };
   visit(root, '');
+  const store = actual.find(row => row.path === 'backend/store.sqlite');
+  for (const row of actual.filter(row => row.type === 'symlink')) {
+    if (!store || store.bytes !== row.bytes || store.sha256 !== row.sha256) fail('backend store mismatch');
+  }
   if (JSON.stringify(actual.sort((a, b) => a.path.localeCompare(b.path))) !==
       JSON.stringify(manifest.files.sort((a, b) => a.path.localeCompare(b.path)))) fail('archive content mismatch');
   return manifest;

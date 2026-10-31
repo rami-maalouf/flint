@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -438,4 +438,143 @@ test('encrypted paired snapshot preserves pending queue and fences even matching
     assert.throws(() => new FileRestoreLatch({ path: secondLatch, installationId: secondId,
       restoredDirectories: [state, backend] }).assertReady());
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('native snapback release store link and group writable descendants survive a fenced paired restore', () => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-native-layout-'));
+  try {
+    const source = join(root, 'source'), state = join(source, 'state'), backend = join(source, 'backend');
+    const keys = join(source, 'keys'), offhost = join(root, 'offhost'), controller = join(root, 'controller');
+    for (const path of [source, state, backend, keys, offhost, controller]) mkdirSync(path, { mode: 0o700 });
+    const releases = join(backend, 'releases'), release = join(releases, '1'), internal = join(release, '.snapback4');
+    const snapback = join(release, 'snapback');
+    for (const path of [releases, release, snapback]) { mkdirSync(path, { mode: 0o700 }); chmodSync(path, 0o775); }
+    writeFileSync(join(snapback, 'provenance.json'), '{"synthetic":true}\n');
+    mkdirSync(internal, { mode: 0o700 });
+    const store = join(backend, 'store.sqlite');
+    const connection = new DatabaseSync(store);
+    connection.exec('PRAGMA journal_mode=WAL; CREATE TABLE records (id TEXT PRIMARY KEY, value TEXT);');
+    connection.prepare('INSERT INTO records VALUES (?, ?)').run('record-1', 'pending-effect');
+    writeFileSync(join(backend, 'releases.jsonl'), '{"version":1}\n');
+    symlinkSync('../../../store.sqlite', join(internal, 'store.sqlite'));
+    writeFileSync(join(keys, 'config.json'), '{"version":2}', { mode: 0o600 });
+    writeFileSync(join(keys, 'keys.json'), '{"synthetic":"key"}', { mode: 0o600 });
+    const identity = join(controller, 'identity.txt');
+    run(keygen, ['-o', identity]);
+    const recipient = run(keygen, ['-y', identity]);
+    const sha = 'b'.repeat(40), installationId = 'snapback-native-layout';
+    const latch = join(controller, 'restore-latch');
+    FileRestoreLatch.provisionFresh({ path: latch, installationId, restoredDirectories: [state, backend] });
+    run(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+      '--fixture-lock-dir', controller, '--output-dir', offhost, '--recipient', recipient,
+      '--age-bin', age, '--release-sha', sha]);
+    connection.close();
+    const bundle = join(offhost, 'bundle.json');
+    run(process.execPath, [join(scripts, 'restore-intent.mjs'), '--fixture-root', source,
+      '--fixture-lock-dir', controller, '--controller-dir', controller, '--bundle', bundle,
+      '--installation-id', installationId, '--latch', latch]);
+    const restored = join(root, 'restored');
+    run(process.execPath, [join(scripts, 'restore-isolated.mjs'), '--fixture-root', source,
+      '--bundle', bundle, '--identity', identity, '--age-bin', age, '--target', restored,
+      '--latch', latch, '--installation-id', installationId,
+      '--intent-log', join(controller, 'restore-intents.jsonl')]);
+    const link = join(restored, 'backend/releases/1/.snapback4/store.sqlite');
+    assert.equal(readlinkSync(link), '../../../store.sqlite');
+    assert.equal(realpathSync(link), join(restored, 'backend/store.sqlite'));
+    assert.equal(lstatSync(join(restored, 'backend/releases/1')).mode & 0o777, 0o700);
+    assert.equal(existsSync(join(restored, 'backend/store.sqlite-wal')), true);
+    const restoredDb = new DatabaseSync(link);
+    assert.equal(restoredDb.prepare('SELECT value FROM records WHERE id = ?').get('record-1')?.value, 'pending-effect');
+    restoredDb.close();
+    assert.equal(readFileSync(join(restored, 'backend/releases.jsonl'), 'utf8'), '{"version":1}\n');
+    assert.equal(readFileSync(join(restored, 'backend/releases/1/snapback/provenance.json'), 'utf8'), '{"synthetic":true}\n');
+    assert.throws(() => new FileRestoreLatch({ path: latch, installationId,
+      restoredDirectories: [state, backend] }).assertReady());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('paired backup refuses foreign links, escaped stores, world writable directories and hardlinks before encryption', () => {
+  const cases = [
+    { name: 'foreign link', alter: (backend: string, root: string) => symlinkSync(join(root, 'outside'), join(backend, 'foreign')) },
+    { name: 'absolute store link', alter: (backend: string) => symlinkSync('/tmp/store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite')) },
+    { name: 'wrong relative store link', alter: (backend: string) => symlinkSync('../../../../store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite')) },
+    { name: 'chained store link', alter: (backend: string) => {
+      symlinkSync('other.sqlite', join(backend, 'store.sqlite'));
+      writeFileSync(join(backend, 'other.sqlite'), 'chain');
+      symlinkSync('../../../store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite'));
+    } },
+    { name: 'world writable descendant', alter: (backend: string) => {
+      chmodSync(join(backend, 'releases/1'), 0o777);
+      symlinkSync('../../../store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite'));
+    } },
+    { name: 'group writable assets', alter: (backend: string) => {
+      const assets = join(backend, 'assets'); mkdirSync(assets, { mode: 0o700 }); chmodSync(assets, 0o775);
+    } },
+    { name: 'group writable unrelated release child', alter: (backend: string) => {
+      const other = join(backend, 'releases/1/other'); mkdirSync(other, { mode: 0o700 }); chmodSync(other, 0o775);
+    } },
+    { name: 'group writable nested snapback child', alter: (backend: string) => {
+      const nested = join(backend, 'releases/1/snapback'); mkdirSync(nested, { mode: 0o700 });
+      const other = join(nested, 'other'); mkdirSync(other, { mode: 0o700 }); chmodSync(other, 0o775);
+    } },
+    { name: 'hardlinked store', alter: (backend: string) => {
+      writeFileSync(join(backend, 'store.sqlite'), 'store');
+      const other = join(backend, 'other.sqlite');
+      run('ln', [join(backend, 'store.sqlite'), other]);
+      symlinkSync('../../../store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite'));
+    } },
+  ];
+  for (const scenario of cases) {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-link-refusal-'));
+    try {
+      const source = join(root, 'source'), state = join(source, 'state'), backend = join(source, 'backend');
+      const keys = join(source, 'keys'), output = join(root, 'output'), lock = join(root, 'lock');
+      for (const path of [source, state, backend, keys, output, lock]) mkdirSync(path, { mode: 0o700 });
+      mkdirSync(join(backend, 'releases'), { mode: 0o700 });
+      mkdirSync(join(backend, 'releases/1'), { mode: 0o700 });
+      mkdirSync(join(backend, 'releases/1/.snapback4'), { mode: 0o700 });
+      writeFileSync(join(keys, 'config.json'), '{}', { mode: 0o600 });
+      writeFileSync(join(keys, 'keys.json'), '{}', { mode: 0o600 });
+      scenario.alter(backend, root);
+      const identity = join(root, 'identity.txt');
+      run(keygen, ['-o', identity]);
+      const recipient = run(keygen, ['-y', identity]);
+      const result = spawnSync(process.execPath, [join(scripts, 'backup.mjs'), '--fixture-root', source,
+        '--fixture-lock-dir', lock, '--output-dir', output, '--recipient', recipient,
+        '--age-bin', age, '--release-sha', 'a'.repeat(40)],
+      { encoding: 'utf8', timeout: 30_000, env: { ...process.env, MCP_RECOVERY_FIXTURE: '1' } });
+      assert.equal(result.status, 1, scenario.name);
+      assert.match(result.stderr, /backup refused/, scenario.name);
+      assert.equal(readdirSync(output).length, 0, scenario.name);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test('isolated tar validator rejects foreign links, chained stores and unrelated group writable directories before extraction', () => {
+  for (const scenario of ['foreign', 'chained', 'group writable assets']) {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-tar-link-refusal-'));
+    try {
+      const source = join(root, 'source'), backend = join(source, 'backend');
+      const output = join(root, 'output'), archive = join(root, 'crafted.tar');
+      mkdirSync(source, { mode: 0o700 }); mkdirSync(backend, { mode: 0o700 });
+      mkdirSync(output, { mode: 0o700 });
+      if (scenario === 'foreign') {
+        symlinkSync('/etc/passwd', join(backend, 'foreign'));
+      } else if (scenario === 'chained') {
+        mkdirSync(join(backend, 'releases'), { mode: 0o700 });
+        mkdirSync(join(backend, 'releases/1'), { mode: 0o700 });
+        mkdirSync(join(backend, 'releases/1/.snapback4'), { mode: 0o700 });
+        symlinkSync('other.sqlite', join(backend, 'store.sqlite'));
+        writeFileSync(join(backend, 'other.sqlite'), 'synthetic');
+        symlinkSync('../../../store.sqlite', join(backend, 'releases/1/.snapback4/store.sqlite'));
+      } else {
+        const assets = join(backend, 'assets'); mkdirSync(assets, { mode: 0o700 }); chmodSync(assets, 0o775);
+      }
+      run('tar', ['-C', source, '-cf', archive, '.']);
+      const result = spawnSync('uv', ['run', '--no-project', 'python', join(scripts, 'safe-tar.py'),
+        archive, output, 'data'], { encoding: 'utf8', timeout: 30_000 });
+      assert.notEqual(result.status, 0, scenario);
+      assert.equal(readdirSync(output).length, 0, scenario);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
