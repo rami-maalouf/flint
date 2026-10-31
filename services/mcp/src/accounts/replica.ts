@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, statfsSync } from 'node:fs';
+import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -41,6 +41,9 @@ type Binding = { account_id: string; backend_url: string; principal: string;
   healthy_pull_at: number | null; healthy_revision: string | null };
 const bindingSchema = `CREATE TABLE binding (id INTEGER PRIMARY KEY CHECK (id = 1), account_id TEXT NOT NULL,
   backend_url TEXT NOT NULL, principal TEXT NOT NULL, healthy_pull_at INTEGER, healthy_revision TEXT)`;
+const historySchema = `CREATE TABLE operation_provenance (id INTEGER PRIMARY KEY CHECK (id = 1),
+  state TEXT NOT NULL CHECK (state IN ('never', 'initialized', 'unknown')))`;
+export type OperationHistoryState = 'never' | 'initialized' | 'unknown';
 
 // this handle is owned by the actor's lane, including initialization and close.
 export class AccountReplica {
@@ -66,22 +69,46 @@ export class AccountReplica {
       this.lock.exec('BEGIN EXCLUSIVE');
       for (const name of readdirSync(this.directory)) privateFile(join(this.directory, name));
       const statePath = join(this.directory, 'replica.sqlite');
+      if (!existsSync(statePath) && ['product.sqlite', 'operations.sqlite', 'journal.sqlite', 'delivery.sqlite']
+        .some(name => existsSync(join(this.directory, name)))) {
+        throw new ReplicaError('Replica metadata is missing from an existing account.');
+      }
       privateFile(statePath);
       state = new DatabaseSync(statePath);
       state.exec('PRAGMA busy_timeout = 0; PRAGMA synchronous = FULL');
       const version = state.prepare('PRAGMA user_version').get()?.user_version;
-      if (version !== 0 && version !== 1) throw new ReplicaError('Unsupported replica metadata schema.');
+      if (version !== 0 && version !== 1 && version !== 2) throw new ReplicaError('Unsupported replica metadata schema.');
       if (version === 0) {
         if (state.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").get()) {
           throw new ReplicaError('Unrecognized replica metadata.');
         }
-        state.exec(`BEGIN EXCLUSIVE; ${bindingSchema}; PRAGMA user_version = 1;`);
+        state.exec(`BEGIN EXCLUSIVE; ${bindingSchema}; ${historySchema}; PRAGMA user_version = 2;`);
         state.prepare('INSERT INTO binding (id, account_id, backend_url, principal) VALUES (1, ?, ?, ?)')
           .run(context.accountId, backendUrl, context.principal);
+        state.prepare("INSERT INTO operation_provenance VALUES (1, 'never')").run();
         state.exec('COMMIT');
       }
       if (state.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'binding'").get()?.sql !== bindingSchema) {
         throw new ReplicaError('Replica metadata schema does not match its released definition.');
+      }
+      if (version === 1) {
+        const tables = state.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
+        if (tables.length !== 1 || tables[0].name !== 'binding') throw new ReplicaError('Legacy replica metadata is ambiguous.');
+        const retained = existsSync(join(this.directory, 'operations.sqlite')) || existsSync(join(this.directory, 'journal.sqlite'));
+        state.exec(`BEGIN IMMEDIATE; ${historySchema};`);
+        try {
+          state.prepare('INSERT INTO operation_provenance VALUES (1, ?)').run(retained ? 'initialized' : 'unknown');
+          state.exec('PRAGMA user_version = 2; COMMIT');
+        } catch (cause) { state.exec('ROLLBACK'); throw cause; }
+      }
+      if (state.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'operation_provenance'").get()?.sql !== historySchema ||
+        !['never', 'initialized', 'unknown'].includes(String(state.prepare('SELECT state FROM operation_provenance WHERE id = 1').get()?.state))) {
+        throw new ReplicaError('Operation provenance marker is missing or invalid.');
+      }
+      const tables = state.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .all().map(row => row.name);
+      if (JSON.stringify(tables) !== JSON.stringify(['binding', 'operation_provenance'])) {
+        throw new ReplicaError('Replica metadata schema has unexpected tables.');
       }
       this.state = state;
       this.assertBinding(context, backendUrl);
@@ -120,6 +147,22 @@ export class AccountReplica {
   }
 
   get lastHealthyPullAtUtc(): number | null { return this.binding().healthy_pull_at; }
+
+  get operationHistoryState(): OperationHistoryState {
+    const state = this.state.prepare('SELECT state FROM operation_provenance WHERE id = 1').get()?.state;
+    if (state !== 'never' && state !== 'initialized' && state !== 'unknown') {
+      throw new ReplicaError('Operation provenance marker is missing or invalid.');
+    }
+    return state;
+  }
+
+  markOperationHistory(): void {
+    if (this.operationHistoryState !== 'never') throw new ReplicaError('Operation history cannot be reinitialized.');
+    const result = this.state.prepare("UPDATE operation_provenance SET state = 'initialized' WHERE id = 1 AND state = 'never'").run();
+    if (result.changes !== 1) throw new ReplicaError('Operation provenance marker could not be committed.');
+    const directory = openSync(this.directory, constants.O_RDONLY);
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  }
 
   markHealthy(at: number, revision: string | null): void {
     this.state.prepare('UPDATE binding SET healthy_pull_at = ?, healthy_revision = ? WHERE id = 1').run(at, revision);

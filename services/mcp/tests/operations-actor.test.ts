@@ -55,7 +55,7 @@ async function fixture(t: TestContext) {
   let sessions = { full, read };
   if (fixtureNumber++ > 0) {
     const email = `${randomUUID()}@example.test`, password = randomUUID();
-    const signed = await signup(host.url, email, password, { timeoutMs: 2000 }); assert.ok(signed.ok);
+    const signed = await signup(host.url, email, password, { timeoutMs: 2000 }); assert.ok(signed.ok, JSON.stringify(signed));
     const narrowed = await login(host.url, email, password, { scope: 'read', timeoutMs: 2000 }); assert.ok(narrowed.ok);
     sessions = { full: signed.session, read: narrowed.session };
     const client = createClient({ url: host.url, token: sessions.full.token });
@@ -112,6 +112,32 @@ test('protected core commit lost before receipt capture recovers and returns one
   const client = createClient({ url: host.url, token: h.read.token, readOnly: true });
   try { const head = await client.query(api.mcpRecoveryHead, {}); assert.ok('data' in head && head.data); assert.equal(head.data.sequence, 2); }
   finally { await client.close(); }
+  await actor.close();
+  const delivered = h.actors({ delivery: { grantStatus: async grantId => grantId === ctx.grantId
+    ? { accountId: ctx.accountId, clientId: ctx.clientId, active: true, scopes: ctx.scopes } : null } });
+  const accepted = await delivered.runOperation(ctx, request);
+  assert.equal(accepted.data.state, 'backend_acknowledged');
+  assert.equal(accepted.data.delivery, 'acknowledged');
+  await delivered.close();
+  const acceptedCopy = join(h.root, 'accepted-operation'); cpSync(h.path, acceptedCopy, { recursive: true });
+  for (const [change, name] of [
+    ["UPDATE operations SET state = 'pending_sync', delivery = 'pending'", 'accepted operation downgraded to pending'],
+    ["UPDATE tuples SET disposition = NULL, remote_stamp = NULL WHERE outbox_id = (SELECT min(outbox_id) FROM tuples)",
+      'accepted tuple rolled back to unknown'],
+    ["UPDATE tuples SET remote_stamp = '99999999999999-zzzzz-forged' WHERE outbox_id = (SELECT min(outbox_id) FROM tuples)",
+      'accepted tuple remote stamp changed'],
+  ] as const) {
+    await t.test(name, async () => {
+      rmSync(h.path, { recursive: true }); cpSync(acceptedCopy, h.path, { recursive: true });
+      const forged = new DatabaseSync(join(h.path, 'journal.sqlite'));
+      try { forged.exec(change); } finally { forged.close(); }
+      const reopened = h.actors();
+      try {
+        await assert.rejects(reopened.runOperation(ctx, request), { code: 'OPERATION_PENDING' });
+        assert.equal(h.count(), 1);
+      } finally { await reopened.close(); }
+    });
+  }
 });
 
 test('read authority cannot initialize, advance, recover prepared work or borrow another full session', async t => {
@@ -256,6 +282,291 @@ test('missing provenance, unavailable head and a latched restore refuse all new 
   rmSync(join(h.path, 'operations.sqlite'));
   await assert.rejects(h.actors().withAccount(ctx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
   assert.equal(h.count(), 1);
+});
+
+test('a restored latch serves an authorized product read with an honest fence and no recovery writes', async t => {
+  const h = await fixture(t), fullCtx = h.context(), readCtx = h.context(h.read);
+  const original = h.actors();
+  const written = await original.runOperation(fullCtx, h.request(fullCtx));
+  assert.equal(h.count(), 1);
+  await original.close();
+  const pendingCopy = join(h.root, 'pending-before-false-ack'); cpSync(h.path, pendingCopy, { recursive: true });
+  const corruptions = [
+    ["UPDATE operations SET state = 'backend_acknowledged', delivery = 'acknowledged'", 'ack state without acceptance'],
+    ["UPDATE tuples SET disposition = 'accepted', remote_stamp = mutation_stamp WHERE outbox_id = (SELECT min(outbox_id) FROM tuples)",
+      'tuple disposition without acceptance'],
+    ["UPDATE tuples SET disposition = 'accepted', remote_stamp = mutation_stamp; UPDATE operations SET state = 'backend_acknowledged', delivery = 'acknowledged'",
+      'ack state and tuples without acceptance'],
+    ["UPDATE tuples SET disposition = 'invalid', remote_stamp = mutation_stamp WHERE outbox_id = (SELECT min(outbox_id) FROM tuples)",
+      'unsupported tuple disposition'],
+    ["UPDATE tuples SET record = '{}' WHERE outbox_id = (SELECT min(outbox_id) FROM tuples)", 'changed captured tuple payload'],
+  ] as const;
+  for (const [change, name] of corruptions) {
+    await t.test(name, async () => {
+      rmSync(h.path, { recursive: true }); cpSync(pendingCopy, h.path, { recursive: true });
+      const forged = new DatabaseSync(join(h.path, 'journal.sqlite'));
+      try {
+        forged.exec(change);
+        assert.equal(forged.prepare("SELECT count(*) AS n FROM journal_chain WHERE json_extract(event, '$.kind') = 'acceptance'").get()!.n, 0);
+      } finally { forged.close(); }
+      const normal = h.actors();
+      try {
+        await assert.rejects(normal.runOperation(fullCtx, h.request(fullCtx, written.data.intent.operationId)), { code: 'OPERATION_PENDING' });
+        assert.equal(h.count(), 1);
+      } finally { await normal.close(); }
+    });
+  }
+  rmSync(h.path, { recursive: true }); cpSync(pendingCopy, h.path, { recursive: true });
+  h.latch.markRestored();
+  const paths: string[] = [];
+  const latched = h.actors({ delivery: { grantStatus: async grantId => ({ accountId: fullCtx.accountId,
+    clientId: fullCtx.clientId, active: grantId === fullCtx.grantId, scopes: fullCtx.scopes }) } }, {
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      paths.push(`${request.method} ${new URL(request.url).pathname}`);
+      return fetch(request);
+    },
+  });
+  const observed = await latched.withAccount(readCtx, {}, async runtime => ({
+    count: Number((await runtime.db.getFirstAsync<{ n: number }>('SELECT count(*) AS n FROM check_ins'))!.n),
+    recovery: runtime.recovery,
+  }));
+  assert.equal(observed.data.count, 1);
+  assert.deepEqual(observed.data.recovery, { writeFenced: true, deliveryPaused: true,
+    reconnectRequired: false, recoveryReason: 'restore_latched' });
+  assert.equal(paths.some(path => path.startsWith('POST /m/')), false);
+  await assert.rejects(latched.lookupOperation(readCtx, written.data.intent.operationId), { code: 'OPERATION_PENDING' });
+  await assert.rejects(latched.runOperation(fullCtx, h.request(fullCtx)), { code: 'OPERATION_PENDING' });
+  let confirmed = false;
+  await assert.rejects(latched.resumeDelivery(fullCtx, async () => { confirmed = true; }), { code: 'OPERATION_PENDING' });
+  assert.equal(confirmed, false);
+  assert.equal(h.count(), 1);
+  const state = new DatabaseSync(join(h.path, 'operations.sqlite'), { readOnly: true });
+  const journal = new DatabaseSync(join(h.path, 'journal.sqlite'), { readOnly: true });
+  try {
+    assert.equal(state.prepare('SELECT journal_ready FROM runtime_meta').get()!.journal_ready, 1);
+    assert.equal(journal.prepare('SELECT count(*) AS n FROM operations').get()!.n, 1);
+    assert.equal(journal.prepare('SELECT state FROM operations').get()!.state, 'pending_sync');
+  } finally { state.close(); journal.close(); }
+  await latched.close();
+  const forged = new DatabaseSync(join(h.path, 'journal.sqlite'));
+  try { forged.exec("UPDATE operations SET state = 'backend_acknowledged', delivery = 'acknowledged'"); }
+  finally { forged.close(); }
+  paths.length = 0;
+  const refused = h.actors({}, { fetch: async (input, init) => {
+    const request = new Request(input, init);
+    paths.push(`${request.method} ${new URL(request.url).pathname}`);
+    return fetch(request);
+  } });
+  await assert.rejects(refused.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(paths.includes('POST /q/changes'), false);
+  assert.equal(paths.some(path => path.startsWith('POST /m/')), false);
+  await refused.close();
+});
+
+test('a prepared intent forged as pending without capture fences normal retry and restored read', async t => {
+  const h = await fixture(t), ctx = h.context(), readCtx = h.context(h.read), request = h.request(ctx);
+  const prepared = h.actors({ failpoint: point => { if (point === 'after_prepare') throw new Error('synthetic prepared stop'); } });
+  await assert.rejects(prepared.runOperation(ctx, request), /synthetic prepared stop/);
+  await prepared.close();
+  const journal = new DatabaseSync(join(h.path, 'journal.sqlite'));
+  let preparedHash: string;
+  try {
+    preparedHash = String(journal.prepare('SELECT head_hash FROM journal_chain WHERE sequence = 1').get()!.head_hash);
+    journal.prepare("UPDATE operations SET state = 'pending_sync', delivery = 'pending' WHERE operation_id = ?")
+      .run(request.input.operationId);
+    assert.equal(journal.prepare("SELECT count(*) AS n FROM journal_chain WHERE json_extract(event, '$.kind') = 'captured'").get()!.n, 0);
+  } finally { journal.close(); }
+  const client = createClient({ url: host.url, token: h.full.token });
+  try {
+    const head = await client.query(api.mcpRecoveryHead, {});
+    assert.ok('data' in head && head.data);
+    assert.equal(head.data.sequence, 0);
+    assert.equal((await client.mutate(api.advanceMcpRecoveryHead, { generation: head.data.generation,
+      expectedSequence: 0, expectedHash: head.data.headHash, nextHash: preparedHash })).state, 'sent');
+  } finally { await client.close(); }
+  const corrupted = join(h.root, 'uncaptured-operation'); cpSync(h.path, corrupted, { recursive: true });
+  let normalPulls = 0;
+  const normal = h.actors({}, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') normalPulls++;
+    return fetch(wire);
+  } });
+  await assert.rejects(normal.runOperation(ctx, request), { code: 'OPERATION_PENDING' });
+  assert.equal(normalPulls, 0); assert.equal(h.count(), 0);
+  await normal.close();
+  rmSync(h.path, { recursive: true }); cpSync(corrupted, h.path, { recursive: true });
+  h.latch.markRestored();
+  let pulls = 0;
+  const latched = h.actors({}, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') pulls++;
+    return fetch(wire);
+  } });
+  await assert.rejects(latched.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0); assert.equal(h.count(), 0);
+  await latched.close();
+});
+
+test('a restored latch refuses a rolled-back local head before product work', async t => {
+  const h = await fixture(t), ctx = h.context(), request = h.request(ctx);
+  const original = h.actors({ failpoint: point => { if (point === 'before_prepare') throw new Error('synthetic pre-prepare stop'); } });
+  await assert.rejects(original.runOperation(ctx, request), /synthetic pre-prepare stop/);
+  await original.close();
+  const backup = join(h.root, 'prior-account'); cpSync(h.path, backup, { recursive: true });
+  const advanced = h.actors(); await advanced.runOperation(ctx, request); await advanced.close();
+  rmSync(h.path, { recursive: true }); cpSync(backup, h.path, { recursive: true });
+  h.latch.markRestored();
+  let pulls = 0;
+  const latched = h.actors({}, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') pulls++;
+    return fetch(wire);
+  } });
+  await assert.rejects(latched.withAccount(h.context(h.read), {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0); assert.equal(h.count(), 0);
+  await latched.close();
+});
+
+test('a missing prepared operation row fences both protected retry and restored read', async t => {
+  const h = await fixture(t), ctx = h.context(), request = h.request(ctx);
+  const original = h.actors(); await original.runOperation(ctx, request); await original.close();
+  const journal = new DatabaseSync(join(h.path, 'journal.sqlite'));
+  try {
+    assert.ok(journal.prepare("SELECT 1 FROM journal_chain WHERE json_extract(event, '$.kind') = 'prepared'").get());
+    journal.exec('DELETE FROM tuples; DELETE FROM operations');
+  } finally { journal.close(); }
+  const corrupted = join(h.root, 'missing-prepared-row'); cpSync(h.path, corrupted, { recursive: true });
+  const retry = h.actors();
+  await assert.rejects(retry.runOperation(ctx, request), { code: 'OPERATION_PENDING' });
+  assert.equal(h.count(), 1); await retry.close();
+  rmSync(h.path, { recursive: true }); cpSync(corrupted, h.path, { recursive: true });
+  h.latch.markRestored();
+  let pulls = 0;
+  const latched = h.actors({}, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') pulls++;
+    return fetch(wire);
+  } });
+  await assert.rejects(latched.withAccount(h.context(h.read), {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0); assert.equal(h.count(), 1);
+  await latched.close();
+});
+
+test('lost operation files and a rolled-back remote head cannot turn prior write history into fresh read bootstrap', async t => {
+  const h = await fixture(t), ctx = h.context(), request = h.request(ctx);
+  const writer = h.actors();
+  await writer.runOperation(ctx, request); assert.equal(h.count(), 1); await writer.close();
+  const legacy = new DatabaseSync(join(h.path, 'replica.sqlite'));
+  try { legacy.exec('DROP TABLE operation_provenance; PRAGMA user_version = 1'); } finally { legacy.close(); }
+  const migrated = h.actors();
+  const found = await migrated.lookupOperation(ctx, request.input.operationId);
+  assert.equal(found.data?.intent.operationId, request.input.operationId);
+  await migrated.close();
+  const marker = new DatabaseSync(join(h.path, 'replica.sqlite'), { readOnly: true });
+  try { assert.equal(marker.prepare('SELECT state FROM operation_provenance').get()!.state, 'initialized'); }
+  finally { marker.close(); }
+  rmSync(join(h.path, 'operations.sqlite')); rmSync(join(h.path, 'journal.sqlite'));
+  const product = new DatabaseSync(join(h.path, 'product.sqlite'));
+  try { product.exec('DELETE FROM command_receipts'); } finally { product.close(); }
+  h.latch.markRestored();
+  let pulls = 0;
+  const absentHead = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const wire = new Request(input, init), path = new URL(wire.url).pathname;
+    if (path === '/q/changes') pulls++;
+    const response = await fetch(wire);
+    if (path !== '/q/mcpRecoveryHead') return response;
+    const body = await response.json() as Record<string, unknown>;
+    const headers = new Headers(response.headers); headers.delete('content-length');
+    return new Response(JSON.stringify({ ...body, data: null }), { status: response.status, headers });
+  };
+  const latched = h.actors({}, { fetch: absentHead });
+  const replay = createClient({ url: host.url, token: h.read.token, readOnly: true, fetch: absentHead });
+  try {
+    const head = await replay.query(api.mcpRecoveryHead, {});
+    assert.ok('data' in head && head.data === null, 'synthetic rollback must present a complete null head');
+  } finally { await replay.close(); }
+  const policyFree = h.actors({}, { operationPolicy: undefined, fetch: absentHead });
+  await assert.rejects(policyFree.withAccount(h.context(h.read), {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0); await policyFree.close();
+  await assert.rejects(latched.withAccount(h.context(h.read), {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0); assert.equal(h.count(), 1);
+  await latched.close();
+  rmSync(join(h.path, 'replica.sqlite'));
+  const missingAnchor = h.actors();
+  await assert.rejects(missingAnchor.withAccount(h.context(h.read), {}, async () => 'unsafe'), { code: 'UNAVAILABLE' });
+  await missingAnchor.close();
+});
+
+test('a fresh latched account reads twice while ambiguous legacy private metadata fences', async t => {
+  const ambiguous = await fixture(t), readCtx = ambiguous.context(ambiguous.read);
+  const policyFree = ambiguous.actors({}, { operationPolicy: undefined });
+  const initial = await policyFree.withAccount(readCtx, {}, async runtime => runtime.recovery);
+  assert.equal(initial.data.recoveryReason, 'read_only_reconstruction');
+  await policyFree.close();
+  ambiguous.latch.markRestored();
+  const read = ambiguous.actors();
+  for (let turn = 0; turn < 2; turn++) {
+    const observed = await read.withAccount(readCtx, {}, async runtime => runtime.recovery);
+    assert.equal(observed.data.recoveryReason, 'restore_latched');
+    assert.equal(observed.data.writeFenced, true);
+    assert.equal(observed.data.deliveryPaused, true);
+    assert.equal(readdirSync(ambiguous.path).includes('operations.sqlite'), false);
+    const marker = new DatabaseSync(join(ambiguous.path, 'replica.sqlite'), { readOnly: true });
+    try { assert.equal(marker.prepare('SELECT state FROM operation_provenance').get()!.state, 'never'); }
+    finally { marker.close(); }
+  }
+  await read.close();
+  const old = new DatabaseSync(join(ambiguous.path, 'replica.sqlite'));
+  try { old.exec('DROP TABLE operation_provenance; PRAGMA user_version = 1'); } finally { old.close(); }
+  const fenced = ambiguous.actors();
+  await assert.rejects(fenced.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  await fenced.close();
+  const unknown = new DatabaseSync(join(ambiguous.path, 'replica.sqlite'), { readOnly: true });
+  try { assert.equal(unknown.prepare('SELECT state FROM operation_provenance').get()!.state, 'unknown'); }
+  finally { unknown.close(); }
+  const unconfigured = ambiguous.actors({}, { operationPolicy: undefined });
+  await assert.rejects(unconfigured.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  await unconfigured.close();
+  const fullCtx = ambiguous.context(), cutoff = ambiguous.actors({ delivery: { grantStatus: async () => null } });
+  let commits = 0;
+  await cutoff.revokeDeliveryGrant({ accountId: fullCtx.accountId, principal: fullCtx.principal,
+    backendUrl: fullCtx.backendUrl, clientId: fullCtx.clientId, grantId: fullCtx.grantId }, async () => { commits++; });
+  assert.equal(commits, 1);
+  assert.equal(readdirSync(ambiguous.path).includes('operations.sqlite'), false);
+  await assert.rejects(cutoff.runOperation(fullCtx, ambiguous.request(fullCtx)), { code: 'OPERATION_PENDING' });
+  await cutoff.close();
+});
+
+test('a marked history with an incomplete sidecar cannot masquerade as a fresh latched read', async t => {
+  const h = await fixture(t), readCtx = h.context(h.read), fullCtx = h.context();
+  const fresh = h.actors();
+  await fresh.withAccount(readCtx, {}, async runtime => runtime.recovery);
+  await fresh.close();
+  h.latch.markRestored();
+  const cutoff = h.actors({ delivery: { grantStatus: async () => null } });
+  let commits = 0;
+  await cutoff.revokeDeliveryGrant({ accountId: fullCtx.accountId, principal: fullCtx.principal,
+    backendUrl: fullCtx.backendUrl, clientId: fullCtx.clientId, grantId: fullCtx.grantId }, async () => { commits++; });
+  assert.equal(commits, 1);
+  await cutoff.close();
+  const sidecar = new DatabaseSync(join(h.path, 'operations.sqlite'), { readOnly: true });
+  try { assert.equal(sidecar.prepare('SELECT journal_ready FROM runtime_meta').get()!.journal_ready, 0); }
+  finally { sidecar.close(); }
+  assert.equal(readdirSync(h.path).includes('journal.sqlite'), false);
+  const client = createClient({ url: host.url, token: h.read.token, readOnly: true });
+  try {
+    const head = await client.query(api.mcpRecoveryHead, {});
+    assert.ok('data' in head && head.data === null);
+  } finally { await client.close(); }
+  let pulls = 0;
+  const latched = h.actors({ delivery: { grantStatus: async () => null } }, { fetch: async (input, init) => {
+    const wire = new Request(input, init);
+    if (new URL(wire.url).pathname === '/q/changes') pulls++;
+    return fetch(wire);
+  } });
+  await assert.rejects(latched.withAccount(readCtx, {}, async () => 'unsafe'), { code: 'OPERATION_PENDING' });
+  assert.equal(pulls, 0);
 });
 
 test('missing policy, wrong client, missing scopes and invalid inputs are refused before acquiring a replica', async t => {

@@ -9,6 +9,7 @@ import type { AuthContext } from '../auth/context';
 import { createCorePorts, createSnapbackTransport, getSyncSummary, initializeProductDatabase, runSync } from '../core';
 import { contracts, hasToolScope, timeZone, type Metadata } from '../tools/contracts';
 import type { JournalOperation, MutationRequest } from '../operations/journal';
+import { RecoveryFenceError } from '../operations/recovery-head';
 import { AccountReplica, privateDirectory, type ReplicaLimits } from './replica';
 import { DeliveryBarrier, type DeliveryGrantBinding } from './delivery';
 import { AccountOperations, authorizeAccountControl, ensureDeliveryHistory, hasOperationAuthority, validateOperationPolicy,
@@ -207,7 +208,15 @@ export class AccountActors {
         entry.replica ??= new AccountReplica(this.root, this.options.backendUrl, binding, this.limits);
         stopped(controller.signal);
         entry.replica.assertBinding(binding, this.options.backendUrl);
-        await ensureDeliveryHistory(entry.replica.directory, binding, entry.replica.db);
+        if (entry.replica.operationHistoryState !== 'never' &&
+          !existsSync(join(entry.replica.directory, 'operations.sqlite'))) {
+          // the independent marker already fences every protected account turn.
+          admitted = true;
+          clearTimeout(timer);
+          await commitRevocation();
+          return;
+        }
+        await ensureDeliveryHistory(entry.replica.directory, binding, entry.replica.db, entry.replica);
         stopped(controller.signal);
         const barrier = new DeliveryBarrier(entry.replica.directory, binding, this.options.operationPolicy!.delivery!);
         try {
@@ -246,8 +255,12 @@ export class AccountActors {
     }
     const parsed = contracts.get_operation.input.safeParse({ operationId });
     if (!parsed.success) throw new AccountError('INVALID_INPUT', 'Invalid operation id.', false);
-    return this.serve(context, {}, false, async (_lane, _meta, _recovery, operations) =>
-      operations ? operations.lookup(parsed.data.operationId) : null);
+    return this.serve(context, {}, false, async (_lane, _meta, recovery, operations) => {
+      if (recovery.recoveryReason === 'restore_latched') {
+        throw new AccountError('OPERATION_PENDING', 'Operation lookup requires restored history reconciliation.');
+      }
+      return operations ? operations.lookup(parsed.data.operationId) : null;
+    });
   }
 
   withAccountControl<T>(context: AuthContext, work: (runtime: AccountControlRuntime) => Promise<T>): Promise<T> {
@@ -263,7 +276,8 @@ export class AccountActors {
   private operationEnvironment(lane: LaneContext): OperationEnvironment {
     return Object.freeze({ db: lane.replica.db, directory: lane.replica.directory, context: lane.ctx,
       signal: lane.signal, nowUtcMs: lane.ports.clock.nowUtcMs(), assertActive: lane.authorize,
-      fetch: this.options.fetch, checkDisk: () => lane.replica.checkDisk(), maxFetches: this.limits.maxQueryPages });
+      fetch: this.options.fetch, checkDisk: () => lane.replica.checkDisk(), maxFetches: this.limits.maxQueryPages,
+      history: lane.replica });
   }
 
   private async serve<T>(context: AuthContext, options: ReadOptions, createOperations: boolean,
@@ -274,16 +288,38 @@ export class AccountActors {
     }
     return this.inLane(context, zone.data, async lane => {
       const { replica, ctx, ports, signal, authorize } = lane;
-      const operations = this.options.operationPolicy
-        ? await AccountOperations.open(this.operationEnvironment(lane), this.options.operationPolicy, createOperations) : null;
+      const policy = this.options.operationPolicy;
+      let operations: AccountOperations | null = null;
+      let fencedRead = false;
+      if (policy) {
+        if (!createOperations) {
+          try { await policy.latch.assertReady(); }
+          catch (cause) {
+            if (!(cause instanceof RecoveryFenceError) || cause.reason !== 'restore_latched') throw cause;
+            fencedRead = true;
+          }
+        }
+        if (!fencedRead) {
+          try { operations = await AccountOperations.open(this.operationEnvironment(lane), policy, createOperations); }
+          catch (cause) {
+            if (createOperations || !(cause instanceof RecoveryFenceError) || cause.reason !== 'restore_latched') throw cause;
+            fencedRead = true;
+          }
+        }
+      }
       try {
-        const recovered = operations ? await operations.recover() : await this.recover(replica, ctx, ports, signal, authorize);
+        const recovered = fencedRead && policy ? await AccountOperations.inspectFencedRead(this.operationEnvironment(lane), policy)
+          : operations ? await operations.recover() : await this.recover(replica, ctx, ports, signal, authorize);
         stopped(signal);
         await replica.boundProduct();
         const initialized = await initializeProductDatabase(replica.db, ports.ids, ports.hashing);
         if (!initialized.ok) throw new AccountError('UNAVAILABLE', 'Product replica initialization failed.');
         await replica.db.runAsync('UPDATE app_settings SET icloud_sync_enabled = 1 WHERE id = 1');
-        await this.bindProduct(replica, ctx);
+        await this.bindProduct(replica, ctx, !fencedRead);
+        if (fencedRead && existsSync(join(replica.directory, 'operations.sqlite')) &&
+          !await replica.db.getFirstAsync("SELECT account_digest FROM sync_account_bindings WHERE provider = 'snapback4'")) {
+          throw new AccountError('OPERATION_PENDING', 'Restored product binding is missing.');
+        }
         const status = await this.pull(replica, ctx, ports, signal, authorize);
         await authorize(); replica.checkDisk();
         const meta = await this.observe(replica, ports, status, options);
@@ -361,6 +397,9 @@ export class AccountActors {
 
   private async recover(replica: AccountReplica, context: AuthContext, ports: Ports, signal: AbortSignal,
     assertActive: () => Promise<void>): Promise<RecoveryStatus> {
+    if (replica.operationHistoryState !== 'never') {
+      throw new AccountError('OPERATION_PENDING', 'Retained operation provenance requires protected recovery before account work.');
+    }
     if (this.options.recover) {
       const status = await this.options.recover(Object.freeze({ db: replica.db, directory: replica.directory,
         context, ports, signal, assertActive }));
