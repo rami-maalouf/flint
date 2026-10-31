@@ -43,6 +43,19 @@ For every task: write the meaningful failing proof/test first, implement the bou
 - [ ] M25: complete inherited/service gates and independent final verification.
 - [ ] M26: activate reviewed release, demonstrate synthetic public flow, open/link PR and hand over.
 
+### M25 final review corrections
+
+The completed independent review against `982edfe` requires the following corrections before activation. Its outage lookup suggestion was rejected by independent validation: the published default-read contract requires a completed pull and head comparison.
+
+- [ ] Reject restored OAuth, refresh, code and browser authority through an independent restore epoch; prove fresh degraded reads and retained write fences.
+- [ ] Preserve pull-only reads after a pre-mutation grant cutoff without adopting lost operation history.
+- [ ] Return bounded, result-specific text alongside structured results for all fifteen tools.
+- [ ] Restore validated delivery-only snapshots while refusing missing initialized journals.
+- [ ] Measure retained-history admission near the operation bound and remove repeated full-history work safely.
+- [ ] Attempt bounded retirement of the exact disconnected upstream session after durable local cutoff; retain uncertainty on outage.
+- [x] Give CI, startup and admission checkpoints distinct identifiers (`M05c`, `M09c`, `M21a`, `M21b`).
+- [x] Obtain complete actual Linux ARM64 service coverage with public CIMD and no skipped tests for the pre-epoch snapshot (M25a); rerun affected integration gates after these corrections.
+
 ## Release acceptance
 
 - [ ] All 15 v1 tool contracts implemented with invocation-time scope enforcement.
