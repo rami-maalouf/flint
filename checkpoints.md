@@ -249,6 +249,12 @@
 - The combined service coverage run reproduced a test race: 290 of 291 passed, while the partial-body SIGTERM case received 400 before the production signal handler ran. A test-only wrapper now imports the actual built entry, installs its acknowledgement after the production handler, and waits for that cutoff before sending the body. The assertion still requires 503, clean exit and a stopped listener; production code is unchanged.
 - All five resource cases pass normally and under Node coverage. A fresh independent reviewer accepted the synchronization, reran the focused case, and also accepted the policy-free provenance guard. Full service coverage is rerun after the remaining recovery test additions.
 
+### M21/M25a - complete service coverage and isolated audit correction
+
+- The complete actual Node coverage run passes 293 tests with zero failures or skips, including public CIMD and encrypted recovery cases. Root validation remains 214 suites / 3,116 tests with every core file at 100 percent; native and backend gates remain green. Together with accepted resource/diagnostic reviews and the measured private ARM64 process rehearsal, M21 is complete. Public routing, final backup and final review remain separate gates.
+- The final audit reproduced the newly published minimatch advisory in development dependencies. The isolated service now pins ESLint 10.14.0 / JavaScript rules 10.0.1, typescript-eslint 8.72.1 and minimatch 11.0.3. This removes the legacy default-export consumer while preserving runtime/mobile pins. The new lint rules remove one redundant initialization and explicitly recognize that the rollback aggregate already retains both failures.
+- Frozen install, lint, strict typecheck, three-entry production build and audit pass; audit reports no vulnerabilities across 135 packages. All 52 actual authorization, owner-binding and production SQLite cases pass after the lint-toolchain update. No root package, lock, patch, schema or native source changed.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

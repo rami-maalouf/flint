@@ -4,6 +4,8 @@ This is the app-owned remote MCP service boundary. Install its dependencies sepa
 
 Use Bun **1.4.3** for package management/builds and Node **24.22.2** for execution. Node 24.13.0 corrupts embedded-NUL SQLite TEXT reads; production adapters refuse it. Do not execute the service through Bun's SQLite emulation.
 
+The isolated lint graph uses ESLint 10.14.0, its JavaScript rules 10.0.1 and typescript-eslint 8.72.1. The service-only minimatch override pins 11.0.3 to resolve [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249); ESLint 10 removes the legacy eslintrc dependency that expected minimatch's older default export. The remaining consumers use the maintained named API. The [ESLint migration guide](https://eslint.org/docs/latest/use/migrate-to-10.0.0) and [Bun override contract](https://bun.sh/docs/pm/overrides) govern this development-only change. Frozen installation, service lint/typecheck/build and `bun audit` must pass together. Runtime package pins and the mobile graph are unchanged.
+
 ```sh
 bun install --frozen-lockfile
 bun run lint

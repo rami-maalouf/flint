@@ -133,6 +133,7 @@ export class NodeSqlDatabase implements SqlDatabase {
         try {
           this.db.exec('ROLLBACK');
         } catch (rollbackFailure) {
+          // eslint-disable-next-line preserve-caught-error -- the aggregate errors array preserves both failures.
           throw new AggregateError([cause, rollbackFailure], 'Transaction failed and could not be rolled back.');
         }
         throw cause;

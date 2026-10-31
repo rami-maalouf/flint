@@ -533,7 +533,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
       const owner = await requireOwner(request);
       const listed = [];
       for (const grant of grants.forAccount(owner.accountId)) {
-        let active = false;
+        let active: boolean;
         try {
           active = grant.accountId === owner.accountId && grant.userId === owner.accountId &&
             grant.backendUrl === owner.backendUrl &&
