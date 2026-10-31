@@ -202,6 +202,12 @@
 - An actual OAuth revoke failure reproduced Better Auth logging the raw lifecycle-coordinator exception. The provider boundary now emits a fixed service-unavailable API error without the original cause. A failed cutoff remains a failure and does not claim revocation succeeded.
 - The new captured-log assertion failed before the fix. All thirty actual HTTP authorization cases pass afterward, including independent grants and commit ordering; failure injection resets in `finally` so a failed test cannot contaminate later cases. Independent review accepted the correction and reran the full focused suite plus lint/typecheck.
 
+### M23a - isolated release and routing artifacts
+
+- Prepared separate hardened `habitmcp` service, loopback/Traefik bridge units, explicitly prioritized MCP/discovery routers and an immutable ARM64 release staging script. Existing Snapback routes/services and shared provider configuration are untouched; read-only Oracle inventory found candidate ports free at the measured time.
+- Source admission now decompresses a complete private size-bounded tar before checking its embedded Git commit and extracting validated paths. The raw historical header pipeline produces SIGPIPE 141, although the old comparison masked it; the record does not claim that the original full script rejected every valid archive. Actual isolated ARM64 admission reaches frozen install with the official Node archive and a Bun stop stub; wrong digest/commit/traversal are rejected.
+- Fresh independent review accepts the artifacts. Bash syntax, ShellCheck, YAML and isolated unit verification pass within their documented host limits. Full clean ARM64 build, target systemd verification, resource measurements, backup, public proxy/TLS and activation remain M23-M26 gates. No remote deployment change is included.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

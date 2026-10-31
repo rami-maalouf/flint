@@ -1,0 +1,35 @@
+# merge only these named entries into /matrix/traefik/config/provider.yml.
+# keep the existing habit-system-fullstack router and every other provider entry.
+http:
+  middlewares:
+    habit-system-mcp-request-headers:
+      headers:
+        customRequestHeaders:
+          x-snapback-persona: ""
+          forwarded: ""
+          x-forwarded-for: ""
+          x-forwarded-host: ""
+          x-forwarded-proto: ""
+          x-forwarded-port: ""
+          x-real-ip: ""
+  routers:
+    habit-system-mcp:
+      rule: >-
+        Host(`habits.ramimaalouf.com`) &&
+        (Path(`/mcp`) || PathPrefix(`/mcp/`) ||
+        Path(`/.well-known/oauth-protected-resource/mcp`) ||
+        Path(`/.well-known/oauth-authorization-server/mcp/auth`) ||
+        Path(`/.well-known/openid-configuration/mcp/auth`))
+      priority: 10000
+      entryPoints: [web-secure]
+      service: habit-system-mcp
+      middlewares: [habit-system-mcp-request-headers]
+      tls:
+        certResolver: default
+  services:
+    habit-system-mcp:
+      loadBalancer:
+        servers:
+          - url: http://172.26.0.1:4414
+        responseForwarding:
+          flushInterval: -1ms
