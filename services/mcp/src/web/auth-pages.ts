@@ -1,7 +1,7 @@
+import { escapeHtml as escape } from './owner-pages';
+
 export type AuthPage = { kind: 'sign-in' | 'consent'; clientName: string; scopes: readonly string[];
   oauthQuery: string; csrf: string; error?: string };
-const escape = (value: string) => value.replace(/[&<>"']/g, character =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 const permissions: Record<string, string> = {
   'habits:read': 'Read your habits, check-ins and stacks',
   'habits:notes:read': 'Read the personal notes on your check-ins',

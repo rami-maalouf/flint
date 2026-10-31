@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,7 +11,7 @@ import { claimReward, createCheckIn, createCorePorts, createSnapbackTransport, r
 import { GENESIS_HASH, JournalError, OperationJournal, type CoreCommand, type Failpoint, type FrozenIntent, type JournalHead,
   type JournalOperation, type MutationRequest } from '../operations/journal';
 import { createSnapbackRecoveryRemote, RecoveryHeadAdapter, type RestoreLatch } from '../operations/recovery-head';
-import { canonicalJson, MAX_OPERATION_BYTES, MAX_OPERATION_TUPLES, wireIdentity } from '../operations/records';
+import { canonicalJson, MAX_OPERATION_BYTES, MAX_OPERATION_TUPLES, sha256, wireIdentity } from '../operations/records';
 import { contracts, hasToolScope } from '../tools/contracts';
 import type { RecoveryStatus } from './actor';
 import { DeliveryBarrier, DeliveryBarrierError, type DeliveryGrantBinding, type DeliveryPolicy } from './delivery';
@@ -435,7 +435,7 @@ export class AccountOperations {
           const journalMeta = view.prepare('SELECT * FROM journal_meta WHERE id = 1').get();
           const releasedSchema = view.prepare("SELECT sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY rowid").all()
             .map(row => String(row.sql)).join(';\n') + ';';
-          const actualHash = createHash('sha256').update(releasedSchema).digest('hex');
+          const actualHash = sha256(releasedSchema);
           if (view.prepare('PRAGMA user_version').get()?.user_version !== 1 || !journalMeta ||
             journalMeta.version !== 1 || journalMeta.schema_hash !== journalSchemaHash ||
             actualHash !== journalSchemaHash || journalMeta.account_id !== env.context.accountId ||
@@ -497,14 +497,17 @@ export class AccountOperations {
 
   async recover(): Promise<RecoveryStatus> {
     active(this.env); await this.env.assertActive();
-    if (hasOperationAuthority(this.env.context)) {
+    const writable = hasOperationAuthority(this.env.context);
+    if (writable) {
       await this.policy.authorize({ context: this.env.context, action: 'recover', intent: null, originGrantId: null });
       await this.journal.recover();
-    } else if (await this.adapter.compare() !== 'current' || this.inspect()) {
+    } else if (await this.adapter.compare() !== 'current') {
       fence('Read authority cannot recover or execute prepared operation intent.');
     }
-    this.inspect(); active(this.env);
-    return Object.freeze({ writeFenced: !hasOperationAuthority(this.env.context), deliveryPaused: true,
+    const prepared = this.inspect();
+    if (!writable && prepared) fence('Read authority cannot recover or execute prepared operation intent.');
+    active(this.env);
+    return Object.freeze({ writeFenced: !writable, deliveryPaused: true,
       reconnectRequired: false, recoveryReason: this.barrier ? 'delivery_barrier' : 'delivery_pending_m13' });
   }
 
@@ -677,7 +680,7 @@ export class AccountOperations {
       const source = createSnapbackTransport({ connection: async () => ({ client, session: this.env.context.session,
         isCurrent: () => !this.env.signal.aborted && this.env.context.session.expiresAt > Date.now() }),
         bind: async () => { await this.authorizeDelivery(); },
-        hash: async text => createHash('sha256').update(text).digest('hex'),
+        hash: async text => sha256(text),
         onUpload: async evidence => {
           await this.journal.recordUploadAcceptance(evidence);
           await this.authorizeDelivery();

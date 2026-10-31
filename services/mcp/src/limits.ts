@@ -60,7 +60,6 @@ function dataProperties(input: unknown, allowed: ReadonlySet<string>): Record<st
   return snapshot;
 }
 
-// all admission state is process-local. the service runs as one process owner.
 export class ServiceLimits {
   readonly values: ServiceLimitValues;
   private readonly clock: () => number;

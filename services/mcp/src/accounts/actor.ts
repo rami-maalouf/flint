@@ -346,8 +346,11 @@ export class AccountActors {
     const state = (await replica.db.getFirstAsync<{ change_token: string | null }>('SELECT change_token FROM sync_state WHERE id = 1'))!;
     const admission = { ...summary.value.incoming, deferred };
     const clean = status === 'up_to_date' && Object.values(admission).every(value => value === 0);
-    const syncStatus: Metadata['syncStatus'] = clean ? 'up_to_date' : status === 'offline' ? 'offline'
-      : status === 'signed_out' ? 'reconnect_required' : status === 'idle' ? 'incomplete' : 'sync_attention';
+    let syncStatus: Metadata['syncStatus'] = 'sync_attention';
+    if (clean) syncStatus = 'up_to_date';
+    else if (status === 'offline') syncStatus = 'offline';
+    else if (status === 'signed_out') syncStatus = 'reconnect_required';
+    else if (status === 'idle') syncStatus = 'incomplete';
     if (clean && completedPull) replica.markHealthy(Date.now(), state.change_token);
     if (!clean && (options.freshness !== 'allow_cached' || replica.lastHealthyPullAtUtc === null)) {
       throw new AccountError(syncStatus === 'reconnect_required' ? 'RECONNECT_REQUIRED' : syncStatus === 'sync_attention'

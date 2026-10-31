@@ -267,6 +267,12 @@
 - The actual main received SIGTERM after a check-in committed while its upload response was held. The corrected run asserts pending journal state at signal, acknowledged SDK response, successful unit exit, acknowledged journal after stop and exact operation/check-in IDs with one effect after restart. It passed with no cleanup errors, peak RSS 145,932,288 bytes and 54 file descriptors. The original stopped synthetic graph is preserved for paired restoration; the corrected run removed its own fixture.
 - Fresh independent review accepted the corrected helper and read actual Oracle evidence and archive/main/schema hashes. No transient test unit, owned mount or 4450-4455 listener remains; existing 4410/4411 returned their expected unauthenticated 401. Service/root lint and typecheck pass. The report distinguishes this private TLS rehearsal from the separate public proxy/service-user and backup gates.
 
+### M25b - behavior-preserving maintainability pass
+
+- Five independent lenses reviewed reuse, quality, efficiency, test value and comments. Shared HTML escaping and SHA-256 helpers replace equivalent copies; one neutral scope module supplies tool/auth scopes and parameterized downgrade checks. Sync status selection is explicit. Read-only recovery performs its complete provenance scan once after the current-head comparison, while retaining prepared-intent refusal and every write-path scan.
+- No proof test or test seam changed. The dependency-light recovery latch retains its local genesis constant; bounded queue/page optimization suggestions were left out to preserve their verified ordering and byte-budget behavior. The SQLite adapter's caller-ownership contract remains documented. Redundant local narrative comments were removed.
+- Complete service coverage again passes 293 tests with no failures or skips after these changes and the final backup restart correction. Service and root lint/typecheck pass; the production build has 125 modules and audit reports no vulnerabilities. The actual Snapback paired archive rehearsal separately exposed a generated-layout incompatibility before encryption; that backup correction and its proof remain required before M24 completion.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

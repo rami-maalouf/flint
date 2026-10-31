@@ -43,7 +43,6 @@ export class ReadTools {
     if (name === 'get_checkin_history') filters.notes = context.scopes.includes('habits:notes:read');
     const binding: CursorBinding = { accountId: context.accountId, clientId: context.clientId, tool: name, filters };
     const cursor = typeof input.cursor === 'string' ? input.cursor : undefined;
-    // authentication and filter binding are checked before opening the account lane.
     const position = cursor ? name === 'get_checkin_history' || name === 'get_coin_history'
       ? this.options.cursors.decode(binding, cursor, historyPosition)
       : this.options.cursors.decode(binding, cursor, listPosition) : undefined;

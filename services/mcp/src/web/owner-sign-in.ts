@@ -1,7 +1,6 @@
-export type OwnerSignInPage = Readonly<{ returnTo: string; csrf: string; error?: string }>;
+import { escapeHtml as escape } from './owner-pages';
 
-const escape = (value: string) => value.replace(/[&<>"']/g, character =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
+export type OwnerSignInPage = Readonly<{ returnTo: string; csrf: string; error?: string }>;
 
 export function renderOwnerSignIn(page: OwnerSignInPage): string {
   const destination = page.returnTo.startsWith('/mcp/reward-confirmation?') ? 'reward confirmation' : 'connections';

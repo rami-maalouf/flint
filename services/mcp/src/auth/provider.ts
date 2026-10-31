@@ -126,7 +126,7 @@ export async function createAuthorizationService(config: AuthorizationConfig) {
     try {
       const activeWrite = db.prepare(`SELECT 1 FROM mcp_grants AS g WHERE g.active = 1 AND
         (g.credential_scope = 'full' OR EXISTS
-        (SELECT 1 FROM json_each(g.scopes) WHERE value IN ('checkins:write', 'rewards:claim'))) LIMIT 1`).get();
+        (SELECT 1 FROM json_each(g.scopes) WHERE value IN (${writeScopes.map(() => '?').join(', ')}))) LIMIT 1`).get(...writeScopes);
       if (activeWrite) throw new Error('Active write grants require a write connection lifecycle.');
     } catch (error) { db.close(); throw error; }
   }

@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import type { Scope } from '../scopes';
 
-export const scopes = ['habits:read', 'habits:notes:read', 'coins:read', 'checkins:write', 'rewards:claim'] as const;
-export type Scope = typeof scopes[number];
+export { scopes, type Scope } from '../scopes';
 export const RESPONSE_BYTES = 131_072;
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 const operationId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);

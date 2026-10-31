@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VerifiedIdentity, VerifiedWriteIdentity } from './identity';
 import { CredentialVault, type VaultBinding } from './vault';
+import { readScopes, writeScopes } from '../scopes';
 
-export const readScopes = ['habits:read', 'habits:notes:read', 'coins:read'] as const;
+export { readScopes, writeScopes } from '../scopes';
 export const authorizationScopes = ['openid', 'offline_access', ...readScopes];
-export const writeScopes = ['checkins:write', 'rewards:claim'] as const;
 export const requestsWrite = (scopes: readonly string[]) => scopes.some(scope => writeScopes.some(write => write === scope));
 export type PrivateGrant = Readonly<{
   grantId: string; accountId: string; backendUrl: string; principal: string; userId: string;

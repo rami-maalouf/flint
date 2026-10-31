@@ -182,7 +182,6 @@ export class RewardQuoteStore {
       loaded.payload.operationId !== claim.operationId.toLowerCase()) throw new ToolError('FORBIDDEN', 'This approval belongs to another account, app or operation.');
     this.fresh(loaded);
     if (!loaded.approval) required();
-    // the immutable operation binding and journal enforce single use. this read cannot consume approval before journal prepare.
     return Object.freeze({ ...loaded.payload, reward: Object.freeze({ ...loaded.payload.reward }) });
   }
   close(): void { if (!this.closed) { this.db.close(); this.key.fill(0); this.closed = true; } }
