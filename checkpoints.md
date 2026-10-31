@@ -226,6 +226,12 @@
 - All five cases pass in author and independent runs, about 27.5 seconds on this Mac. Review found setup could leak a fixture before cleanup registration. Controlled wrong-directory execution reproduced one orphan before the fix and zero after; a fresh reviewer accepted the corrected independent cleanup. Service lint/typecheck and test grouping pass. Linux resource/proxy measurements and the combined executable SIGTERM/write rehearsal remain M23 release checks.
 - Inherited final preflight passes: root `bun run validate` reports 214 suites / 3,116 tests, with every core file at 100 percent for all four metrics; native passes 16 plugin / 195 Swift tests; backend passes 18 Node cases and two actual convergence/read-only cases. No mobile/native/schema change is part of this slice.
 
+### M23b - complete isolated ARM64 release build
+
+- Actual Oracle staging of reviewed source `a6978ec42dc7ed873a635947c818cc6304b4d39c` first reproduced the missing packaged Snapback ARM64 CLI, then missing generated/shared import resolution. Staging now requires an explicit version-0.4.49 native binary with a reviewed digest and links only the service dependency graph for shared imports. Archive validation uses `uv`; no framework upgrade or mobile dependency install was made.
+- Frozen service install, API generation, lint, strict typecheck and core/main/startup build all pass on ARM64 Node 24.22.2/Bun 1.4.3. The 73 MB foundation release archive SHA256 is `afb458a0351e04f2242462ad98ad001ac0c50032595ed5b1fa6c3e5aa447959b`. The observed existing native CLI digest is documented as a local build fingerprint, not an upstream checksum. The final config-version-2 commit must be rebuilt before activation.
+- Fresh independent review accepts the script and runbook. Bash syntax, ShellCheck and diff checks pass. The archive remains in a private builder directory; no service user, systemd installation, live schema or proxy route changed. Current read-only inventory confirms the existing backend remains active on 4410/4411 and the proposed MCP ports are still free. M23 is not complete until target runtime/resource/TLS checks pass.
+
 ## Habit System (SPEC-habit-system.md) - task checkpoints
 
 ### First-completion metric activation (2026-10-04)

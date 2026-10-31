@@ -5,23 +5,25 @@ umask 077
 # build a reviewed source archive on linux arm64. this script never installs units,
 # creates service state, changes routing, or starts a listener.
 usage() {
-  printf '%s\n' 'usage: stage-release.sh --source-archive FILE --source-sha256 HEX --release-sha GIT_SHA --node-archive FILE --output FILE' >&2
+  printf '%s\n' 'usage: stage-release.sh --source-archive FILE --source-sha256 HEX --release-sha GIT_SHA --node-archive FILE --snapback-bin FILE --snapback-sha256 HEX --output FILE' >&2
   exit 2
 }
 
-source_archive='' source_sha256='' release_sha='' node_archive='' output=''
+source_archive='' source_sha256='' release_sha='' node_archive='' snapback_bin='' snapback_sha256='' output=''
 while (($#)); do
   case "$1" in
     --source-archive) (($# >= 2)) || usage; source_archive=$2; shift 2 ;;
     --source-sha256) (($# >= 2)) || usage; source_sha256=$2; shift 2 ;;
     --release-sha) (($# >= 2)) || usage; release_sha=$2; shift 2 ;;
     --node-archive) (($# >= 2)) || usage; node_archive=$2; shift 2 ;;
+    --snapback-bin) (($# >= 2)) || usage; snapback_bin=$2; shift 2 ;;
+    --snapback-sha256) (($# >= 2)) || usage; snapback_sha256=$2; shift 2 ;;
     --output) (($# >= 2)) || usage; output=$2; shift 2 ;;
     *) usage ;;
   esac
 done
-[[ -f "$source_archive" && -f "$node_archive" && -n "$output" ]] || usage
-[[ "$source_sha256" =~ ^[0-9a-f]{64}$ && "$release_sha" =~ ^[0-9a-f]{40}$ ]] || usage
+[[ -f "$source_archive" && -f "$node_archive" && -x "$snapback_bin" && ! -L "$snapback_bin" && -n "$output" ]] || usage
+[[ "$source_sha256" =~ ^[0-9a-f]{64}$ && "$release_sha" =~ ^[0-9a-f]{40}$ && "$snapback_sha256" =~ ^[0-9a-f]{64}$ ]] || usage
 [[ "$(uname -s)" == Linux && "$(uname -m)" == aarch64 ]] || { printf '%s\n' 'linux arm64 required' >&2; exit 1; }
 [[ "$(id -u)" != 0 ]] || { printf '%s\n' 'run staging as an unprivileged builder' >&2; exit 1; }
 [[ "$(bun --version)" == 1.4.3 ]] || { printf '%s\n' 'bun 1.4.3 required' >&2; exit 1; }
@@ -32,13 +34,16 @@ command -v ss >/dev/null || { printf '%s\n' 'ss is required for port collision c
 node_sha256=eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8
 [[ "$(sha256sum "$source_archive" | cut -d ' ' -f 1)" == "$source_sha256" ]] || { printf '%s\n' 'source archive checksum mismatch' >&2; exit 1; }
 [[ "$(sha256sum "$node_archive" | cut -d ' ' -f 1)" == "$node_sha256" ]] || { printf '%s\n' 'node archive checksum mismatch' >&2; exit 1; }
+[[ "$(sha256sum "$snapback_bin" | cut -d ' ' -f 1)" == "$snapback_sha256" ]] || { printf '%s\n' 'snapback binary checksum mismatch' >&2; exit 1; }
+[[ "$("$snapback_bin" --version)" == 'snapback4 0.4.49' ]] || { printf '%s\n' 'snapback 0.4.49 required' >&2; exit 1; }
+export SNAPBACK4_BIN="$snapback_bin"
 
 work=$(mktemp -d)
 output_tmp=$(mktemp "$(dirname "$output")/.mcp-release.XXXXXXXX.tar.gz")
 cleanup() { rm -rf -- "$work"; rm -f -- "$output_tmp"; }
 trap cleanup EXIT
 mkdir -p "$work/source" "$work/release/node"
-python3 - "$source_archive" "$work/complete.tar" "$work/source" <<'PY'
+uv run --no-project python - "$source_archive" "$work/complete.tar" "$work/source" <<'PY'
 import gzip
 import posixpath
 import sys
@@ -77,6 +82,7 @@ tar -xJf "$node_archive" -C "$work/release/node" --strip-components=1 --no-same-
 
 export BUN_INSTALL_CACHE_DIR="$work/bun-cache"
 (cd "$work/source/services/mcp" && timeout 300 bun install --frozen-lockfile --ignore-scripts)
+ln -s services/mcp/node_modules "$work/source/node_modules"
 (cd "$work/source" && timeout 120 bun services/mcp/node_modules/snapback4/bin/snapback4.js types)
 (cd "$work/source/services/mcp" && timeout 180 bun run lint && timeout 180 bun run typecheck)
 (cd "$work/source/services/mcp" && timeout 180 bun run build)
@@ -88,6 +94,7 @@ cat > "$work/release/PROVENANCE" <<EOF
 release_sha=$release_sha
 source_archive_sha256=$source_sha256
 node_archive_sha256=$node_sha256
+snapback_binary_sha256=$snapback_sha256
 bun_version=1.4.3
 node_version=24.22.2
 EOF
