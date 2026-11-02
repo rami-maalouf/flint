@@ -8,6 +8,8 @@ Snapback 4 is the sole active sync provider. Retain CloudKit code for reference,
 
 Current identity supersedes historical values below: bundle `studio.orbitlabs.habitsystem.fullstack`, group `group.studio.orbitlabs.habitsystem.fullstack`, scheme `habitsystemfullstack`, widget `HabitSystemFullStackBoards`, EAS `985b07f0-3ecb-49ba-a11c-43a47629246f`. Use owned Metro port 8090 and `.artifacts/fullstack/` for evidence. Never stop the original Metro on 8081. The default backend is `https://habits.ramimaalouf.com`. Run `bun run test:backend` alongside inherited quality gates. Simulator evidence uses iPhone 17 Pro / iOS 26.5, `B47A3DF3-056A-4531-B9FA-8327C7C8A485`.
 
+The remote MCP server is `services/mcp`, an isolated package with its own lockfile and gates (`bun run typecheck`, `bun run test`). Read its README before changing it or the shared core it calls.
+
 Snapback 0.4.49 needs the pinned Bun patch under `patches/`: Expo defines `window.location` on native, which the SDK otherwise mistakes for browser admission. The regression test proves native writes and retained browser refusal. Remove the patch only after an upstream release passes that test and the native walkthrough.
 
 ## Product context (read before touching product code)
