@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test, type TestContext } from 'node:test';
-import type { Client } from '@modelcontextprotocol/client';
+import { auth, type Client } from '@modelcontextprotocol/client';
 import { logoutAll } from 'snapback4/auth';
 
 import { authorize, browser, call, connectClient, createAccount, createPhone, hiddenField, oauthClient, startBackend,
@@ -175,13 +175,16 @@ test('disconnecting an app from the connections page stops its access immediatel
 });
 
 test('a signed-out flint session asks the user to reconnect, then sends the client back to sign-in', async t => {
-  const { client, backendUrl, account } = await connectedAccount(t);
+  const { client, backendUrl, account, provider, service } = await connectedAccount(t);
   await logoutAll(backendUrl, account.session.token);
   const result = await client.callTool({ name: 'list_habits', arguments: {} });
   assert.equal(result.isError, true);
   assert.match(JSON.stringify(result.content), /RECONNECT_REQUIRED/);
-  // the token is no longer accepted, so a standard client starts its oauth flow again.
+  // the token and its refresh token are no longer accepted, so a standard client starts its oauth flow again.
   await assert.rejects(client.callTool({ name: 'list_habits', arguments: {} }), /Unauthorized|401/i);
+  assert.equal(await auth(provider, { serverUrl: `${service.origin}/mcp` }), 'REDIRECT');
+  await authorize(service.origin, provider, account);
+  assert.ok((await call<{ habits: unknown[] }>(client, 'list_habits')).habits.length > 0);
 });
 
 test('repeated wrong passwords from one address are slowed down', async t => {

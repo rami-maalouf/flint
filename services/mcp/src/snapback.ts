@@ -48,8 +48,10 @@ export class Credentials {
   private readonly key: Buffer;
   private readonly refreshing = new Map<string, Promise<Session | null>>();
 
+  // onLost runs when a session is dropped, so the account's oauth refresh tokens can be revoked too.
   constructor(private readonly db: DatabaseSync, secret: string, private readonly backendUrl: string,
-    private readonly fetcher: typeof fetch = fetch, private readonly now: () => number = Date.now) {
+    private readonly fetcher: typeof fetch = fetch, private readonly now: () => number = Date.now,
+    private readonly onLost: (accountId: string) => Promise<void> = async () => {}) {
     this.key = Buffer.from(hkdfSync('sha256', secret, 'flint-mcp', 'snapback-session', 32));
     db.exec(`CREATE TABLE IF NOT EXISTS flint_accounts (
       account_id TEXT PRIMARY KEY, principal TEXT NOT NULL, nonce BLOB NOT NULL, sealed BLOB NOT NULL,
@@ -91,10 +93,12 @@ export class Credentials {
     return session;
   }
 
-  // forgets a session the backend refused, unless a newer sign-in already replaced it.
-  deleteIfCurrent(accountId: string, token: string): boolean {
+  // forgets a session the backend refused, unless a newer sign-in already replaced it. the
+  // account's oauth refresh tokens go too, so clients start sign-in instead of looping on 401s.
+  async deleteIfCurrent(accountId: string, token: string): Promise<boolean> {
     if (this.load(accountId)?.token !== token) return false;
     this.delete(accountId);
+    await this.onLost(accountId);
     return true;
   }
 
@@ -131,9 +135,10 @@ export class Credentials {
     const refreshed = await refreshSession(this.backendUrl, session.token,
       (input, init) => this.fetcher(input, { ...init, signal: AbortSignal.timeout(15_000) }));
     if (!refreshed.ok) {
-      // only a refusal of the credential ends it; an outage keeps it until it really expires.
-      if (refreshed.why.family === 'auth') {
-        this.deleteIfCurrent(accountId, session.token);
+      // only a final refusal of the credential ends it; an outage or a rate limit keeps it
+      // until it really expires.
+      if (refreshed.why.family === 'auth' && refreshed.why.retryable !== true) {
+        await this.deleteIfCurrent(accountId, session.token);
         return this.load(accountId);
       }
       return session.expiresAt > now ? session : null;

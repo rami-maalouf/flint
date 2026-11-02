@@ -66,7 +66,13 @@ test('an outage during refresh keeps the session; only a refused credential is d
   credentials.save('account', account.session);
   assert.equal((await credentials.current('account'))?.token, account.session.token);
   assert.equal(credentials.load('account')?.token, account.session.token);
+  // a rate-limited refresh is retried later instead of signing the account out.
+  const limited = new Credentials(new DatabaseSync(':memory:'), 'x'.repeat(32), backendUrl,
+    async () => Response.json({ denied: { code: 'E_RATE_LIMIT', family: 'auth', retryable: true, message: 'slow down' } },
+      { status: 429 }), () => now);
+  limited.save('account', account.session);
+  assert.equal((await limited.current('account'))?.token, account.session.token);
   // a newer sign-in is never removed by the failure of an older token.
-  assert.equal(credentials.deleteIfCurrent('account', 'older-token'), false);
+  assert.equal(await credentials.deleteIfCurrent('account', 'older-token'), false);
   assert.ok(credentials.load('account'));
 });

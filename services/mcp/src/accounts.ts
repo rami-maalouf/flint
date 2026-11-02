@@ -124,8 +124,8 @@ export class Accounts {
     if (!summary.ok) throw new ToolError('UNAVAILABLE', 'Flint could not read its sync state.');
     if (outcome === 'signed_out') {
       // a sign-in that replaced the session while this sync ran leaves the account connected.
-      if (!this.options.credentials.deleteIfCurrent(accountId, session.token)) {
-        throw new ToolError('UNAVAILABLE', 'Flint was just signed in again. Try again.');
+      if (!await this.options.credentials.deleteIfCurrent(accountId, session.token)) {
+        throw new ToolError('UNAVAILABLE', 'Flint could not reach your account just now. Try again.');
       }
       throw new ToolError('RECONNECT_REQUIRED', 'This Flint connection was signed out. Reconnect it to continue.');
     }

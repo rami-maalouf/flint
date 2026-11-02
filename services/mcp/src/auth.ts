@@ -35,7 +35,8 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
 
   const db = new DatabaseSync(join(config.dataDir, 'auth.sqlite'));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000');
-  const credentials = new Credentials(db, secret, backendUrl, fetcher);
+  let revokeRefreshTokens = async (_accountId: string) => {};
+  const credentials = new Credentials(db, secret, backendUrl, fetcher, Date.now, accountId => revokeRefreshTokens(accountId));
 
   // the browser identity is the snapback account itself: a successful snapback sign-in
   // creates or reuses the better auth user whose id is the account digest.
@@ -95,6 +96,9 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
   await (await getMigrations(authOptions)).runMigrations();
   const auth = betterAuth(authOptions);
   const context = await auth.$context;
+  revokeRefreshTokens = async accountId => {
+    await context.adapter.deleteMany({ model: 'oauthRefreshToken', where: [{ field: 'userId', value: accountId }] });
+  };
 
   // access tokens are verified locally against this server's own keys. a token is accepted only
   // while the consent that issued it exists and the account still has a snapback session, so a
@@ -220,6 +224,7 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
 
   async function forgetAccount(accountId: string): Promise<void> {
     const session = credentials.delete(accountId);
+    await revokeRefreshTokens(accountId);
     if (session) await endSession(backendUrl, session, fetcher);
     await options.onDisconnected(accountId);
   }
@@ -319,7 +324,7 @@ function callbackOrigin(oauthQuery: string): string | undefined {
   const callback = redirectUri(oauthQuery);
   if (!callback) return undefined;
   const source = ['https:', 'http:'].includes(callback.protocol) ? callback.origin : callback.protocol;
-  return /^(https?:\/\/[a-z0-9.-]+(:\d+)?|[a-z][a-z0-9+.-]*:)$/i.test(source) ? source : undefined;
+  return /^(https?:\/\/([a-z0-9.-]+|\[[0-9a-f:.]+\])(:\d+)?|[a-z][a-z0-9+.-]*:)$/i.test(source) ? source : undefined;
 }
 
 // the place the app sends the person back to: the one fact on the consent page an app cannot choose freely.

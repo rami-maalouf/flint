@@ -121,6 +121,10 @@ export function oauthClient(name = 'Test assistant') {
     saveClientInformation: (value: NonNullable<typeof information>) => { information = value; },
     tokens: () => tokens,
     saveTokens: (value: NonNullable<typeof tokens>) => { tokens = value; },
+    invalidateCredentials: (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+      if (scope === 'all' || scope === 'tokens') tokens = undefined;
+      if (scope === 'all' || scope === 'client') information = undefined;
+    },
     saveCodeVerifier: (value: string) => { verifier = value; },
     codeVerifier: () => verifier,
     redirectToAuthorization: (value: URL) => { destination = value; },
