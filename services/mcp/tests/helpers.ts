@@ -144,8 +144,9 @@ export function browser(origin: string) {
   };
   return {
     get: (url: string | URL) => request(url),
-    post: (url: string, body: Record<string, string>, from = origin) => request(url, { method: 'POST',
-      headers: { origin: from, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body) }),
+    post: (url: string, body: Record<string, string>, from = origin, headers: Record<string, string> = {}) => request(url,
+      { method: 'POST', headers: { origin: from, 'content-type': 'application/x-www-form-urlencoded', ...headers },
+        body: new URLSearchParams(body) }),
   };
 }
 

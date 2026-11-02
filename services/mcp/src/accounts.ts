@@ -123,7 +123,10 @@ export class Accounts {
     const summary = await getSyncSummary({ db: replica.db, clock: clockAt('UTC') });
     if (!summary.ok) throw new ToolError('UNAVAILABLE', 'Flint could not read its sync state.');
     if (outcome === 'signed_out') {
-      this.options.credentials.delete(accountId);
+      // a sign-in that replaced the session while this sync ran leaves the account connected.
+      if (!this.options.credentials.deleteIfCurrent(accountId, session.token)) {
+        throw new ToolError('UNAVAILABLE', 'Flint was just signed in again. Try again.');
+      }
       throw new ToolError('RECONNECT_REQUIRED', 'This Flint connection was signed out. Reconnect it to continue.');
     }
     const { lastSuccessAtUtc, pendingChanges } = summary.value;

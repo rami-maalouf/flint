@@ -42,6 +42,9 @@ export function registerWriteTools(server: McpServer, { accountId, accounts, era
     const commandId = derivedUuid('create_checkin', input.operationId) as CommandId;
     const previous = await getCheckInByIdempotencyKey(db, commandId);
     let result: { checkInId: CheckInId; logicalDate: LogicalDate; created: boolean };
+    if (previous?.deletedAt !== null && previous !== null) {
+      throw new ToolError('CONFLICT', 'The check-in from this operationId was undone. Use a new operationId to check in again.');
+    }
     if (previous) {
       result = { checkInId: previous.id, logicalDate: previous.logicalDate, created: true };
     } else {
@@ -90,7 +93,7 @@ export function registerWriteTools(server: McpServer, { accountId, accounts, era
       rewardVersion: z.string().min(1).max(255).describe('The version from preview_reward_claim or list_rewards.'),
     }),
     output: z.object({ claimId: id, reward: z.object({ id, title: z.string() }), costCoins: z.number().int(), date,
-      balance: z.number().int().describe('The coin balance after this claim.'), delivery, sync }),
+      balance: z.number().int().describe('The current coin balance, which includes this claim.'), delivery, sync }),
     annotations: { readOnlyHint: false, destructiveHint: true },
   }, async (input, ctx) => {
     const claimId = derivedUuid('claim_reward', input.operationId, 'ledger');

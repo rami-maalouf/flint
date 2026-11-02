@@ -4,7 +4,7 @@ import { test, type TestContext } from 'node:test';
 import type { Client } from '@modelcontextprotocol/client';
 import { logoutAll } from 'snapback4/auth';
 
-import { authorize, call, connectClient, createAccount, createPhone, hiddenField, oauthClient, startBackend,
+import { authorize, browser, call, connectClient, createAccount, createPhone, hiddenField, oauthClient, startBackend,
   startService } from './helpers.ts';
 
 test('an assistant signs in with the flint account and reads what the phone synced', async t => {
@@ -87,6 +87,7 @@ test('undo removes only the check-in its operation created, and repeating it is 
   assert.deepEqual((await phoneCheckIns(phone, reading)).map(row => row.id), [kept.checkinId]);
   assert.notEqual(undone.checkinId, kept.checkinId);
   await assert.rejects(call(client, 'undo_checkin', { operationId: randomUUID() }), /NOT_FOUND/);
+  await assert.rejects(call(client, 'create_checkin', { operationId, habitId: reading, timeZone: 'UTC' }), /was undone/);
 });
 
 type Claim = { claimId: string; balance: number; costCoins: number };
@@ -173,12 +174,31 @@ test('disconnecting an app from the connections page stops its access immediatel
   await assert.rejects(client.callTool({ name: 'list_habits', arguments: {} }));
 });
 
-test('a signed-out flint session asks the user to reconnect', async t => {
+test('a signed-out flint session asks the user to reconnect, then sends the client back to sign-in', async t => {
   const { client, backendUrl, account } = await connectedAccount(t);
   await logoutAll(backendUrl, account.session.token);
   const result = await client.callTool({ name: 'list_habits', arguments: {} });
   assert.equal(result.isError, true);
   assert.match(JSON.stringify(result.content), /RECONNECT_REQUIRED/);
+  // the token is no longer accepted, so a standard client starts its oauth flow again.
+  await assert.rejects(client.callTool({ name: 'list_habits', arguments: {} }), /Unauthorized|401/i);
+});
+
+test('repeated wrong passwords from one address are slowed down', async t => {
+  const backendUrl = await startBackend(t);
+  const account = await createAccount(backendUrl);
+  const service = await startService(t, backendUrl);
+  const page = browser(service.origin);
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const response = await page.post('/mcp/connections', { action: 'sign-in', email: account.email, password: 'wrong' },
+      service.origin, { 'x-forwarded-for': '203.0.113.9' });
+    statuses.push(response.status);
+  }
+  assert.deepEqual(statuses.slice(0, 10), Array(10).fill(401));
+  assert.equal(statuses[10], 429);
+  const other = await page.post('/mcp/connections', { action: 'sign-in', email: account.email, password: account.password }, service.origin, { 'x-forwarded-for': '198.51.100.4' });
+  assert.equal(other.status, 303);
 });
 
 test('every read tool answers within its published schema', async t => {
@@ -218,4 +238,18 @@ test('every read tool answers within its published schema', async t => {
   const listing = await call<{ habits: unknown[]; nextCursor: string }>(client, 'list_habits', { limit: 2 });
   const rest = await call<{ habits: unknown[]; nextCursor: null }>(client, 'list_habits', { limit: 2, cursor: listing.nextCursor });
   assert.equal(listing.habits.length + rest.habits.length, 3);
+});
+
+test('narrowing an app to read-only retires the write access it was given before', async t => {
+  const { provider, account, service, reading } = await connectedAccount(t);
+  const writeToken = (await provider.tokens())!.access_token;
+  const checkIn = (token: string) => fetch(`${service.origin}/mcp`, { method: 'POST', headers: {
+    authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    'mcp-protocol-version': '2025-11-25' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: 'create_checkin', arguments: { operationId: randomUUID(), habitId: reading, timeZone: 'UTC' } } }) });
+  assert.equal((await checkIn(writeToken)).status, 200);
+  await new Promise(done => setTimeout(done, 1100));
+  provider.saveTokens(undefined as never);
+  await authorize(service.origin, provider, account, { write: false });
+  assert.equal((await checkIn(writeToken)).status, 401);
 });

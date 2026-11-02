@@ -6,7 +6,7 @@ host=${1:-oracle}
 release=$(git rev-parse HEAD)
 git diff --quiet HEAD -- services/mcp || { echo 'commit services/mcp before deploying' >&2; exit 1; }
 (cd services/mcp && bun install --frozen-lockfile && bun run build)
-tar -czf - -C services/mcp package.json bun.lock dist | ssh "$host" "set -eu
+COPYFILE_DISABLE=1 tar --no-xattrs -czf - -C services/mcp package.json bun.lock dist | ssh "$host" "set -eu
   dir=/opt/flint-mcp/releases/$release
   sudo rm -rf \$dir && sudo install -d -m 755 \$dir
   sudo tar -xzf - -C \$dir

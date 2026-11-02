@@ -43,7 +43,7 @@ test('stored sessions are sealed, refresh near expiry, and are dropped when refu
   assert.ok(!Buffer.from(stored.sealed).toString('utf8').includes(account.session.token));
   assert.equal((await credentials.current('account'))?.token, account.session.token);
   // another key cannot open the session.
-  assert.throws(() => new Credentials(db, 'y'.repeat(32), backendUrl).load('account'));
+  assert.equal(new Credentials(db, 'y'.repeat(32), backendUrl).load('account'), null);
 
   now = account.session.expiresAt - 60 * 60 * 1000;
   const refreshed = await credentials.current('account');
@@ -55,4 +55,18 @@ test('stored sessions are sealed, refresh near expiry, and are dropped when refu
   now = refreshed.expiresAt - 60 * 60 * 1000;
   assert.equal(await credentials.current('account'), null);
   assert.equal(credentials.load('account'), null);
+});
+
+test('an outage during refresh keeps the session; only a refused credential is dropped', async t => {
+  const backendUrl = await startBackend(t);
+  const account = await createAccount(backendUrl);
+  const outage: typeof fetch = async () => new Response('bad gateway', { status: 502 });
+  const now = account.session.expiresAt - 60 * 60 * 1000;
+  const credentials = new Credentials(new DatabaseSync(':memory:'), 'x'.repeat(32), backendUrl, outage, () => now);
+  credentials.save('account', account.session);
+  assert.equal((await credentials.current('account'))?.token, account.session.token);
+  assert.equal(credentials.load('account')?.token, account.session.token);
+  // a newer sign-in is never removed by the failure of an older token.
+  assert.equal(credentials.deleteIfCurrent('account', 'older-token'), false);
+  assert.ok(credentials.load('account'));
 });

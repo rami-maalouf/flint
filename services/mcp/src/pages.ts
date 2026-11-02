@@ -39,10 +39,12 @@ export function signInPage(page: { clientName?: string; action: string; fields: 
     'Use the account you already use in the Flint app. Your password is sent only to Flint.');
 }
 
-export function consentPage(page: { clientName: string; oauthQuery: string; canWrite: boolean; error?: string }): string {
+export function consentPage(page: { clientName: string; returnsTo: string; oauthQuery: string; canWrite: boolean; error?: string }): string {
   const write = page.canWrite ? `<label class="choice"><input type="checkbox" name="write" value="1" checked>` +
     `<span>Make changes<small>Record and undo check-ins, and claim rewards after you confirm the cost.</small></span></label>` : '';
-  return shell('Connect', 'Connect your account', `<p class="client">${escapeHtml(page.clientName)}</p><p class="muted">is asking to:</p>`,
+  // the name is chosen by the app itself; the return address is what a person can check.
+  return shell('Connect', 'Connect your account', `<p class="client">${escapeHtml(page.clientName)}</p>` +
+    `<p class="muted">Returns you to <strong>${escapeHtml(page.returnsTo)}</strong> and is asking to:</p>`,
     `${errorLine(page.error)}<form method="post" action="/mcp/consent">${hidden({ oauth_query: page.oauthQuery })}` +
     `<label class="choice"><input type="checkbox" checked disabled><span>Read your habits<small>Habits, check-ins, stacks, coins and rewards.</small></span></label>` +
     `${write}<button name="decision" value="allow">Allow</button><button class="secondary" name="decision" value="deny" formnovalidate>Cancel</button></form>`,

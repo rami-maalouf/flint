@@ -51,7 +51,7 @@ export async function createApp(config: Config, options: { fetch?: typeof fetch 
   const maintenance = setInterval(() => {
     void (async () => {
       await auth.pruneDisconnected();
-      await auth.credentials.refreshExpiring((accountId, work) => ready.inLane(accountId, work));
+      await auth.credentials.refreshExpiring();
       await ready.deliverPending();
     })().catch(cause => console.error('maintenance failed', cause));
   }, MAINTENANCE_MS);

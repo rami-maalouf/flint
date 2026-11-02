@@ -46,6 +46,7 @@ type Row = { principal: string; nonce: Uint8Array; sealed: Uint8Array; expires_a
 // one snapback session per account, sealed with aes-256-gcm and bound to its account id.
 export class Credentials {
   private readonly key: Buffer;
+  private readonly refreshing = new Map<string, Promise<Session | null>>();
 
   constructor(private readonly db: DatabaseSync, secret: string, private readonly backendUrl: string,
     private readonly fetcher: typeof fetch = fetch, private readonly now: () => number = Date.now) {
@@ -68,15 +69,20 @@ export class Credentials {
     return previous && previous.token !== session.token ? previous : null;
   }
 
+  // a seal that no longer opens, for example after the secret changed, counts as no session.
   load(accountId: string): Session | null {
     const row = this.db.prepare('SELECT principal, nonce, sealed, expires_at FROM flint_accounts WHERE account_id = ?')
       .get(accountId) as Row | undefined;
     if (!row) return null;
-    const sealed = Buffer.from(row.sealed);
-    const decipher = createDecipheriv('aes-256-gcm', this.key, row.nonce).setAAD(Buffer.from(accountId));
-    decipher.setAuthTag(sealed.subarray(-16));
-    const session = JSON.parse(Buffer.concat([decipher.update(sealed.subarray(0, -16)), decipher.final()]).toString('utf8')) as Session;
-    return session.principal === row.principal ? session : null;
+    try {
+      const sealed = Buffer.from(row.sealed);
+      const decipher = createDecipheriv('aes-256-gcm', this.key, row.nonce).setAAD(Buffer.from(accountId));
+      decipher.setAuthTag(sealed.subarray(-16));
+      const session = JSON.parse(Buffer.concat([decipher.update(sealed.subarray(0, -16)), decipher.final()]).toString('utf8')) as Session;
+      return session.principal === row.principal ? session : null;
+    } catch {
+      return null;
+    }
   }
 
   delete(accountId: string): Session | null {
@@ -85,37 +91,59 @@ export class Credentials {
     return session;
   }
 
-  accountsExpiringBefore(instant: number): string[] {
-    return (this.db.prepare('SELECT account_id FROM flint_accounts WHERE expires_at < ?').all(instant) as { account_id: string }[])
-      .map(row => row.account_id);
+  // forgets a session the backend refused, unless a newer sign-in already replaced it.
+  deleteIfCurrent(accountId: string, token: string): boolean {
+    if (this.load(accountId)?.token !== token) return false;
+    this.delete(accountId);
+    return true;
+  }
+
+  list(): { accountId: string; savedAt: number; expiresAt: number }[] {
+    return (this.db.prepare('SELECT account_id, updated_at, expires_at FROM flint_accounts').all() as
+      { account_id: string; updated_at: number; expires_at: number }[])
+      .map(row => ({ accountId: row.account_id, savedAt: row.updated_at, expiresAt: row.expires_at }));
   }
 
   // the usable session, refreshed when close to expiry. null means the user must reconnect.
-  // callers serialize this per account: snapback consumes the old token during a refresh.
-  async current(accountId: string): Promise<Session | null> {
+  // refreshes are serialized per account: snapback consumes the old token during a refresh.
+  current(accountId: string): Promise<Session | null> {
+    const previous = this.refreshing.get(accountId) ?? Promise.resolve(null);
+    const next = previous.catch(() => null).then(() => this.refreshed(accountId));
+    this.refreshing.set(accountId, next);
+    const settle = () => { if (this.refreshing.get(accountId) === next) this.refreshing.delete(accountId); };
+    next.then(settle, settle);
+    return next;
+  }
+
+  // refreshes every session that would expire soon, even for accounts that are idle.
+  async refreshExpiring(): Promise<void> {
+    const soon = this.now() + REFRESH_WINDOW_MS;
+    for (const { accountId } of this.list().filter(row => row.expiresAt < soon)) {
+      await this.current(accountId).catch(() => undefined);
+    }
+  }
+
+  private async refreshed(accountId: string): Promise<Session | null> {
     const session = this.load(accountId);
     if (!session) return null;
     const now = this.now();
     if (session.expiresAt - now > REFRESH_WINDOW_MS) return session;
-    let refreshed;
-    try {
-      refreshed = await refreshSession(this.backendUrl, session.token, this.fetcher);
-    } catch {
-      // offline: keep the current session until it actually expires.
+    const refreshed = await refreshSession(this.backendUrl, session.token,
+      (input, init) => this.fetcher(input, { ...init, signal: AbortSignal.timeout(15_000) }));
+    if (!refreshed.ok) {
+      // only a refusal of the credential ends it; an outage keeps it until it really expires.
+      if (refreshed.why.family === 'auth') {
+        this.deleteIfCurrent(accountId, session.token);
+        return this.load(accountId);
+      }
       return session.expiresAt > now ? session : null;
     }
-    if (!refreshed.ok) {
-      this.delete(accountId);
-      return null;
+    // a sign-in during the refresh already stored a newer session; keep that one.
+    if (this.load(accountId)?.token !== session.token) {
+      void endSession(this.backendUrl, refreshed.session, this.fetcher);
+      return this.load(accountId);
     }
     this.save(accountId, refreshed.session);
     return refreshed.session;
-  }
-
-  // refreshes every session that would expire soon, even for accounts that are idle.
-  async refreshExpiring(run: (accountId: string, work: () => Promise<void>) => Promise<void>): Promise<void> {
-    for (const accountId of this.accountsExpiringBefore(this.now() + REFRESH_WINDOW_MS)) {
-      await run(accountId, async () => { await this.current(accountId); }).catch(() => undefined);
-    }
   }
 }

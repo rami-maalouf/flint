@@ -72,8 +72,13 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
     telemetry: { enabled: false },
     logger: { level: 'error' as const },
     session: { expiresIn: 30 * 24 * 60 * 60, cookieCache: { enabled: false } },
+    // password attempts go through this server to snapback, so they are limited per client ip here.
+    rateLimit: { enabled: true, window: 60, max: 120, customStorage: rateLimitStore(),
+      customRules: { '/flint/sign-in': { window: 300, max: 10 } } },
     advanced: { cookiePrefix: 'flint-mcp', useSecureCookies: origin.startsWith('https:'),
-      defaultCookieAttributes: { httpOnly: true, sameSite: 'lax' as const, path: '/mcp' } },
+      defaultCookieAttributes: { httpOnly: true, sameSite: 'lax' as const, path: '/mcp' },
+      // traefik replaces client-supplied forwarding headers with the connecting address.
+      ipAddress: { ipAddressHeaders: ['x-forwarded-for'] } },
     plugins: [
       snapbackSignIn,
       jwt(),
@@ -91,19 +96,27 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
   const auth = betterAuth(authOptions);
   const context = await auth.$context;
 
-  // access tokens are verified locally against this server's own keys. a token stays valid
-  // only while its consent exists, so disconnecting an app takes effect immediately.
+  // access tokens are verified locally against this server's own keys. a token is accepted only
+  // while the consent that issued it exists and the account still has a snapback session, so a
+  // disconnect takes effect at once and a lost session sends the client back through sign-in.
   async function verify(token: string): Promise<AuthInfo> {
     const keys = createLocalJWKSet(await auth.api.getJwks());
     const { payload } = await jwtVerify(token, keys, { issuer, audience: resource });
     const clientId = typeof payload.azp === 'string' ? payload.azp : payload.client_id;
-    if (typeof payload.sub !== 'string' || typeof clientId !== 'string' || typeof payload.scope !== 'string') {
+    if (typeof payload.sub !== 'string' || typeof clientId !== 'string' || typeof payload.scope !== 'string' ||
+      typeof payload.iat !== 'number') {
       throw new Error('Incomplete access token.');
     }
-    const consent = await context.adapter.findOne({ model: 'oauthConsent', where: [
-      { field: 'userId', value: payload.sub }, { field: 'clientId', value: clientId }] });
-    if (!consent) throw new Error('The connection was disconnected.');
+    const consent = await context.adapter.findOne<{ scopes: string | string[]; createdAt: Date }>({ model: 'oauthConsent',
+      where: [{ field: 'userId', value: payload.sub }, { field: 'clientId', value: clientId }] });
     const scopes = payload.scope.split(' ');
+    const granted = Array.isArray(consent?.scopes) ? consent.scopes : String(consent?.scopes ?? '').split(/[ ,]/);
+    // a token issued before a disconnect and reconnect belongs to the old, removed consent.
+    if (!consent || new Date(consent.createdAt).getTime() > (payload.iat + 1) * 1000 ||
+      scopes.some(scope => !granted.includes(scope))) {
+      throw new Error('The connection was disconnected.');
+    }
+    if (!credentials.load(payload.sub)) throw new Error('The account must sign in again.');
     return { token, clientId, scopes, expiresAt: payload.exp, resource: new URL(resource),
       extra: { account: { accountId: payload.sub, clientId, scopes } satisfies AccountAuth } };
   }
@@ -137,7 +150,7 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
       { email: form.get('email') ?? '', password: form.get('password') ?? '', oauth_query: oauthQuery });
     if (!response.ok) {
       return html(signInPage({ clientName: await clientName(oauthQuery), action: '/mcp/sign-in', fields: { oauth_query: oauthQuery },
-        error: 'Sign-in was refused. Check your email and password.' }), 401, callbackOrigin(oauthQuery));
+        error: refusal(response) }), response.status === 429 ? 429 : 401, callbackOrigin(oauthQuery));
     }
     const { url } = await response.json() as { url?: string };
     return redirect(new URL(url ?? '/mcp/connections', origin).href, response.headers.getSetCookie());
@@ -148,8 +161,8 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
     if (request.method === 'GET') {
       const query = new URL(request.url).search.slice(1);
       const scopes = new URLSearchParams(query).get('scope')?.split(' ') ?? [];
-      return html(consentPage({ clientName: await clientName(query), oauthQuery: query, canWrite: scopes.includes(WRITE_SCOPE) }),
-        200, callbackOrigin(query));
+      return html(consentPage({ clientName: await clientName(query), returnsTo: returnHost(query), oauthQuery: query,
+        canWrite: scopes.includes(WRITE_SCOPE) }), 200, callbackOrigin(query));
     }
     const form = await formData(request);
     const oauthQuery = form.get('oauth_query') ?? '';
@@ -162,12 +175,13 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
   }
 
   async function connections(request: Request): Promise<Response> {
-    const signInForm = (error?: string) => html(signInPage({ action: '/mcp/connections', fields: { action: 'sign-in' }, error }), error ? 401 : 200);
+    const signInForm = (error?: string, status = error ? 401 : 200) =>
+      html(signInPage({ action: '/mcp/connections', fields: { action: 'sign-in' }, error }), status);
     if (request.method === 'POST') {
       const form = await formData(request);
       if (form.get('action') === 'sign-in') {
         const response = await call(request, '/flint/sign-in', { email: form.get('email') ?? '', password: form.get('password') ?? '' });
-        if (!response.ok) return signInForm('Sign-in was refused. Check your email and password.');
+        if (!response.ok) return signInForm(refusal(response), response.status === 429 ? 429 : 401);
         return redirect(`${origin}/mcp/connections`, response.headers.getSetCookie());
       }
       const current = await browserSession(request);
@@ -233,11 +247,17 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
   return {
     credentials, verify, handle,
     resourceMetadataUrl: `${origin}/.well-known/oauth-protected-resource/mcp`,
-    // accounts without any connected app keep no snapback session on this server.
+    // accounts without any connected app keep no snapback session on this server. a fresh
+    // sign-in is spared for an hour, while its person is still on the consent page.
     async pruneDisconnected(): Promise<void> {
-      const rows = db.prepare('SELECT account_id FROM flint_accounts').all() as { account_id: string }[];
-      for (const { account_id: accountId } of rows) {
-        if ((await listConnections(accountId)).length === 0) await forgetAccount(accountId);
+      const settled = Date.now() - 60 * 60 * 1000;
+      for (const { accountId, savedAt } of credentials.list()) {
+        if (savedAt > settled) continue;
+        try {
+          if ((await listConnections(accountId)).length === 0) await forgetAccount(accountId);
+        } catch (cause) {
+          console.error('could not prune an account', cause);
+        }
       }
     },
     close: () => db.close(),
@@ -264,15 +284,49 @@ function secure(response: Response, formTarget?: string): Response {
   return response;
 }
 
-// chromium applies a page's form-action to every redirect after its post, including the
-// final redirect to the client's oauth callback, so pages in the oauth flow allow it.
-function callbackOrigin(oauthQuery: string): string | undefined {
+// a fixed-window counter per instance; better auth's built-in memory store is shared by the whole process.
+function rateLimitStore() {
+  const windows = new Map<string, { count: number; endsAt: number }>();
+  return {
+    async consume(key: string, rule: { window: number; max: number }) {
+      const now = Date.now();
+      for (const [stale, entry] of windows) if (entry.endsAt <= now) windows.delete(stale);
+      const entry = windows.get(key) ?? { count: 0, endsAt: now + rule.window * 1000 };
+      if (entry.count >= rule.max) return { allowed: false, retryAfter: Math.ceil((entry.endsAt - now) / 1000) };
+      windows.set(key, { ...entry, count: entry.count + 1 });
+      return { allowed: true, retryAfter: null };
+    },
+  };
+}
+
+function refusal(response: Response): string {
+  return response.status === 429 ? 'Too many sign-in attempts. Wait a few minutes and try again.'
+    : 'Sign-in was refused. Check your email and password.';
+}
+
+function redirectUri(oauthQuery: string): URL | undefined {
   try {
-    const callback = new URL(new URLSearchParams(oauthQuery).get('redirect_uri') ?? '');
-    return ['https:', 'http:'].includes(callback.protocol) ? callback.origin : `${callback.protocol}`;
+    return new URL(new URLSearchParams(oauthQuery).get('redirect_uri') ?? '');
   } catch {
     return undefined;
   }
+}
+
+// chromium applies a page's form-action to every redirect after its post, including the
+// final redirect to the client's oauth callback, so pages in the oauth flow allow it.
+// only plain origins and schemes are accepted, so a crafted uri cannot add directives.
+function callbackOrigin(oauthQuery: string): string | undefined {
+  const callback = redirectUri(oauthQuery);
+  if (!callback) return undefined;
+  const source = ['https:', 'http:'].includes(callback.protocol) ? callback.origin : callback.protocol;
+  return /^(https?:\/\/[a-z0-9.-]+(:\d+)?|[a-z][a-z0-9+.-]*:)$/i.test(source) ? source : undefined;
+}
+
+// the place the app sends the person back to: the one fact on the consent page an app cannot choose freely.
+function returnHost(oauthQuery: string): string {
+  const callback = redirectUri(oauthQuery);
+  if (!callback) return 'an unknown address';
+  return callback.host || callback.protocol.replace(/:$/, '');
 }
 
 function html(body: string, status = 200, formTarget?: string): Response {
