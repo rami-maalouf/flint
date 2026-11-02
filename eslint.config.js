@@ -17,7 +17,7 @@ const persistenceImportPattern = {
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
+    ignores: ["dist/*", "services/**"],
   },
   {
     files: ['modules/ripples-apple/plugin/**/*.js', 'modules/ripples-apple/tests/plugin/**/*.cjs'],

@@ -1,0 +1,32 @@
+{
+  "name": "flint-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": ">=24.22.2"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --packages=external --outdir=dist",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .test-build && bun build tests/*.test.ts --target=node --packages=external --outdir=.test-build && node --test --test-concurrency=1 '.test-build/*.test.js'"
+  },
+  "dependencies": {
+    "@better-auth/cimd": "1.7.15",
+    "@better-auth/mcp": "1.7.15",
+    "@better-auth/oauth-provider": "1.7.15",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "better-auth": "1.7.15",
+    "jose": "6.2.15",
+    "snapback4": "0.4.49",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "24.10.0",
+    "typescript": "6.0.3"
+  }
+}
