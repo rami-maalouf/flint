@@ -43,6 +43,30 @@ test('failed account binding never persists a new token', async () => {
   assert.equal(await auth.restore(), null);
   assert.equal(manager.getSnapshot().session, null);
 });
+test('a refused sign-in names its real reason', async () => {
+  const refused = async (mode, why) => {
+    const auth = port();
+    auth.authenticate = async () => ({ ok: false, why });
+    const manager = new BackendSession(auth);
+    const error = await manager.signIn(mode, 'person@example.test', 'password', async () => {}).then(() => null, cause => cause);
+    assert.equal(manager.getSnapshot().busy, false);
+    return error?.message;
+  };
+  assert.equal(await refused('login', { code: 'E_AUTH', family: 'auth', message: 'no account matches that email and password' }),
+    'Sign-in was not accepted. Check your email and password.');
+  assert.equal(await refused('login', { code: 'E_OFFLINE', family: 'link', retryable: true, message: 'the request did not complete' }),
+    'The server could not be reached. Your local data is safe. Try again.');
+  assert.equal(await refused('login', { code: 'E_HTTP_RESPONSE', family: 'link', retryable: true, message: 'the server answered HTTP 502' }),
+    'The server could not be reached. Your local data is safe. Try again.');
+  assert.equal(await refused('login', { code: 'E_RATE_LIMIT', family: 'auth', retryable: true, message: 'too many attempts' }),
+    'Too many sign-in attempts. Wait a few minutes and try again.');
+  assert.equal(await refused('signup', { code: 'E_AUTH', family: 'auth', message: 'that email already has an account; sign in instead' }),
+    'That email already has an account; sign in instead.');
+  assert.equal(await refused('signup', { code: 'E_AUTH', family: 'auth', message: 'a password needs at least 8 characters' }),
+    'A password needs at least 8 characters.');
+  assert.equal(await refused('login', { code: 'E_SCHEMA', family: 'release', message: 'internal detail' }),
+    'Flint could not sign you in (E_SCHEMA). Try again.');
+});
 test('expired sessions cannot start a sync', async () => {
   const auth = port();
   await auth.save({ ...session, expiresAt: 1 });

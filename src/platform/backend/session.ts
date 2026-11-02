@@ -1,5 +1,6 @@
 import type { Session, SignIn } from 'snapback4/auth';
 import type { Client } from 'snapback4/client';
+import type { Refusal } from 'snapback4/contract';
 import { SyncTransportError } from '../../core/sync/transport.ts';
 import type { BackendConnection } from './transport.ts';
 
@@ -15,6 +16,18 @@ export type AuthPort = {
   client: (session: Session) => Client;
 };
 class SignInRefused extends Error {}
+
+const UNREACHABLE = 'The server could not be reached. Your local data is safe. Try again.';
+
+// snapback returns network failures as refusals too, so only an auth refusal can blame the credentials.
+function refusalMessage(mode: 'login' | 'signup', why: Refusal): string {
+  if (why.family === 'link') return UNREACHABLE;
+  if (why.code === 'E_RATE_LIMIT') return 'Too many sign-in attempts. Wait a few minutes and try again.';
+  if (why.family !== 'auth') return `Flint could not sign you in (${why.code}). Try again.`;
+  if (mode === 'login') return 'Sign-in was not accepted. Check your email and password.';
+  // signup refusals name the field to fix, such as a taken email or a short password.
+  return `${why.message.charAt(0).toUpperCase()}${why.message.slice(1)}.`;
+}
 
 export class BackendSession {
   private auth: AuthPort;
@@ -52,9 +65,7 @@ export class BackendSession {
     this.publish({ ...this.snapshot, busy: true, error: null });
     try {
       const result = await this.auth.authenticate(mode, email.trim(), password);
-      if (!result.ok) throw new SignInRefused(mode === 'login'
-        ? 'Sign-in was not accepted. Check your email and password.'
-        : 'The account could not be created. Check your email and use a password of at least 8 characters.');
+      if (!result.ok) throw new SignInRefused(refusalMessage(mode, result.why));
       await bind(result.session);
       await this.auth.save(result.session);
       this.generation++;
@@ -64,7 +75,7 @@ export class BackendSession {
     } catch (cause) {
       this.publish({ ...this.snapshot, busy: false });
       if (cause instanceof SyncTransportError || cause instanceof SignInRefused) throw cause;
-      throw new Error('The server could not be reached. Your local data is safe. Try again.');
+      throw new Error(UNREACHABLE);
     }
   };
   signOut = async (): Promise<void> => {
