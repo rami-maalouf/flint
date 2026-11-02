@@ -5,7 +5,10 @@ import { createClient } from 'snapback4/client';
 
 import { api } from '../../../snapback/generated/api.ts';
 
-export class SignInRefused extends Error {}
+// family 'auth' means snapback judged the credentials; 'link' means it could not be reached.
+export class SignInRefused extends Error {
+  constructor(readonly code: string, readonly family: string) { super(code); }
+}
 
 export type VerifiedAccount = { accountId: string; principal: string; session: Session };
 
@@ -19,13 +22,13 @@ export function accountIdFor(backendUrl: string, principal: string): string {
 export async function verifySignIn(backendUrl: string, email: string, password: string,
   fetcher: typeof fetch = fetch): Promise<VerifiedAccount> {
   const result = await login(backendUrl, email, password, { scope: 'full', timeoutMs: 15_000 }, fetcher);
-  if (!result.ok) throw new SignInRefused(result.why.code);
+  if (!result.ok) throw new SignInRefused(result.why.code, result.why.family);
   const { session } = result;
   const client = createClient({ url: backendUrl, token: session.token, fetch: fetcher });
   try {
     const profile = await client.query(api.profile, {});
     // an empty account has no profile row, so the authenticated viewer is the identity proof.
-    if ('denied' in profile || client.viewer() !== session.principal) throw new SignInRefused('IDENTITY');
+    if ('denied' in profile || client.viewer() !== session.principal) throw new SignInRefused('IDENTITY', 'identity');
   } finally {
     await client.close();
   }

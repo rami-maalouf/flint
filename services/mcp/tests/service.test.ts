@@ -204,6 +204,25 @@ test('repeated wrong passwords from one address are slowed down', async t => {
   assert.equal(other.status, 303);
 });
 
+test('a sign-in tells a wrong password apart from an unreachable flint server', async t => {
+  const backendUrl = await startBackend(t);
+  const account = await createAccount(backendUrl);
+  const service = await startService(t, backendUrl);
+  const wrong = await browser(service.origin).post('/mcp/connections', { action: 'sign-in', email: account.email, password: 'wrong' });
+  assert.equal(wrong.status, 401);
+  const retry = await wrong.text();
+  assert.match(retry, /Check your email and password/);
+  assert.ok(retry.includes(`value="${account.email}"`), 'the email stays filled in for the retry');
+  assert.doesNotMatch(retry, /value="wrong"/);
+  // nothing listens on the discard port, as when the backend is down.
+  const offline = await startService(t, 'http://127.0.0.1:9');
+  const unreachable = await browser(offline.origin).post('/mcp/connections', { action: 'sign-in', email: account.email, password: account.password });
+  assert.equal(unreachable.status, 503);
+  const page = await unreachable.text();
+  assert.match(page, /Flint could not be reached/);
+  assert.doesNotMatch(page, /Check your email and password/);
+});
+
 test('every read tool answers within its published schema', async t => {
   const { client, phone, reading, meditation, movie } = await connectedAccount(t);
   const stretch = await phone.habit({ title: 'Stretch', kind: 'daily', after: meditation });

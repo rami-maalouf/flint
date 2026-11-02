@@ -54,8 +54,11 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
           account = await verifySignIn(backendUrl, ctx.body.email, ctx.body.password, fetcher);
         } catch (cause) {
           // the refusal code tells a wrong password from an outage; credentials are never logged.
-          console.warn('sign-in refused:', cause instanceof SignInRefused ? cause.message : String(cause));
-          throw new APIError('UNAUTHORIZED', { message: 'Sign-in was refused. Check your email and password.' });
+          console.warn('sign-in refused:', cause instanceof SignInRefused ? cause.code : String(cause));
+          if (cause instanceof SignInRefused && cause.code === 'E_RATE_LIMIT') throw new APIError('TOO_MANY_REQUESTS');
+          // only snapback's verdict on the credentials may blame the password.
+          if (cause instanceof SignInRefused && cause.family === 'auth') throw new APIError('UNAUTHORIZED');
+          throw new APIError('SERVICE_UNAVAILABLE');
         }
         const { internalAdapter } = ctx.context;
         const user = await internalAdapter.findUserById(account.accountId) ?? await internalAdapter.createUser({
@@ -156,7 +159,7 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
       { email: form.get('email') ?? '', password: form.get('password') ?? '', oauth_query: oauthQuery });
     if (!response.ok) {
       return html(signInPage({ clientName: await clientName(oauthQuery), action: '/mcp/sign-in', fields: { oauth_query: oauthQuery },
-        error: refusal(response) }), response.status === 429 ? 429 : 401, callbackOrigin(oauthQuery));
+        email: form.get('email') ?? '', error: refusal(response) }), refusalStatus(response), callbackOrigin(oauthQuery));
     }
     const { url } = await response.json() as { url?: string };
     return redirect(new URL(url ?? '/mcp/connections', origin).href, response.headers.getSetCookie());
@@ -181,13 +184,13 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
   }
 
   async function connections(request: Request): Promise<Response> {
-    const signInForm = (error?: string, status = error ? 401 : 200) =>
-      html(signInPage({ action: '/mcp/connections', fields: { action: 'sign-in' }, error }), status);
+    const signInForm = (error?: string, status = error ? 401 : 200, email?: string) =>
+      html(signInPage({ action: '/mcp/connections', fields: { action: 'sign-in' }, email, error }), status);
     if (request.method === 'POST') {
       const form = await formData(request);
       if (form.get('action') === 'sign-in') {
         const response = await call(request, '/flint/sign-in', { email: form.get('email') ?? '', password: form.get('password') ?? '' });
-        if (!response.ok) return signInForm(refusal(response), response.status === 429 ? 429 : 401);
+        if (!response.ok) return signInForm(refusal(response), refusalStatus(response), form.get('email') ?? '');
         return redirect(`${origin}/mcp/connections`, response.headers.getSetCookie());
       }
       const current = await browserSession(request);
@@ -307,8 +310,14 @@ function rateLimitStore() {
 }
 
 function refusal(response: Response): string {
-  return response.status === 429 ? 'Too many sign-in attempts. Wait a few minutes and try again.'
-    : 'Sign-in was refused. Check your email and password.';
+  if (response.status === 429) return 'Too many sign-in attempts. Wait a few minutes and try again.';
+  if (response.status === 503) return 'Flint could not be reached just now. Your password was not checked. Try again in a minute.';
+  return 'Sign-in was refused. Check your email and password.';
+}
+
+// the page keeps the refusal's status, so a client or log can tell an outage from a wrong password.
+function refusalStatus(response: Response): number {
+  return response.status === 429 || response.status === 503 ? response.status : 401;
 }
 
 function redirectUri(oauthQuery: string): URL | undefined {

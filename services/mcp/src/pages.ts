@@ -22,20 +22,22 @@ function shell(title: string, heading: string, intro: string, body: string, foot
     `${footer ? `<footer>${footer}</footer>` : ''}</main></body></html>`;
 }
 
-const credentials = '<label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" maxlength="320" required>' +
-  '<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>';
+// a refused sign-in keeps the email, so a retry needs only the password.
+const credentials = (email = '') => '<label for="email">Email</label>' +
+  `<input id="email" name="email" type="email" autocomplete="username" maxlength="320" value="${escapeHtml(email)}" required>` +
+  `<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required${email ? ' autofocus' : ''}>`;
 
 const hidden = (fields: Record<string, string>) => Object.entries(fields)
   .map(([name, value]) => `<input type="hidden" name="${name}" value="${escapeHtml(value)}">`).join('');
 
 const errorLine = (error?: string) => error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : '';
 
-export function signInPage(page: { clientName?: string; action: string; fields: Record<string, string>; error?: string }): string {
+export function signInPage(page: { clientName?: string; action: string; fields: Record<string, string>; email?: string; error?: string }): string {
   const intro = page.clientName
     ? `<p class="client">${escapeHtml(page.clientName)}</p><p class="muted">wants to connect to your Flint account.</p>`
     : '<p class="muted">Sign in to manage the apps connected to your account.</p>';
   return shell('Sign in', 'Sign in to Flint', intro,
-    `${errorLine(page.error)}<form method="post" action="${page.action}">${hidden(page.fields)}${credentials}<button type="submit">Continue</button></form>`,
+    `${errorLine(page.error)}<form method="post" action="${page.action}">${hidden(page.fields)}${credentials(page.email)}<button type="submit">Continue</button></form>`,
     'Use the account you already use in the Flint app. Your password is sent only to Flint.');
 }
 
