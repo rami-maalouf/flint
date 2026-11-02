@@ -97,8 +97,9 @@ export class Credentials {
   // account's oauth refresh tokens go too, so clients start sign-in instead of looping on 401s.
   async deleteIfCurrent(accountId: string, token: string): Promise<boolean> {
     if (this.load(accountId)?.token !== token) return false;
-    this.delete(accountId);
+    // tokens first: if revoking fails, the session stays and the next attempt repeats both.
     await this.onLost(accountId);
+    this.delete(accountId);
     return true;
   }
 
