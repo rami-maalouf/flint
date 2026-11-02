@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import type { Config } from './config.ts';
 import { connectionsPage, consentPage, messagePage, signInPage, type Connection } from './pages.ts';
-import { Credentials, endSession, verifySignIn } from './snapback.ts';
+import { Credentials, endSession, SignInRefused, verifySignIn } from './snapback.ts';
 
 export const READ_SCOPE = 'habits:read';
 export const WRITE_SCOPE = 'habits:write';
@@ -52,7 +52,9 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
         let account;
         try {
           account = await verifySignIn(backendUrl, ctx.body.email, ctx.body.password, fetcher);
-        } catch {
+        } catch (cause) {
+          // the refusal code tells a wrong password from an outage; credentials are never logged.
+          console.warn('sign-in refused:', cause instanceof SignInRefused ? cause.message : String(cause));
           throw new APIError('UNAUTHORIZED', { message: 'Sign-in was refused. Check your email and password.' });
         }
         const { internalAdapter } = ctx.context;
