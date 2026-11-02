@@ -135,7 +135,7 @@ export function browser(origin: string) {
   const cookies = new Map<string, string>();
   const request = async (url: string | URL, init: RequestInit = {}) => {
     const response = await fetch(new URL(url, origin), { redirect: 'manual', ...init,
-      headers: { accept: 'text/html', cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; '), ...init.headers } });
+      headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; '), ...init.headers } });
     for (const cookie of response.headers.getSetCookie()) {
       const [name, ...value] = cookie.split(';')[0].split('=');
       cookies.set(name, value.join('='));
@@ -162,7 +162,7 @@ export async function authorize(origin: string, provider: ReturnType<typeof oaut
   assert.equal(await auth(provider, { serverUrl: resource }), 'REDIRECT');
   const page = browser(origin);
   let response = await page.get(provider.authorizationUrl()!);
-  assert.equal(response.status, 303, await response.clone().text());
+  assert.ok([302, 303].includes(response.status), await response.clone().text());
   response = await page.get(response.headers.get('location')!);
   assert.equal(response.status, 200);
   let html = await response.text();

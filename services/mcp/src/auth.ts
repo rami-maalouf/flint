@@ -222,7 +222,8 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
     if (!discovery && !PUBLIC_ENDPOINTS.includes(pathname)) return null;
     const response = await auth.handler(request);
     // the provider answers authorize with json for script callers; a browser needs a redirect.
-    if (pathname === BASE_PATH + '/oauth2/authorize' && response.headers.get('content-type')?.includes('application/json')) {
+    if (pathname === BASE_PATH + '/oauth2/authorize' && response.status === 200 &&
+      response.headers.get('content-type')?.includes('application/json')) {
       const { redirect: next, url } = await response.clone().json() as { redirect?: boolean; url?: string };
       if (next && url) return redirect(new URL(url, origin).href, response.headers.getSetCookie());
     }
