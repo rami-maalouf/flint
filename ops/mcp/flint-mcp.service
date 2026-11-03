@@ -1,0 +1,37 @@
+[Unit]
+Description=Flint MCP server
+After=network-online.target habit-system-fullstack.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=habitmcp
+Group=habitmcp
+WorkingDirectory=/opt/flint-mcp/current
+Environment=NODE_ENV=production
+Environment=FLINT_MCP_ORIGIN=https://habits.ramimaalouf.com
+# the backend on loopback: no proxy hop, and assistants keep working if public routing breaks.
+Environment=FLINT_MCP_BACKEND_URL=http://127.0.0.1:4410
+Environment=FLINT_MCP_DATA_DIR=/var/lib/flint-mcp
+Environment=FLINT_MCP_PORT=4413
+LoadCredential=flint-mcp-secret:/etc/flint-mcp/secret
+StateDirectory=flint-mcp
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+CPUQuota=100%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

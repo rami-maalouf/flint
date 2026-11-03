@@ -1,0 +1,10 @@
+[Unit]
+Description=Flint MCP bridge from the Traefik network
+Requires=docker.service
+After=docker.service
+
+[Socket]
+ListenStream=172.26.0.1:4414
+
+[Install]
+WantedBy=sockets.target

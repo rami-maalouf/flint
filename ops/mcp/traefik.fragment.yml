@@ -1,0 +1,23 @@
+# merge these entries into /matrix/traefik/config/provider.yml next to the existing ones.
+# the habit-system-fullstack router keeps serving every other path on this host.
+http:
+  routers:
+    flint-mcp:
+      rule: >-
+        Host(`habits.ramimaalouf.com`) && (Path(`/mcp`) || PathPrefix(`/mcp/`) ||
+        Path(`/.well-known/oauth-protected-resource/mcp`) ||
+        Path(`/.well-known/oauth-authorization-server/mcp/auth`) ||
+        Path(`/.well-known/openid-configuration/mcp/auth`))
+      priority: 10000
+      entryPoints:
+        - web-secure
+      service: flint-mcp
+      tls:
+        certResolver: default
+  services:
+    flint-mcp:
+      loadBalancer:
+        servers:
+          - url: http://172.26.0.1:4414
+        responseForwarding:
+          flushInterval: -1ms

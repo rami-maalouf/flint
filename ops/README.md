@@ -45,7 +45,7 @@ Check the pinned CLI's help before future releases. Initial deployment is releas
 
 ## Backups and restoration
 
-`backup-oracle.sh`, installed as `/opt/habit-system-fullstack/backup.sh`, stops only the Habit System backend, archives the entire deployment including SQLite sidecars/assets/releases, and restarts the service through a trap. Archives are private mode 0600 in `/var/backups/habit-system-fullstack`.
+`backup-oracle.sh`, installed as `/opt/habit-system-fullstack/backup.sh`, stops the Habit System backend and the MCP server, archives the entire backend deployment including SQLite sidecars/assets/releases and, separately, `/var/lib/flint-mcp`, and restarts both through a trap. Archives are private mode 0600 in `/var/backups/habit-system-fullstack`.
 
 The timer runs daily at 04:00 UTC plus up to five minutes of jitter, including missed runs after reboot. Initial next run: 2026-10-31 04:04:24 UTC. Sync briefly pauses during backup; local commands continue offline. Retention and ongoing off-host replication are not automated. Monitor disk usage and transfer archives to independent storage; the rehearsal includes one such off-host copy in ignored private artifacts.
 
@@ -63,4 +63,6 @@ The app uses Snapback identity, typed queries/mutations, access rules, observati
 
 The session manager owns SecureStore persistence and expiration. Its SDK connection uses the supported bearer-token option, preventing SDK-managed rotation from replacing a token without saving it. Expired sessions require sign-in again; offline local use continues. Automatic session renewal is not implemented.
 
-Snapback 4's pinned CLI has no verified MCP interface. MCP files in the older Snapback tree do not establish a working v4 service. Jobs, presence and media features are not added without a product use. Never expose development doors or claim an unimplemented MCP endpoint.
+Snapback 4 itself has no MCP interface. The app's own MCP server, `services/mcp`, runs beside the backend as `flint-mcp.service` on loopback port 4413 and is routed by the `flint-mcp` Traefik router for `/mcp` and its OAuth discovery paths; see `services/mcp/README.md` and `ops/mcp/`. Jobs, presence and media features are not added without a product use. Never expose development doors.
+
+`/matrix/traefik/config/provider.yml` is shared with other services on the host and with the Matrix playbook. Edit it by merging entries, never by copying an older backup over it: on 2026-11-02 the `habit-system-fullstack` router was found missing and the public backend returned 404 until it was restored.

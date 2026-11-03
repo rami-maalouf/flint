@@ -1,0 +1,43 @@
+name: MCP service
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - services/mcp/**
+      - src/core/**
+      - src/platform/backend/**
+      - snapback/**
+      - .github/workflows/mcp.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: services/mcp/.node-version
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.3
+      # the root install generates the typed snapback api the service shares with the app.
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: services/mcp
+      - run: bun run typecheck
+        working-directory: services/mcp
+      - run: bun run test
+        working-directory: services/mcp
+      - run: bun run build
+        working-directory: services/mcp
