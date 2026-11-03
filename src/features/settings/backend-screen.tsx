@@ -155,7 +155,7 @@ function BackendBody() {
                 <AppText>{mode === 'login' ? 'Create an account' : 'Already have an account? Sign in'}</AppText>
               </ProductPressable>
             </View>}
-        {/* the error sits right under the action that caused it. */}
+        {/* sign-in and sync errors sit above the incoming-data details, close to the account actions. */}
         {error || sync.error ? <InlineError message={error ?? sync.error!} testID="backend-error" /> : null}
         <SettingsGroup title="Incoming data on this device">
           <SettingsRow title="Waiting for related data" detail={ready ? String(ready.incoming.pending) : '…'} />

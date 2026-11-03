@@ -21,12 +21,15 @@ const UNREACHABLE = 'The server could not be reached. Your local data is safe. T
 
 // snapback returns network failures as refusals too, so only an auth refusal can blame the credentials.
 function refusalMessage(mode: 'login' | 'signup', why: Refusal): string {
-  if (why.family === 'link') return UNREACHABLE;
-  if (why.code === 'E_RATE_LIMIT') return 'Too many sign-in attempts. Wait a few minutes and try again.';
+  // a signup can reach the server even when its answer is lost, so the account may already exist.
+  if (why.family === 'link') return mode === 'signup' ? `${UNREACHABLE} If the account was created, sign in instead.` : UNREACHABLE;
+  // snapback also sends this when its password checks are all busy, not only after many attempts.
+  if (why.code === 'E_RATE_LIMIT') return 'The server is busy. Wait a moment and try again.';
   if (why.family !== 'auth') return `Flint could not sign you in (${why.code}). Try again.`;
   if (mode === 'login') return 'Sign-in was not accepted. Check your email and password.';
   // signup refusals name the field to fix, such as a taken email or a short password.
-  return `${why.message.charAt(0).toUpperCase()}${why.message.slice(1)}.`;
+  const message = `${why.message.charAt(0).toUpperCase()}${why.message.slice(1)}`;
+  return /[.!?]$/.test(message) ? message : `${message}.`;
 }
 
 export class BackendSession {
@@ -64,7 +67,8 @@ export class BackendSession {
     if (this.snapshot.busy) return;
     this.publish({ ...this.snapshot, busy: true, error: null });
     try {
-      const result = await this.auth.authenticate(mode, email.trim(), password);
+      const result = await this.auth.authenticate(mode, email.trim(), password)
+        .catch(() => { throw new SignInRefused(UNREACHABLE); });
       if (!result.ok) throw new SignInRefused(refusalMessage(mode, result.why));
       await bind(result.session);
       await this.auth.save(result.session);
@@ -75,7 +79,8 @@ export class BackendSession {
     } catch (cause) {
       this.publish({ ...this.snapshot, busy: false });
       if (cause instanceof SyncTransportError || cause instanceof SignInRefused) throw cause;
-      throw new Error(UNREACHABLE);
+      // the server accepted the sign-in; only this device failed to keep it.
+      throw new Error('Your sign-in could not be saved on this device. Try again.');
     }
   };
   signOut = async (): Promise<void> => {

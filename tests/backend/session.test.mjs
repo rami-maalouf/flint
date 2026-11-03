@@ -59,13 +59,31 @@ test('a refused sign-in names its real reason', async () => {
   assert.equal(await refused('login', { code: 'E_HTTP_RESPONSE', family: 'link', retryable: true, message: 'the server answered HTTP 502' }),
     'The server could not be reached. Your local data is safe. Try again.');
   assert.equal(await refused('login', { code: 'E_RATE_LIMIT', family: 'auth', retryable: true, message: 'too many attempts' }),
-    'Too many sign-in attempts. Wait a few minutes and try again.');
+    'The server is busy. Wait a moment and try again.');
+  assert.equal(await refused('signup', { code: 'E_OFFLINE', family: 'link', retryable: true, message: 'the request did not complete' }),
+    'The server could not be reached. Your local data is safe. Try again. If the account was created, sign in instead.');
+  assert.equal(await refused('signup', { code: 'E_AUTH', family: 'auth', message: 'that email is not allowed.' }),
+    'That email is not allowed.');
+  assert.equal(await refused('login', { code: 'E_GENERATION', family: 'generation', retryable: true, message: 'internal detail' }),
+    'Flint could not sign you in (E_GENERATION). Try again.');
   assert.equal(await refused('signup', { code: 'E_AUTH', family: 'auth', message: 'that email already has an account; sign in instead' }),
     'That email already has an account; sign in instead.');
   assert.equal(await refused('signup', { code: 'E_AUTH', family: 'auth', message: 'a password needs at least 8 characters' }),
     'A password needs at least 8 characters.');
   assert.equal(await refused('login', { code: 'E_SCHEMA', family: 'release', message: 'internal detail' }),
     'Flint could not sign you in (E_SCHEMA). Try again.');
+});
+test('a sign-in tells an unreachable server apart from a device that could not keep the session', async () => {
+  const offline = port();
+  offline.authenticate = async () => { throw new TypeError('network request failed'); };
+  await assert.rejects(new BackendSession(offline).signIn('login', 'person@example.test', 'password', async () => {}),
+    /server could not be reached/);
+  const local = port();
+  local.save = async () => { throw new Error('keychain unavailable'); };
+  const manager = new BackendSession(local);
+  await assert.rejects(manager.signIn('login', 'person@example.test', 'password', async () => {}), /could not be saved on this device/);
+  assert.equal(manager.getSnapshot().busy, false);
+  assert.equal(manager.getSnapshot().session, null);
 });
 test('expired sessions cannot start a sync', async () => {
   const auth = port();
