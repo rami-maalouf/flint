@@ -1,5 +1,6 @@
 import type { Session, SignIn } from 'snapback4/auth';
 import type { Client } from 'snapback4/client';
+import type { Refusal } from 'snapback4/contract';
 import { SyncTransportError } from '../../core/sync/transport.ts';
 import type { BackendConnection } from './transport.ts';
 
@@ -15,6 +16,21 @@ export type AuthPort = {
   client: (session: Session) => Client;
 };
 class SignInRefused extends Error {}
+
+const UNREACHABLE = 'The server could not be reached. Your local data is safe. Try again.';
+
+// snapback returns network failures as refusals too, so only an auth refusal can blame the credentials.
+function refusalMessage(mode: 'login' | 'signup', why: Refusal): string {
+  // a signup can reach the server even when its answer is lost, so the account may already exist.
+  if (why.family === 'link') return mode === 'signup' ? `${UNREACHABLE} If the account was created, sign in instead.` : UNREACHABLE;
+  // snapback also sends this when its password checks are all busy, not only after many attempts.
+  if (why.code === 'E_RATE_LIMIT') return 'The server is busy. Wait a moment and try again.';
+  if (why.family !== 'auth') return `Flint could not sign you in (${why.code}). Try again.`;
+  if (mode === 'login') return 'Sign-in was not accepted. Check your email and password.';
+  // signup refusals name the field to fix, such as a taken email or a short password.
+  const message = `${why.message.charAt(0).toUpperCase()}${why.message.slice(1)}`;
+  return /[.!?]$/.test(message) ? message : `${message}.`;
+}
 
 export class BackendSession {
   private auth: AuthPort;
@@ -51,10 +67,9 @@ export class BackendSession {
     if (this.snapshot.busy) return;
     this.publish({ ...this.snapshot, busy: true, error: null });
     try {
-      const result = await this.auth.authenticate(mode, email.trim(), password);
-      if (!result.ok) throw new SignInRefused(mode === 'login'
-        ? 'Sign-in was not accepted. Check your email and password.'
-        : 'The account could not be created. Check your email and use a password of at least 8 characters.');
+      const result = await this.auth.authenticate(mode, email.trim(), password)
+        .catch(() => { throw new SignInRefused(UNREACHABLE); });
+      if (!result.ok) throw new SignInRefused(refusalMessage(mode, result.why));
       await bind(result.session);
       await this.auth.save(result.session);
       this.generation++;
@@ -64,7 +79,8 @@ export class BackendSession {
     } catch (cause) {
       this.publish({ ...this.snapshot, busy: false });
       if (cause instanceof SyncTransportError || cause instanceof SignInRefused) throw cause;
-      throw new Error('The server could not be reached. Your local data is safe. Try again.');
+      // the server accepted the sign-in; only this device failed to keep it.
+      throw new Error('Your sign-in could not be saved on this device. Try again.');
     }
   };
   signOut = async (): Promise<void> => {

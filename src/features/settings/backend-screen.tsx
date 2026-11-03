@@ -155,12 +155,13 @@ function BackendBody() {
                 <AppText>{mode === 'login' ? 'Create an account' : 'Already have an account? Sign in'}</AppText>
               </ProductPressable>
             </View>}
+        {/* sign-in and sync errors sit above the incoming-data details, close to the account actions. */}
+        {error || sync.error ? <InlineError message={error ?? sync.error!} testID="backend-error" /> : null}
         <SettingsGroup title="Incoming data on this device">
           <SettingsRow title="Waiting for related data" detail={ready ? String(ready.incoming.pending) : '…'} />
           <SettingsRow title="At processing limit" detail={ready ? String(ready.incoming.blocked) : '…'} />
           <SettingsRow title="Conflicting or invalid data" detail={ready ? String(ready.incoming.quarantined) : '…'} />
         </SettingsGroup>
-        {error || sync.error ? <InlineError message={error ?? sync.error!} testID="backend-error" /> : null}
         {summary.status === 'error' ? <InlineError message="Sync information could not be loaded. Your local data is still available." /> : null}
         <AppText variant="footnote">Server: {new URL(backendUrl).host}</AppText>
       </ScrollView>
