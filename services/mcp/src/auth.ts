@@ -144,7 +144,13 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
     headers.delete('content-length');
-    return auth.handler(new Request(issuer + path, { method: 'POST', headers, body: JSON.stringify(body) }));
+    const response = await auth.handler(new Request(issuer + path, { method: 'POST', headers, body: JSON.stringify(body) }));
+    // the error code says which check refused the form; the form's values are never logged.
+    if (!response.ok) {
+      const error = await response.clone().json().catch(() => ({})) as { code?: string; error?: string };
+      console.warn('auth call refused:', path, response.status, error.code ?? error.error ?? '');
+    }
+    return response;
   }
 
   async function signIn(request: Request): Promise<Response> {
@@ -309,15 +315,18 @@ function rateLimitStore() {
   };
 }
 
+// only a 401 is snapback's verdict on the credentials; every other refusal leaves the password unjudged.
 function refusal(response: Response): string {
+  if (response.status === 401) return 'Sign-in was refused. Check your email and password.';
   if (response.status === 429) return 'Too many sign-in attempts. Wait a few minutes and try again.';
   if (response.status === 503) return 'Flint could not be reached just now. Your password was not checked. Try again in a minute.';
-  return 'Sign-in was refused. Check your email and password.';
+  if (response.status === 400) return 'The sign-in form was incomplete. Enter your email and password and try again.';
+  return `Flint could not finish signing you in (error ${response.status}). Your password was not checked. Reload the page and try again.`;
 }
 
 // the page keeps the refusal's status, so a client or log can tell an outage from a wrong password.
 function refusalStatus(response: Response): number {
-  return response.status === 429 || response.status === 503 ? response.status : 401;
+  return response.status;
 }
 
 function redirectUri(oauthQuery: string): URL | undefined {

@@ -214,6 +214,12 @@ test('a sign-in tells a wrong password apart from an unreachable flint server', 
   assert.match(retry, /Check your email and password/);
   assert.ok(retry.includes(`value="${account.email}"`), 'the email stays filled in for the retry');
   assert.doesNotMatch(retry, /value="wrong"/);
+  // a form the server cannot read never blames the password.
+  const incomplete = await browser(service.origin).post('/mcp/connections', { action: 'sign-in', email: account.email, password: '' });
+  assert.equal(incomplete.status, 400);
+  const blank = await incomplete.text();
+  assert.match(blank, /form was incomplete/);
+  assert.doesNotMatch(blank, /Check your email and password/);
   // nothing listens on the discard port, as when the backend is down.
   const offline = await startService(t, 'http://127.0.0.1:9');
   const unreachable = await browser(offline.origin).post('/mcp/connections', { action: 'sign-in', email: account.email, password: account.password });
