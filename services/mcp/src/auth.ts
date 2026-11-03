@@ -144,6 +144,11 @@ export async function createAuth(config: Config, options: { fetch?: typeof fetch
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
     headers.delete('content-length');
+    // a browser marks a form submit as a navigation, and better auth then answers with a redirect
+    // instead of json. this call wants the json; the page sends the browser on afterwards.
+    headers.set('accept', 'application/json');
+    headers.delete('sec-fetch-mode');
+    headers.delete('sec-fetch-dest');
     const response = await auth.handler(new Request(issuer + path, { method: 'POST', headers, body: JSON.stringify(body) }));
     // the error code says which check refused the form; the form's values are never logged.
     if (!response.ok) {

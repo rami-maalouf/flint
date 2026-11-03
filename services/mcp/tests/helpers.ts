@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { TestContext } from 'node:test';
@@ -134,12 +134,30 @@ export function oauthClient(name = 'Test assistant') {
   } satisfies OAuthClientProvider & { authorizationUrl: () => URL | undefined };
 }
 
+// fetch overwrites sec-fetch-mode with `cors`, so browser navigations are sent over plain http.
+function navigate(url: URL, method: string, headers: Record<string, string>, body?: string): Promise<Response> {
+  return new Promise((done, fail) => {
+    const sent = httpRequest(url, { method, headers }, incoming => {
+      const chunks: Buffer[] = [];
+      incoming.on('data', chunk => chunks.push(chunk)).on('error', fail).on('end', () => {
+        const received = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          for (const item of [value ?? []].flat()) received.append(name, item);
+        }
+        const status = incoming.statusCode ?? 500;
+        done(new Response([204, 304].includes(status) ? null : Buffer.concat(chunks), { status, headers: received }));
+      });
+    });
+    sent.on('error', fail).end(body);
+  });
+}
+
 // a browser with a cookie jar that never follows redirects on its own.
 export function browser(origin: string) {
   const cookies = new Map<string, string>();
-  const request = async (url: string | URL, init: RequestInit = {}) => {
-    const response = await fetch(new URL(url, origin), { redirect: 'manual', ...init,
-      headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; '), ...init.headers } });
+  const request = async (url: string | URL, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => {
+    const response = await navigate(new URL(url, origin), init.method ?? 'GET', { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; '), ...init.headers }, init.body);
     for (const cookie of response.headers.getSetCookie()) {
       const [name, ...value] = cookie.split(';')[0].split('=');
       cookies.set(name, value.join('='));
@@ -149,8 +167,10 @@ export function browser(origin: string) {
   return {
     get: (url: string | URL) => request(url),
     post: (url: string, body: Record<string, string>, from = origin, headers: Record<string, string> = {}) => request(url,
-      { method: 'POST', headers: { origin: from, 'content-type': 'application/x-www-form-urlencoded', ...headers },
-        body: new URLSearchParams(body) }),
+      // a form submit is a navigation, so the browser marks it like one.
+      { method: 'POST', headers: { origin: from, 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document', 'sec-fetch-site': from === origin ? 'same-origin' : 'cross-site', ...headers },
+        body: new URLSearchParams(body).toString() }),
   };
 }
 
