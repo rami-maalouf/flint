@@ -65,6 +65,7 @@
     "start": "EXPO_UNSTABLE_MCP_SERVER=1 bun expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "ios:cloud": "cloudsim ios",
     "web": "expo start --web",
     "lint": "expo lint && eslint modules/ripples-apple/plugin modules/ripples-apple/tests/plugin",
     "typecheck": "tsc --noEmit",
