@@ -22,6 +22,7 @@ export const icons = {
   chevronRight: { sfSymbol: 'chevron.right', fallbackGlyph: '›' },
   arrowUp: { sfSymbol: 'arrow.up', fallbackGlyph: '↑' },
   arrowDown: { sfSymbol: 'arrow.down', fallbackGlyph: '↓' },
+  flameOutline: { sfSymbol: 'flame', fallbackGlyph: '△' },
   flame: { sfSymbol: 'flame.fill', fallbackGlyph: '▲' },
 } as const;
 

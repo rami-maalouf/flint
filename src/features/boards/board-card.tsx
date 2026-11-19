@@ -55,18 +55,25 @@ export function BoardCard({ card, layout = 'compact', onOpen, onQuickCheckIn, qu
           <AppText variant="headline" numberOfLines={detailed ? undefined : 1} selectable={false}>
             {card.board.title}
           </AppText>
-          {showStreak ? <View testID={`${testID}-streak`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <Icon name="flame" size={11} color={flameColor} />
-            <AppText variant="footnote" selectable={false}
-              style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
-              {streak}
-            </AppText>
-          </View> : null}
-          {halfStreakHint ? (
-            <AppText variant="footnote" selectable={false} testID={`${testID}-half-streak`}
-              style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
-              {halfStreakHint}
-            </AppText>
+          {showStreak || halfStreakHint ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }}>
+              {showStreak ? (
+                <View testID={`${testID}-streak`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="flame" size={11} color={flameColor} />
+                  <AppText variant="footnote" selectable={false} style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
+                    {streak}
+                  </AppText>
+                </View>
+              ) : null}
+              {halfStreakHint ? (
+                <View testID={`${testID}-half-streak`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="flameOutline" size={11} color={flameColor} />
+                  <AppText variant="footnote" selectable={false} style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
+                    {halfStreak}
+                  </AppText>
+                </View>
+              ) : null}
+            </View>
           ) : null}
         </View>
       </View>

@@ -47,7 +47,7 @@ it.each(['daily', 'count'] as const)('shows a %s streak in every layout, extends
   await press('open-board-layout');
   for (const layout of ['grid', 'cards', 'summary', 'compact']) {
     await press(`layout-${layout}`);
-    expect(screen.getByTestId('board-card-0-half-streak')).toHaveTextContent(kind === 'daily' ? '2-day half streak' : '3-day half streak');
+    expect(screen.getByTestId('board-card-0-half-streak')).toHaveTextContent(kind === 'daily' ? /^2$/ : /^3$/);
     expect(screen.getByTestId('board-card-0-streak')).toHaveTextContent(kind === 'daily' ? '2' : '3');
   }
 });
@@ -70,6 +70,6 @@ it.each([
 it('shows an alternating half streak on Home after the regular streak ends', async () => {
   await seed('daily', ['2026-08-26', '2026-08-28']);
   renderRouter('src/app', { initialUrl: '/' });
-  expect(await screen.findByTestId('board-card-0-half-streak')).toHaveTextContent('2-day half streak');
+  expect(await screen.findByTestId('board-card-0-half-streak')).toHaveTextContent(/^2$/);
   expect(screen.queryByTestId('board-card-0-streak')).toBeNull();
 });
