@@ -137,3 +137,9 @@ Agents:
 3. Always finish with `cloudsim stop`. Sessions are billed.
 
 `cloudsim doctor` checks the setup. See `~/Documents/code/cloudsim/README.md` and the `eas-simulator` skill.
+
+## Over-the-air updates (EAS Update)
+
+Builds get JavaScript and asset updates from `https://u.expo.dev/985b07f0-3ecb-49ba-a11c-43a47629246f`. Each build profile in `eas.json` names the channel its builds listen to: `development` for `development`, `preview` for both `preview` and `sim`, and `production` for `production`. To publish, run `bun run update:preview` or `bun run update:production`.
+
+The runtime version uses the `appVersion` policy. So an update reaches every build with the same `version` in `app.json`, whatever native code that build has. Any native change (a new native module, a config plugin, `modules/`) needs a version bump and new builds before the next update. Otherwise the update can reach a binary that cannot run it. Check an update on a cloud iPhone first: run `eas build --profile sim --platform ios`, start that build with `eas simulator:start --build-id <id>`, then publish to `preview`.
