@@ -37,18 +37,45 @@ export function BoardCard({ card, layout = 'compact', onOpen, onQuickCheckIn, qu
   const expanded = !compact && !detailed;
   const checked = card.daily?.checkedToday;
   const weekly = card.daily ? `${card.daily.completedThisWeek}/7 this week` : null;
-  const streak = card.daily?.currentStreak;
-  const streakText = streak != null ? `${streak} ${streak === 1 ? 'day' : 'days'} streak` : null;
-  const summary = [weekly, streakText].filter(Boolean).join(', ');
+  const streak = card.currentStreak;
+  const showStreak = streak != null && streak >= 2;
+  const streakHint = showStreak ? `${streak}-day streak` : null;
+  const halfStreak = card.currentHalfStreak;
+  const halfStreakHint = halfStreak != null && halfStreak >= 2 ? `${halfStreak}-day half streak` : null;
+  const summary = [weekly, streakHint, halfStreakHint].filter(Boolean).join(', ');
+  const streakColor = semanticColor('secondaryLabel', scheme);
+  const flameColor = scheme === 'dark' ? '#FF9F0A' : '#FF9500';
 
   const title = (
     <ProductPressable onPress={onOpen} label={card.board.title} hint={`Opens the board${summary ? `. ${summary}` : ''}`}
       disabled={!onOpen} stretch style={expanded ? { paddingHorizontal: 4 } : { flex: 1, minWidth: 0 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: expanded ? spacing.sm : spacing.md }}>
         <BoardSymbol symbol={card.board.symbol} color={colors.accent} />
-        <AppText variant="headline" numberOfLines={detailed ? undefined : 1} selectable={false} style={{ flex: 1, minWidth: 0 }}>
-          {card.board.title}
-        </AppText>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <AppText variant="headline" numberOfLines={detailed ? undefined : 1} selectable={false}>
+            {card.board.title}
+          </AppText>
+          {showStreak || halfStreakHint ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm }}>
+              {showStreak ? (
+                <View testID={`${testID}-streak`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="flame" size={11} color={flameColor} />
+                  <AppText variant="footnote" selectable={false} style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
+                    {streak}
+                  </AppText>
+                </View>
+              ) : null}
+              {halfStreakHint ? (
+                <View testID={`${testID}-half-streak`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="flameOutline" size={11} color={flameColor} />
+                  <AppText variant="footnote" selectable={false} style={{ color: streakColor, fontVariant: ['tabular-nums'] }}>
+                    {halfStreak}
+                  </AppText>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       </View>
     </ProductPressable>
   );
@@ -98,9 +125,6 @@ export function BoardCard({ card, layout = 'compact', onOpen, onQuickCheckIn, qu
             <AppText variant="footnote" style={{ fontVariant: ['tabular-nums'] }}>
               {weekly ?? `${card.strip.reduce((total, count) => total + count, 0)} check-ins in 14 days`}
             </AppText>
-            {streakText ? <AppText variant="footnote" style={{ color: semanticColor('secondaryLabel', scheme), fontVariant: ['tabular-nums'] }}>
-              {streakText}
-            </AppText> : null}
           </View>
         </>
       ) : (

@@ -1,7 +1,7 @@
 import { consistencyBand, consistencyPercent } from '../analytics/consistency';
 import { heatmapIntensity } from '../analytics/heatmap';
 import type { HeatmapIntensity } from '../analytics/heatmap';
-import { currentStreak, longestStreak, streakSpans } from '../analytics/streaks';
+import { currentHalfStreak, currentStreak, longestStreak, streakSpans } from '../analytics/streaks';
 import type { StreakSpan } from '../analytics/streaks';
 import { monthlyCounts } from '../analytics/timeline';
 import { weekdayAnalytics } from '../analytics/weekdays';
@@ -35,7 +35,7 @@ import {
   dailyCounts,
   dailyCountsForBoards,
   earliestCheckInDate,
-  eligibleDailyCompletionsForActiveBoards,
+  eligibleCompletionsForActiveBoards,
   getCheckInById,
   latestCheckInForDate,
   listBoardCheckIns,
@@ -166,7 +166,6 @@ export async function getBoard(
 export type DailyHomeSummary = {
   checkedToday: boolean;
   completedThisWeek: number;
-  currentStreak: number | null;
 };
 
 export type HomeBoardCard = {
@@ -174,6 +173,8 @@ export type HomeBoardCard = {
   today: LogicalDate;
   // fourteen values, oldest first, ending today; daily values are binary.
   strip: number[];
+  currentStreak: number | null;
+  currentHalfStreak: number | null;
   daily: DailyHomeSummary | null;
 };
 
@@ -197,9 +198,7 @@ export function getHomeBoardProjection(
       addDays(sorted[0], -13),
       sorted[sorted.length - 1],
     );
-    const dailyCompleted = boards.some((board) => board.kind === 'daily')
-      ? await eligibleDailyCompletionsForActiveBoards(tx, sorted[sorted.length - 1])
-      : new Map<string, Set<string>>();
+    const completions = await eligibleCompletionsForActiveBoards(tx, sorted[sorted.length - 1]);
     return boards.map((board, index) => {
       const today = todays[index];
       const boardCounts = counts.get(board.id);
@@ -208,19 +207,20 @@ export function getHomeBoardProjection(
         const count = boardCounts?.get(addDays(today, -offset)) ?? 0;
         strip.push(board.kind === 'daily' ? Math.min(1, count) : count);
       }
+      const completed = new Set(
+        [...(completions.get(board.id) ?? [])].filter((date) => date <= today),
+      );
+      const streak = board.metricsEnabled ? currentStreak(completed, today) : null;
       let daily: DailyHomeSummary | null = null;
       if (board.kind === 'daily') {
-        const completed = new Set(
-          [...(dailyCompleted.get(board.id) ?? [])].filter((date) => date <= today),
-        );
         const weekStart = startOfIsoWeek(today);
         daily = {
           checkedToday: strip[13] === 1,
           completedThisWeek: [...completed].filter((date) => date >= weekStart).length,
-          currentStreak: board.metricsEnabled ? currentStreak(completed, today) : null,
         };
       }
-      return { board, today, strip, daily };
+      const halfStreak = board.metricsEnabled ? currentHalfStreak(completed, today) : null;
+      return { board, today, strip, currentStreak: streak, currentHalfStreak: halfStreak, daily };
     });
   });
 }
@@ -472,6 +472,7 @@ export type BoardSummary = {
   eligibleDayCount: number;
   metricsReady: boolean;
   currentStreak: number;
+  currentHalfStreak: number;
   longestStreak: number;
   // rolling 30 elapsed days ending today
   consistencyPercent: number | null;
@@ -518,6 +519,7 @@ export function getBoardSummary(
       eligibleDayCount,
       metricsReady: eligibleDayCount >= 7,
       currentStreak: currentStreak(completed, today),
+      currentHalfStreak: currentHalfStreak(completed, today),
       longestStreak: longestStreak(completed),
       consistencyPercent: rolling.percent,
       consistencyBand: rolling.percent === null ? null : consistencyBand(rolling.percent),

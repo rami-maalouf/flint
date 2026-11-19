@@ -79,7 +79,7 @@ describe('habit activation from first effective completion', () => {
       eligibleDayCount: 3, currentStreak: 3, longestStreak: 3, consistencyPercent: 100,
       currentWeekCount: 3, currentMonthCount: 3,
     } });
-    expect(await getHomeBoardProjection(h.deps)).toMatchObject({ ok: true, value: [{ daily: { currentStreak: 3 } }] });
+    expect(await getHomeBoardProjection(h.deps)).toMatchObject({ ok: true, value: [{ currentStreak: 3 }] });
     expect(await getStreakAnalytics(h.deps, boardId)).toMatchObject({ ok: true, value: { allTimeLongest: 3 } });
     expect(await h.db.getAllAsync('SELECT * FROM board_activity_periods')).toEqual(periods);
   });

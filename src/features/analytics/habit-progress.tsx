@@ -86,6 +86,15 @@ export function HabitProgress({
         </MetricCard>
       </View>
 
+      <MetricCard title="Half streak">
+        <AppText variant="title1" style={{ fontVariant: ['tabular-nums'] }}>
+          {summary.currentHalfStreak} {summary.currentHalfStreak === 1 ? 'completed day' : 'completed days'}
+        </AppText>
+        <AppText variant="footnote" style={{ color: secondary }}>
+          One missed day keeps the streak going. Two in a row reset it.
+        </AppText>
+      </MetricCard>
+
       <MetricCard title="This week">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: spacing.sm }}>
           <AppText variant="title1" style={{ fontVariant: ['tabular-nums'] }}>
