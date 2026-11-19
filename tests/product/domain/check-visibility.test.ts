@@ -136,7 +136,7 @@ describe('accepted token visibility', () => {
     expect(await checkReads.dailyCounts(h.db, id, prior, today)).toEqual(new Map([[today, 1]]));
     expect(await checkReads.allDailyCounts(h.db, id)).toEqual(new Map([[today, 1]]));
     expect((await checkReads.dailyCountsForBoards(h.db, prior, today)).get(id)).toEqual(new Map([[today, 1]]));
-    expect((await checkReads.eligibleDailyCompletionsForActiveBoards(h.db, today)).get(id)).toEqual(new Set([today]));
+    expect((await checkReads.eligibleCompletionsForActiveBoards(h.db, today)).get(id)).toEqual(new Set([today]));
     expect(await checkReads.latestCheckInForDate(h.db, id, prior)).toBeNull();
     expect(await checkReads.countBoardCheckIns(h.db, id)).toBe(1);
     expect(await checkReads.countBoardNotes(h.db, id)).toBe(1);

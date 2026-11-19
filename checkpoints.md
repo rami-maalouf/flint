@@ -4002,3 +4002,5 @@ Independent review approved the change with no blocking issue. Its follow-ups ar
 ## Habit half streak
 
 Habit progress counts each completed logical day once and carries the count across isolated misses. The current day stays open until the habit's day boundary. The alternating four-day example, consecutive completions, and the reset boundary have regression coverage in the analytics suite.
+
+Home cards now retain the flame for a regular streak and display the half-streak count independently in each layout. The Home route regression reproduced the missing flame on the previous phone build.

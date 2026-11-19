@@ -237,6 +237,11 @@ test('every read tool answers within its published schema', async t => {
     await call(client, 'create_checkin', { operationId: randomUUID(), habitId: reading, timeZone: 'UTC', note: `page ${index}` });
   }
   await call(client, 'create_checkin', { operationId: randomUUID(), habitId: meditation, timeZone: 'UTC' });
+  const today = await call<{ habits: { habit: { id: string }; currentStreak: number | null }[] }>(
+    client, 'get_today', { timeZone: 'UTC' });
+  for (const id of [reading, meditation]) {
+    assert.equal(today.habits.find(card => card.habit.id === id)?.currentStreak, 1);
+  }
   await call(client, 'create_checkin', { operationId: randomUUID(), habitId: stretch, timeZone: 'UTC' });
 
   const habit = await call<{ habit: { title: string }; summary: { currentStreak: number } }>(

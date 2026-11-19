@@ -57,7 +57,7 @@ describe('daily home projection', () => {
     await seed(h, countId, [today, today]);
     h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
     const [daily, count] = await cards(h);
-    expect(daily).toMatchObject({ today, daily: { checkedToday: true, completedThisWeek: 2, currentStreak: 1 } });
+    expect(daily).toMatchObject({ today, currentStreak: 1, daily: { checkedToday: true, completedThisWeek: 2 } });
     expect(daily.strip).toEqual([1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
     expect(count.daily).toBeNull();
     expect(count.strip[13]).toBe(2);
@@ -68,9 +68,23 @@ describe('daily home projection', () => {
     const boardId = await create(h);
     await seed(h, boardId, ['2025-12-28', '2025-12-29', '2025-12-31', '2026-01-01', '2026-01-04', '2026-01-05']);
     h.clock.utcMs = Date.UTC(2026, 0, 4, 16);
-    expect((await cards(h))[0].daily).toEqual({ checkedToday: true, completedThisWeek: 4, currentStreak: 1 });
+    expect((await cards(h))[0]).toMatchObject({ currentStreak: 1, daily: { checkedToday: true, completedThisWeek: 4 } });
     h.clock.utcMs = Date.UTC(2026, 0, 5, 16);
-    expect((await cards(h))[0].daily).toEqual({ checkedToday: true, completedThisWeek: 1, currentStreak: 2 });
+    expect((await cards(h))[0]).toMatchObject({ currentStreak: 2, daily: { checkedToday: true, completedThisWeek: 1 } });
+  });
+
+  it('projects full Count streaks from distinct completed days, including history before creation', async () => {
+    const countId = await create(h, { kind: 'count' });
+    const disabled = await create(h, { kind: 'count', metricsEnabled: false });
+    const dates = Array.from({ length: 40 }, (_, index) => addDays(day('2026-07-21'), index));
+    await seed(h, countId, [...dates, '2026-08-29', '2026-08-31']);
+    await seed(h, disabled, dates);
+    h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
+    const result = await cards(h);
+    expect(result[0]).toMatchObject({ currentStreak: 40, daily: null });
+    expect(result[1]).toMatchObject({ currentStreak: null, daily: null });
+    h.clock.advanceDays(1);
+    expect((await cards(h))[0]).toMatchObject({ currentStreak: 1 });
   });
 
   it('keeps a streak longer than the strip and does not break it while today is unfinished', async () => {
@@ -78,9 +92,9 @@ describe('daily home projection', () => {
     const dates = Array.from({ length: 20 }, (_, index) => addDays(day('2026-08-10'), index));
     await seed(h, boardId, dates);
     h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
-    expect((await cards(h))[0].daily).toEqual({ checkedToday: false, completedThisWeek: 6, currentStreak: 20 });
+    expect((await cards(h))[0]).toMatchObject({ currentStreak: 20, daily: { checkedToday: false, completedThisWeek: 6 } });
     h.clock.advanceDays(1);
-    expect((await cards(h))[0].daily).toEqual({ checkedToday: false, completedThisWeek: 0, currentStreak: 0 });
+    expect((await cards(h))[0]).toMatchObject({ currentStreak: 0, daily: { checkedToday: false, completedThisWeek: 0 } });
   });
 
   it('uses each shifted board day and permanently stored dates instead of occurrence instants', async () => {
@@ -90,8 +104,8 @@ describe('daily home projection', () => {
     await seed(h, shifted, ['2026-08-30', '2026-08-31'], { occurredAtUtc: Date.UTC(2024, 0, 1), timeZoneId: 'Pacific/Auckland', offsetMinutes: 780 });
     h.clock.utcMs = Date.UTC(2026, 7, 31, 15, 30);
     const [early, late] = await cards(h);
-    expect(early).toMatchObject({ today: '2026-08-31', daily: { checkedToday: true, completedThisWeek: 1, currentStreak: 2 } });
-    expect(late).toMatchObject({ today: '2026-08-30', daily: { checkedToday: true, completedThisWeek: 1, currentStreak: 1 } });
+    expect(early).toMatchObject({ today: '2026-08-31', currentStreak: 2, daily: { checkedToday: true, completedThisWeek: 1 } });
+    expect(late).toMatchObject({ today: '2026-08-30', currentStreak: 1, daily: { checkedToday: true, completedThisWeek: 1 } });
   });
 
   it('respects archive gaps and ignores pre-creation, deleted, and future records in summaries', async () => {
@@ -105,7 +119,7 @@ describe('daily home projection', () => {
     await restoreBoard(h.deps, { commandId: h.ids.nextCommandId(), boardId });
     h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
     const card = (await cards(h))[0];
-    expect(card.daily).toEqual({ checkedToday: true, completedThisWeek: 4, currentStreak: 2 });
+    expect(card).toMatchObject({ currentStreak: 2, daily: { checkedToday: true, completedThisWeek: 4 } });
     // retained records remain visible during the gap, while metrics use eligibility.
     expect(card.strip.slice(9, 12)).toEqual([1, 1, 1]);
   });
@@ -123,21 +137,21 @@ describe('daily home projection', () => {
     h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
     const result = await cards(h);
     expect(result.map(x => x.board.id)).toEqual([empty, disabled]);
-    expect(result[0].daily).toEqual({ checkedToday: false, completedThisWeek: 0, currentStreak: 0 });
+    expect(result[0]).toMatchObject({ currentStreak: 0, daily: { checkedToday: false, completedThisWeek: 0 } });
     expect(result[0].strip).toEqual(new Array(14).fill(0));
-    expect(result[1].daily).toEqual({ checkedToday: true, completedThisWeek: 1, currentStreak: null });
+    expect(result[1]).toMatchObject({ currentStreak: null, daily: { checkedToday: true, completedThisWeek: 1 } });
   });
 
-  it('keeps the grouped read count bounded across many Daily boards', async () => {
+  it('keeps the grouped read count bounded across mixed Daily and Count boards', async () => {
     for (let index = 0; index < 12; index++) {
-      const boardId = await create(h, { title: `habit ${index}` });
+      const boardId = await create(h, { title: `habit ${index}`, kind: index % 2 === 0 ? 'daily' : 'count' });
       await seed(h, boardId, [today, today]);
     }
     h.clock.utcMs = Date.UTC(2026, 7, 30, 16);
     const reads = jest.spyOn(h.db, 'getAllAsync');
     const result = await cards(h);
     expect(result).toHaveLength(12);
-    expect(result.every(card => card.daily?.completedThisWeek === 1)).toBe(true);
+    expect(result.every(card => card.currentStreak === 1)).toBe(true);
     expect(reads).toHaveBeenCalledTimes(3);
     reads.mockRestore();
   });

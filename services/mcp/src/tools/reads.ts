@@ -95,7 +95,7 @@ export function registerReadTools(server: McpServer, { accountId, accounts }: To
     habits: unwrap(await getHomeBoardProjection(deps)).map(card => ({
       habit: toHabit(card.board), today: card.today,
       last14Days: card.strip.map((checks, index) => ({ date: daysBefore(card.today, card.strip.length - 1 - index), checks })),
-      checkedToday: card.daily?.checkedToday ?? null, currentStreak: card.daily?.currentStreak ?? null,
+      checkedToday: card.daily?.checkedToday ?? null, currentStreak: card.currentStreak,
     })),
   })));
 
