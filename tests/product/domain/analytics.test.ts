@@ -1,6 +1,6 @@
 import { consistencyBand, consistencyPercent, roundHalfAwayFromZero } from '@/core/analytics/consistency';
 import { heatmapIntensity } from '@/core/analytics/heatmap';
-import { currentStreak, hasAnyCompletedDay, isCompletedDayEligible, longestStreak, streakSpans } from '@/core/analytics/streaks';
+import { currentHalfStreak, currentStreak, hasAnyCompletedDay, isCompletedDayEligible, longestStreak, streakSpans } from '@/core/analytics/streaks';
 import { monthlyCounts } from '@/core/analytics/timeline';
 import { weekdayAnalytics } from '@/core/analytics/weekdays';
 import { yearComparison } from '@/core/analytics/year-comparison';
@@ -31,6 +31,15 @@ describe('streaks', () => {
   it('returns zero when yesterday and today are empty', () => {
     const completed = new Set(['2026-08-20']);
     expect(currentStreak(completed, today)).toBe(0);
+  });
+
+  it('counts completed days across single misses until two finished days are missed', () => {
+    const completed = new Set(['2026-08-21', '2026-08-24', '2026-08-26']);
+    expect(currentHalfStreak(completed, d('2026-08-27'))).toBe(2);
+    expect(currentHalfStreak(completed, d('2026-08-28'))).toBe(2);
+    expect(currentHalfStreak(completed, d('2026-08-29'))).toBe(0);
+    completed.add('2026-08-27');
+    expect(currentHalfStreak(completed, d('2026-08-27'))).toBe(3);
   });
 
   it('finds the longest streak across history', () => {

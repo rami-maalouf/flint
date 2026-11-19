@@ -1,7 +1,7 @@
 import { consistencyBand, consistencyPercent } from '../analytics/consistency';
 import { heatmapIntensity } from '../analytics/heatmap';
 import type { HeatmapIntensity } from '../analytics/heatmap';
-import { currentStreak, longestStreak, streakSpans } from '../analytics/streaks';
+import { currentHalfStreak, currentStreak, longestStreak, streakSpans } from '../analytics/streaks';
 import type { StreakSpan } from '../analytics/streaks';
 import { monthlyCounts } from '../analytics/timeline';
 import { weekdayAnalytics } from '../analytics/weekdays';
@@ -472,6 +472,7 @@ export type BoardSummary = {
   eligibleDayCount: number;
   metricsReady: boolean;
   currentStreak: number;
+  currentHalfStreak: number;
   longestStreak: number;
   // rolling 30 elapsed days ending today
   consistencyPercent: number | null;
@@ -518,6 +519,7 @@ export function getBoardSummary(
       eligibleDayCount,
       metricsReady: eligibleDayCount >= 7,
       currentStreak: currentStreak(completed, today),
+      currentHalfStreak: currentHalfStreak(completed, today),
       longestStreak: longestStreak(completed),
       consistencyPercent: rolling.percent,
       consistencyBand: rolling.percent === null ? null : consistencyBand(rolling.percent),

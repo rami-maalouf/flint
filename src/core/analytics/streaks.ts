@@ -18,6 +18,22 @@ export function currentStreak(completedDays: ReadonlySet<string>, today: Logical
   return streak;
 }
 
+export function currentHalfStreak(completedDays: ReadonlySet<string>, today: LogicalDate): number {
+  let count = completedDays.has(today) ? 1 : 0;
+  let misses = 0;
+  let day = addDays(today, -1);
+  while (misses < 2) {
+    if (completedDays.has(day)) {
+      count += 1;
+      misses = 0;
+    } else {
+      misses += 1;
+    }
+    day = addDays(day, -1);
+  }
+  return count;
+}
+
 export function longestStreak(completedDays: ReadonlySet<string>): number {
   let longest = 0;
   for (const day of completedDays) {
