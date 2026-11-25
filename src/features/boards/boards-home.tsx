@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/foundation/app-text';
 import { Icon } from '@/components/foundation/icon';
+import { LaunchPlaceholder } from '@/components/foundation/launch-placeholder';
 import { createCheckIn, reorderBoard, toggleDailyCheckIn, undoCreatedCheckIn } from '@/core/domain/commands';
 import type { BoardId, CheckInId, CommandId } from '@/core/domain/ids';
 import type { HomeBoardCard } from '@/core/domain/queries';
@@ -217,6 +218,7 @@ export function BoardsHomeScreen() {
       <Stack.Screen
         options={{
           title: '',
+          headerShown: boards.status !== 'loading',
           // native layout must finish before navigation can find the scroll view.
           scrollEdgeEffects: { top: scrollHeaderReady ? 'soft' : 'automatic' },
           headerLeft: () => (
@@ -268,7 +270,7 @@ export function BoardsHomeScreen() {
         }}
       />
       {boards.status === 'loading' ? (
-        <View testID="boards-loading" style={{ flex: 1 }} />
+        <LaunchPlaceholder testID="boards-loading" />
       ) : boards.status === 'error' ? (
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
           <InlineError message={boards.error.message} testID="boards-error" />

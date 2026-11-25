@@ -4004,3 +4004,9 @@ Independent review approved the change with no blocking issue. Its follow-ups ar
 Habit progress counts each completed logical day once and carries the count across isolated misses. The current day stays open until the habit's day boundary. The alternating four-day example, consecutive completions, and the reset boundary have regression coverage in the analytics suite.
 
 Home cards now retain the flame for a regular streak and display the half-streak count independently in each layout. The Home route regression reproduced the missing flame on the previous phone build.
+
+## Cold launch splash - 2026-11-24
+
+Flint uses the existing violet flame in the native splash and in the database and board loading views, with white and black backgrounds for the two appearances. Expo Router hands off the native splash when navigation is ready, so Home, direct routes and database recovery can take over without a fixed delay. The regression first failed at the empty database loading view, then passed through both loading stages and into the empty board list. A failed database open still shows recovery.
+
+Verified on the iPhone 17 Pro simulator running iOS 26.5. Fresh arm64 Release builds showed the violet flame in light and dark mode and opened Settings from a cold URL launch after the iOS confirmation. Recordings are under `.artifacts/fullstack/launch-fix/`. Independent review, `bun run validate` (216 suites and 3,121 tests), `bun run test:native` and `bun run test:backend` passed. Coverage ran on Node 24.22.2 with its output on the external build volume.
