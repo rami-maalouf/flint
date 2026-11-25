@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
 import { createBoard } from '@/core/domain/commands';
 import { listActiveBoards } from '@/core/domain/queries';
@@ -51,7 +51,6 @@ describe('settings sheet', () => {
     await screen.findByTestId('settings-notifications');
     for (const id of [
       'settings-feedback',
-      'settings-rate',
       'settings-more-products',
       'settings-icloud',
       'open-archived-boards',
@@ -67,25 +66,32 @@ describe('settings sheet', () => {
     expect(screen.getByTestId('settings-version')).toHaveTextContent(/test \(test\)/);
   });
 
-  it('shows the explicit missing-release-link state', async () => {
+  it('shows the missing feedback link notice above the settings groups', async () => {
     renderRouter('src/app', { initialUrl: '/settings' });
     await screen.findByTestId('settings-feedback');
     await press('settings-feedback');
     expect(screen.getByTestId('settings-link-notice')).toHaveTextContent(
       'Missing release link for Request feature or report issue.',
     );
-    // the notice must render above the scroll content, or a tap near the
-    // top of a long settings list appears to do nothing
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf('settings-link-notice')).toBeGreaterThan(-1);
     expect(rendered.indexOf('settings-link-notice')).toBeLessThan(
       rendered.indexOf('settings-notifications'),
     );
-    expect(screen.getByTestId('settings-rate')).toHaveTextContent(/Rate Flint In App Store/);
-    await press('settings-rate');
-    expect(screen.getByTestId('settings-link-notice')).toHaveTextContent(
-      'Missing release link for Rate Flint In App Store.',
-    );
+  });
+
+  it('opens the developer page and omits the unpublished app rating action', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    try {
+      renderRouter('src/app', { initialUrl: '/settings' });
+      await screen.findByTestId('settings-more-products');
+      expect(screen.queryByTestId('settings-rate')).toBeNull();
+      await press('settings-more-products');
+      expect(openURL).toHaveBeenCalledWith('https://apps.apple.com/developer/rami-maalouf/id1783932552');
+      expect(screen.queryByTestId('settings-link-notice')).toBeNull();
+    } finally {
+      openURL.mockRestore();
+    }
   });
 
   it('exports a shareable snapshot from the export destination', async () => {

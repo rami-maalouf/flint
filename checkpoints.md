@@ -4010,3 +4010,9 @@ Home cards now retain the flame for a regular streak and display the half-streak
 Flint uses the existing violet flame in the native splash and in the database and board loading views, with white and black backgrounds for the two appearances. Expo Router hands off the native splash when navigation is ready, so Home, direct routes and database recovery can take over without a fixed delay. The regression first failed at the empty database loading view, then passed through both loading stages and into the empty board list. A failed database open still shows recovery.
 
 Verified on the iPhone 17 Pro simulator running iOS 26.5. Fresh arm64 Release builds showed the violet flame in light and dark mode and opened Settings from a cold URL launch after the iOS confirmation. Recordings are under `.artifacts/fullstack/launch-fix/`. Independent review, `bun run validate` (216 suites and 3,121 tests), `bun run test:native` and `bun run test:backend` passed. Coverage ran on Node 24.22.2 with its output on the external build volume.
+
+## App Store links in Settings (2026-11-24)
+
+- Open the public developer page with the system link handler. Show the rating action once this app's public App Store review URL is configured.
+- Reproduced the missing-link notice on iOS before the fix. Tested the candidate JavaScript in the Release simulator shell on iPhone 17 Pro / iOS 26.5. The Settings layout showed no rating row, and the developer link opened Rami Maalouf's App Store page in Safari.
+- Regression tests cover the unpublished rating action, developer link routing, and configured rating links. `bun run validate` and `bun run test:native` passed. The backend gate and focused rerun of the Settings suites passed. An independent review found no merge blockers.

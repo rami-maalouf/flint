@@ -33,14 +33,12 @@ export function SettingsScreen() {
     }
     const url = releaseLink(key);
     if (url === null) {
-      // development builds carry no release links; the state is explicit
       setLinkNotice(`Missing release link for ${title}.`);
       return;
     }
     setLinkNotice(null);
-    // support and legal destinations open in the in-app browser so the
-    // person never loses their place; a store or mail scheme has to leave
-    const inApp = url.startsWith('https://') && key !== 'appStoreReview';
+    // use the system opener for app store destinations
+    const inApp = key !== 'appStoreReview' && key !== 'moreProducts';
     openingLink.current = true;
     void scope.run(async ({ effects }) => {
       if (effects.kind === 'real') await effects.openReleaseLink(url, inApp);
@@ -86,12 +84,12 @@ export function SettingsScreen() {
             external
             testID="settings-feedback"
           />
-          <SettingsRow
+          {releaseLink('appStoreReview') ? <SettingsRow
             title="Rate Flint In App Store"
             onPress={() => openLink('appStoreReview', 'Rate Flint In App Store')}
             external
             testID="settings-rate"
-          />
+          /> : null}
         </SettingsGroup>
 
         <SettingsGroup>
