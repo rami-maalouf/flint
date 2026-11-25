@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AppState, Linking, View } from 'react-native';
 
 import { AppText } from '@/components/foundation/app-text';
+import { LaunchPlaceholder } from '@/components/foundation/launch-placeholder';
 import { createCheckIn } from '@/core/domain/commands';
 import type { CommandId } from '@/core/domain/ids';
 import { parseBoardId } from '@/core/domain/ids';
@@ -325,7 +326,7 @@ export function RealProductProvider({ children, coreOverride, syncTransportOverr
   }, [state, owner, scope, version, invalidate, sync, syncNow, pauseSync, resumeSync, missScheduler, missAlertVersion]);
 
   if (state.status === 'loading') {
-    return <View testID="product-loading" />;
+    return <LaunchPlaceholder testID="product-loading" />;
   }
 
   if (state.status === 'error') {

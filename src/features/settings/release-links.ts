@@ -1,6 +1,4 @@
-// validated https release links; a development build carries none, and the
-// spec requires an explicit missing-link state instead of a dead tap.
-// production validation fails when a required value is absent.
+// keep the rating action hidden until the app's store listing is public.
 
 export type ReleaseLinkKey =
   | 'feedback'
@@ -12,7 +10,7 @@ export type ReleaseLinkKey =
 const RELEASE_LINKS: Record<ReleaseLinkKey, string | null> = {
   feedback: null,
   appStoreReview: null,
-  moreProducts: null,
+  moreProducts: 'https://apps.apple.com/developer/rami-maalouf/id1783932552',
   privacyPolicy: null,
   termsOfUse: null,
 };
